@@ -1,0 +1,8 @@
+{
+  "name": "Remix Buyoll - Social Fintech Chama Marketplace",
+  "description": "Buyoll - Social fintech e-commerce platform with Chama group savings, featured deals, newly posted announcements, immediate group activation, manual M-Pesa Till payments, and peer loans.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

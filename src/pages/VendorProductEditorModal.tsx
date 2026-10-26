@@ -1,0 +1,569 @@
+import React, { useState } from 'react';
+import { Product, SpeedOption } from '../types.ts';
+import { api } from '../api.ts';
+import { X, Plus, Trash2, Save, Image as ImageIcon } from 'lucide-react';
+
+interface VendorProductEditorModalProps {
+  product: Product | null; // null if creating new product
+  onClose: () => void;
+  onSaved: (product: Product) => void;
+  onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
+}
+
+export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> = ({
+  product,
+  onClose,
+  onSaved,
+  onNotify,
+}) => {
+  const isEditing = Boolean(product);
+
+  const [title, setTitle] = useState(product?.title || '');
+  const [description, setDescription] = useState(product?.description || '');
+  const [category, setCategory] = useState(product?.category || 'Appliances');
+  const [price, setPrice] = useState<number>(product?.price || 10000);
+  const [wasPrice, setWasPrice] = useState<number | undefined>(product?.wasPrice);
+  const [discountPercent, setDiscountPercent] = useState<number | undefined>(product?.discountPercent);
+  const [stockQuantity, setStockQuantity] = useState<number>(product?.stockQuantity || 10);
+  const [imageUrl, setImageUrl] = useState(product?.images?.[0] || '');
+  const [isFeatured, setIsFeatured] = useState<boolean>(product?.isFeatured || false);
+  const [promotionType, setPromotionType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>(product?.promotionType || 'none');
+  const [promotionDiscount, setPromotionDiscount] = useState<number>(product?.promotionDiscount || 0);
+  const [bonusGift, setBonusGift] = useState<string>(product?.bonusGift || '');
+
+  // Specifications / attributes editor
+  const initialAttrs = product?.attributes
+    ? Object.entries(product.attributes).map(([key, value]) => ({ key, value: String(value) }))
+    : [
+        { key: 'Warranty', value: '2 Years Official Warranty' },
+        { key: 'Authenticity', value: '100% Genuine Guaranteed' },
+      ];
+  const [attributesList, setAttributesList] = useState<Array<{ key: string; value: string }>>(initialAttrs);
+
+  // Speed options editor
+  const [speedOptions, setSpeedOptions] = useState<SpeedOption[]>(
+    product?.speedOptions || [
+      { size: 10, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 10 / 10), totalAmount: product?.price || 10000, description: '10 members · Daily installment · Rotation every 10 days' },
+      { size: 6, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 6 / 10), totalAmount: product?.price || 10000, description: '6 members · 60-day cycle' },
+      { size: 4, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 4 / 10), totalAmount: product?.price || 10000, description: '4 members · 40-day cycle' },
+      { size: 2, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 2 / 10), totalAmount: product?.price || 10000, description: '2 members · 20-day duo' },
+    ]
+  );
+
+  const [saving, setSaving] = useState(false);
+
+  // Attributes helpers
+  function addAttribute() {
+    setAttributesList(prev => [...prev, { key: '', value: '' }]);
+  }
+
+  function updateAttribute(idx: number, field: 'key' | 'value', val: string) {
+    setAttributesList(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [field]: val };
+      return copy;
+    });
+  }
+
+  function removeAttribute(idx: number) {
+    setAttributesList(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  // Recalculate daily rates when total price changes
+  function handlePriceChange(newPrice: number) {
+    setPrice(newPrice);
+    if (wasPrice && wasPrice > newPrice) {
+      setDiscountPercent(Math.round(((wasPrice - newPrice) / wasPrice) * 100));
+    }
+    // Update daily rates on existing speeds
+    setSpeedOptions(prev =>
+      prev.map(opt => ({
+        ...opt,
+        totalAmount: newPrice,
+        dailyAmount: Math.ceil(newPrice / opt.size / 10),
+      }))
+    );
+  }
+
+  // Speed options handlers
+  function updateSpeedOption(idx: number, field: keyof SpeedOption, val: any) {
+    setSpeedOptions(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [field]: val };
+      return copy;
+    });
+  }
+
+  function addSpeedOption(size = 8) {
+    const isSolo = size === 1;
+    setSpeedOptions(prev => [
+      ...prev,
+      {
+        size,
+        cycleDays: isSolo ? 90 : 10,
+        dailyAmount: isSolo ? Math.ceil(price / 90) : Math.ceil(price / size / 10),
+        totalAmount: price,
+        description: isSolo
+          ? '1 member · Solo Lipa Mdogomdogo (1 to 6 Months)'
+          : `${size} members · Rotation every 10 days`,
+      },
+    ]);
+  }
+
+  function removeSpeedOption(idx: number) {
+    if (speedOptions.length <= 1) {
+      onNotify('error', 'A product must have at least one speed option configured.');
+      return;
+    }
+    setSpeedOptions(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !description.trim() || price <= 0) {
+      onNotify('error', 'Please fill in all required product fields.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const attributesObj = attributesList.reduce((acc, curr) => {
+        if (curr.key.trim()) {
+          acc[curr.key.trim()] = curr.value.trim();
+        }
+        return acc;
+      }, {} as Record<string, string>);
+
+      const payload: Partial<Product> = {
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        price,
+        wasPrice: wasPrice ? Number(wasPrice) : undefined,
+        discountPercent: discountPercent ? Number(discountPercent) : undefined,
+        stockQuantity,
+        images: imageUrl.trim() ? [imageUrl.trim()] : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'],
+        attributes: attributesObj,
+        isFeatured,
+        speedOptions,
+        promotionType: promotionType === 'none' ? undefined : promotionType,
+        promotionDiscount: promotionDiscount > 0 ? Number(promotionDiscount) : undefined,
+        bonusGift: bonusGift.trim() ? bonusGift.trim() : undefined,
+      };
+
+      if (isEditing && product) {
+        const res = await api.updateProduct(product.id, payload);
+        onNotify('success', res.message || 'Product updated permanently in database.');
+        onSaved(res.product);
+      } else {
+        const res = await api.createProduct(payload);
+        onNotify('success', 'New product created and saved to database.');
+        onSaved(res.product);
+      }
+      onClose();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to save product information');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl my-8">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {isEditing ? `Edit Listing: ${product?.title}` : 'Post New Product Listing'}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Changes are permanently validated and saved to the backend database.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* Title & Category */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Product Title <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. EcoFlow Portable Solar Power Station"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+              >
+                <option>Appliances</option>
+                <option>Kitchen</option>
+                <option>Phones, Tablets & TV</option>
+                <option>Home & Office Furniture</option>
+                <option>Bedding</option>
+                <option>Computing</option>
+                <option>Gaming</option>
+                <option>Baby</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Pricing Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Cash Price (KSh) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min="100"
+                required
+                value={price}
+                onChange={(e) => handlePriceChange(Number(e.target.value))}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Previous Price (KSh)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={wasPrice || ''}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : undefined;
+                  setWasPrice(val);
+                  if (val && val > price) {
+                    setDiscountPercent(Math.round(((val - price) / val) * 100));
+                  } else {
+                    setDiscountPercent(undefined);
+                  }
+                }}
+                placeholder="Optional strike price"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Stock Quantity
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={stockQuantity}
+                onChange={(e) => setStockQuantity(Number(e.target.value))}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* MERCHANT PROMOTIONS & BONUS GIFTS */}
+          <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                  Merchant Promotional Campaign (Optional)
+                </span>
+                <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full">
+                  Store Owner Feature
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Run daily, weekly, or monthly promotional flash discounts to accelerate group formation.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Promotion Frequency / Schedule
+                </label>
+                <select
+                  value={promotionType}
+                  onChange={(e) => setPromotionType(e.target.value as any)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                >
+                  <option value="none">Standard Listing (No Promo Badge)</option>
+                  <option value="daily">🔥 Daily Flash Promotion</option>
+                  <option value="weekly">⭐ Weekly Special Promotion</option>
+                  <option value="monthly">🌟 Monthly Mega Chama Deal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Extra Promo Discount (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="80"
+                  value={promotionDiscount || ''}
+                  onChange={(e) => setPromotionDiscount(Number(e.target.value))}
+                  placeholder="e.g. 10% off"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                />
+              </div>
+            </div>
+
+            {/* FREE ENTICING BONUS GIFT (small phone, watch, soap, airtime) */}
+            <div className="pt-2 border-t border-amber-200/60">
+              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                🎁 Bonus Free Gift Enticement for Chama Buyers (Optional)
+              </label>
+              <input
+                type="text"
+                value={bonusGift}
+                onChange={(e) => setBonusGift(e.target.value)}
+                placeholder="e.g. Free Feature Phone, Digital Watch, Multipurpose Soap Set, KSh 500 Airtime"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Add cheap enticing items (phone, watch, soap, airtime voucher) that members receive for free to drive rapid sales.
+              </p>
+            </div>
+          </div>
+
+          {/* Image URL / Selection (Square 1000x1000 standard) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-slate-700">
+                Product Image URL
+              </label>
+              <span className="text-[10px] text-[#0E5A3C] font-semibold">
+                Standardized 1000 × 1000px (Square Aspect Ratio)
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="e.g. ./images/solar_power.jpg or https://..."
+                className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Square product images (target 1000 × 1000px) maintain consistent presentation across all buyer cards and detail views.
+            </p>
+            {imageUrl && (
+              <div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-xs aspect-square">
+                <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Description <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              rows={3}
+              required
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Detailed technical specifications, materials, warranty, and package contents..."
+              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+            />
+          </div>
+
+          {/* KEY FEATURES & ATTRIBUTES SPECIFICATIONS */}
+          <div className="border-t border-slate-200 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Product Features & Specifications
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Add technical specs (e.g. Battery, Capacity, Warranty, Material). All items are editable.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={addAttribute}
+                className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Specification</span>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {attributesList.map((attr, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={attr.key}
+                    onChange={(e) => updateAttribute(idx, 'key', e.target.value)}
+                    placeholder="Feature (e.g. Warranty)"
+                    className="w-1/3 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={attr.value}
+                    onChange={(e) => updateAttribute(idx, 'value', e.target.value)}
+                    placeholder="Value (e.g. 2 Years Replacement)"
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeAttribute(idx)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* FEATURED ANNOUNCEMENT OPTION (KSh 500 Placement) */}
+          <div className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-xl">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isFeatured}
+                onChange={(e) => setIsFeatured(e.target.checked)}
+                className="mt-0.5 rounded text-[#0E5A3C] focus:ring-[#0E5A3C]"
+              />
+              <div>
+                <span className="text-xs font-bold text-slate-900 block">
+                  Place in Hero Featured Deals Carousel (KSh 500 / image placement)
+                </span>
+                <span className="text-[11px] text-slate-600 leading-relaxed block mt-0.5">
+                  Featured products rotate automatically right-to-left at 2.5s intervals on the main hero banner for maximum buyer visibility across over 100,000 deals.
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {/* PART 6: SPEED OPTIONS CONFIGURATION */}
+          <div className="border-t border-slate-200 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Configured Chama Speeds
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Define member counts and daily rates buyers can select on the product page.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => addSpeedOption(8)}
+                className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Speed</span>
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {speedOptions.map((opt, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs"
+                >
+                  <div className="w-24">
+                    <label className="block text-[10px] text-slate-500 mb-0.5">Members (1-10)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={opt.size}
+                      onChange={(e) => {
+                        const newSize = Math.max(1, Math.min(10, Number(e.target.value)));
+                        updateSpeedOption(idx, 'size', newSize);
+                        if (newSize === 1) {
+                          updateSpeedOption(idx, 'cycleDays', 90);
+                          updateSpeedOption(idx, 'dailyAmount', Math.ceil(price / 90));
+                          updateSpeedOption(idx, 'description', '1 member · Solo Lipa Mdogomdogo · 1 to 6 Months');
+                        } else {
+                          updateSpeedOption(idx, 'cycleDays', 10);
+                          updateSpeedOption(idx, 'dailyAmount', Math.ceil(price / newSize / 10));
+                          updateSpeedOption(idx, 'description', `${newSize} members · Rotation every 10 days`);
+                        }
+                      }}
+                      className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                    />
+                  </div>
+
+                  <div className="w-28">
+                    <label className="block text-[10px] text-slate-500 mb-0.5">Daily Rate (KSh)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={opt.dailyAmount}
+                      onChange={(e) => updateSpeedOption(idx, 'dailyAmount', Number(e.target.value))}
+                      className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                    />
+                  </div>
+
+                  <div className="flex-1">
+                    <label className="block text-[10px] text-slate-500 mb-0.5">Description Note</label>
+                    <input
+                      type="text"
+                      value={opt.description || ''}
+                      onChange={(e) => updateSpeedOption(idx, 'description', e.target.value)}
+                      placeholder="e.g. 10 members · 100 days rotation"
+                      className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeSpeedOption(idx)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 rounded mt-3"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Modal Actions */}
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex items-center gap-1.5 px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+            >
+              <Save className="w-4 h-4" />
+              <span>{saving ? 'Saving to Database...' : 'Save Changes'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};

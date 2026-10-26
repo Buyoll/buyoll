@@ -1,0 +1,835 @@
+# BUYOLL — EXISTING APPLICATION IMPROVEMENT & FULL-STACK IMPLEMENTATION PROMPT
+
+## Project objective
+
+Improve and complete the **existing Buyoll e-commerce and group-contribution platform**. Do not rebuild the application from scratch, create a duplicate application, replace the existing brand, or remove working features.
+
+Inspect the existing frontend, backend, database, authentication, routing, payment workflows, merchant dashboard, member dashboard, and GitHub repository before making changes. Implement the features below directly into the existing architecture, reusing working components and preserving existing data.
+
+The objective is to deliver a fast, responsive, fully coordinated shopping platform where verified merchants sell products through configurable group-contribution systems, members contribute gradually, members can request small shopping loans, and customers receive product-specific AI assistance.
+
+**Implementation rule:** Do not merely create attractive UI mockups. Every button, form, database operation, status update, payment workflow, dashboard, and permission must work correctly.
+
+---
+
+# 1. Audit and improve the existing application
+
+Before modifying code:
+
+1. Inspect the entire project structure and identify the existing technology stack.
+2. Review all frontend pages, reusable components, backend functions, database tables, authentication, API integrations, and deployment configuration.
+3. Identify broken features, duplicated logic, missing database relationships, incomplete workflows, runtime exceptions, security weaknesses, and deployment blockers.
+4. Preserve the existing Buyoll design system, branding, working routes, and valid user records.
+5. Extend the existing schema through safe migrations instead of deleting or resetting production data.
+6. Implement changes incrementally and verify each feature against its associated backend.
+7. Fix existing errors and test the complete customer-to-merchant shopping journey.
+
+Do not claim that a feature is complete simply because its interface has been created. Verify the actual data operations and workflow.
+
+# 2. Global Buyoll.ai product assistant
+
+Implement **Buyoll.ai** on every product, including existing products and newly uploaded products, across the entire platform.
+
+## Product-specific AI interface
+
+Each product must have a dedicated AI assistant that automatically uses the correct product's information.
+
+Place a visible “Ask Buyoll.ai” action on product cards where appropriate and on every product detail page.
+
+When a customer opens the assistant, display a compact chat interface with:
+
+- Product name, image, and current price.
+- Suggested questions.
+- Short, direct answers.
+- Product benefits and practical use cases.
+- Relevant product specifications.
+- A clear shopping call to action.
+- Relevant charts, comparison graphics, or visual summaries when useful.
+- Conversation history for the customer.
+- A separate analytics view for authorized product owners.
+
+Example suggested questions:
+
+- What are the main benefits of this product?
+- Why should I consider buying it?
+- What features does it have?
+- Is there a discount or promotion?
+- Can I buy this using my Buyoll wallet?
+- Can I join a group to contribute gradually?
+- Are there free promotional items?
+- What are the available specifications?
+
+## AI response behaviour
+
+The assistant should use a positive, encouraging, sales-oriented tone. Highlight genuine benefits, explain the product attractively, recommend relevant use cases, and encourage customers to buy or join an appropriate contribution group.
+
+Keep answers concise and relevant, preferably a few sentences.
+
+Avoid unnecessarily negative language. However, never invent product features, prices, warranties, discounts, safety assurances, availability, or benefits. If information is missing, explain briefly that the merchant needs to provide the details. If a product has a material limitation or the customer raises a legitimate concern, answer honestly and constructively rather than concealing relevant facts.
+
+The AI must not claim to have completed a purchase, payment, reservation, or group registration unless the backend confirms the action.
+
+## Product-specific context and history
+
+Every AI conversation must be associated with:
+
+- Product ID.
+- Customer ID, when authenticated.
+- Merchant or product-owner ID.
+- Question and answer.
+- Timestamp.
+- Relevant product-data version, where practical.
+- Conversation and session identifiers.
+
+Create a merchant-only AI insights dashboard showing frequently asked questions, common customer interests, unanswered questions, product-information gaps, and trends over time.
+
+Protect customer privacy. Do not expose one customer's private conversation history to other customers or merchants beyond authorized, appropriately aggregated insights.
+
+Use the product's current database record as the source of truth. Do not allow one product's AI context to leak into another product's conversation.
+
+# 3. Merchant product management
+
+Enhance the existing merchant dashboard rather than creating a disconnected system.
+
+Merchants must be able to:
+
+- Register and maintain their store profile.
+- Upload, edit, publish, unpublish, archive, and delete their products, subject to ownership and order-history safeguards.
+- Edit product names, descriptions, categories, specifications, prices, discounts, stock, and availability.
+- Configure contribution groups for individual products.
+- Add optional promotional gifts and incentives.
+- Configure product-related loan eligibility information.
+- Manage product images.
+- View group contributions and member progress.
+- View product-specific Buyoll.ai insights.
+- Manage product availability and configured group speeds.
+
+Implement appropriate confirmation dialogs for destructive actions. Prevent deleting products in ways that corrupt active contributions, completed purchases, loans, or financial records. Use archiving or soft deletion when historical records must be preserved.
+
+## Editable Product Overview & Specifications
+
+Every product detail page must include a merchant-editable Product Overview & Specifications section containing:
+
+1. Product overview and description.
+2. Specifications and key features.
+3. Original price and current selling price.
+4. Discounts, where applicable.
+5. Product stock and availability.
+6. Group contribution options.
+7. Available group speeds.
+8. Estimated contribution duration.
+9. Group-member points and optional rewards.
+10. Shopping-loan availability or applicable eligibility information.
+11. Free promotional gifts, when offered.
+12. Merchant information.
+13. Product image gallery.
+14. Collection and delivery arrangements.
+15. Relevant product terms.
+
+Display only applicable information. Do not show a discount, loan facility, free gift, or reward as available when the merchant has not configured it.
+
+Merchants must be able to edit these fields from their dashboard. Changes must persist in the database and appear on the public product page after successful saving.
+
+# 4. Standardize product image handling
+
+Implement a consistent, square product-image system across the entire application.
+
+- Preferred target upload dimensions: **1000 × 1000 pixels**.
+- Maximum standard upload dimensions: **2048 × 2048 pixels**.
+- Prefer WebP output at approximately 150–400 KB when practical without noticeable quality loss.
+- Preserve the original aspect ratio when resizing or cropping.
+- Provide a clear image preview and crop interface.
+- Allow multiple product images and a product detail gallery.
+- Use the same image-handling standards for existing products and newly uploaded products.
+- Optimize image loading with responsive sizes, lazy loading where appropriate, and caching.
+- Display a consistent square image container on every product card.
+
+Validate file types, actual image dimensions, file size, and uploaded content. Perform image processing on a supported backend or image service when necessary. Do not merely rename JPEG files to WebP.
+
+Support optional member profile photos as well.
+
+# 5. Configurable group contribution speeds
+
+Implement all ten supported group speeds:
+
+**10, 9, 8, 7, 6, 5, 4, 3, 2, and 1 member.**
+
+A merchant can create one or more contribution groups for each product, with a maximum of ten configured groups per product.
+
+The merchant may configure all ten speeds or only selected speeds. Do not automatically force merchants to offer every speed.
+
+Each group must be associated with:
+
+- A specific merchant.
+- A specific product.
+- A selected speed from 1 to 10.
+- A target product price.
+- A maximum number of member slots equal to the configured speed.
+- Its contribution schedule and rules.
+- Its active contribution cycle.
+- Its member allocation and rotation order.
+- Its contribution records and financial history.
+- Its current status.
+
+Prevent duplicate or conflicting group configurations where the existing business rules require uniqueness.
+
+A member can join multiple groups simultaneously if eligible and able to contribute, but may occupy only one slot in each individual group.
+
+Show group capacity, occupied slots, available slots, contribution progress, target amount, remaining balance, and applicable schedule before a member joins.
+
+## Special implementation: one-member speed
+
+The one-member group is designed for a customer who wants to acquire an item by paying gradually without waiting for other members.
+
+Support a contribution period of **one to six months maximum**.
+
+The member selects an eligible product, chooses a contribution duration, reviews the total price and payment schedule, and confirms participation.
+
+Calculate the expected instalments based on the product price and selected duration. Display any applicable fees separately and clearly.
+
+The member must not be shown as having completed the purchase until the required amount has been received, reconciled, and confirmed under the platform's payment rules.
+
+Do not treat the one-member speed as a group with ten members or require unrelated participants to complete the transaction.
+
+# 6. Real-time contribution progress tracker
+
+Implement a real-time Contribution Progress component on every applicable product group page and member dashboard.
+
+Display:
+
+- Total paid in the current member's contribution cycle.
+- Target product amount.
+- Remaining balance.
+- Percentage completed.
+- Recent contribution activity.
+- Each member's relevant payment status.
+- The next member scheduled to receive the product.
+- Eligibility to collect the product.
+
+Use a progress bar and clear numerical amounts.
+
+Example:
+
+Product target: KSh 20,000
+
+Total received: KSh 12,500
+
+Remaining: KSh 7,500
+
+Progress: 62.5%
+
+Update totals automatically after each confirmed contribution. Do not count a pending, failed, duplicated, or unverified payment as received money.
+
+Where supported, use real-time subscriptions or event-driven updates. Otherwise, use efficient refresh mechanisms that do not create excessive requests.
+
+## Contribution completion and member rotation
+
+When the current member's target is reached:
+
+1. Confirm that the required contribution amount has been received.
+2. Mark the member's cycle as fully funded.
+3. Record the completed cycle in the permanent financial ledger.
+4. Mark the member as eligible for product collection.
+5. Allow the merchant and member to record the collection confirmation.
+6. Advance the group's rotation to the next eligible member according to its configured rules.
+7. Start a new active contribution cycle with zero current-cycle contributions.
+8. Retain all previous payment records, receipts, completed cycles, and audit history.
+
+**Important:** Reset only the active contribution-cycle total. Never delete the group's historical contributions or alter previous financial records. A new member's cycle must not inherit the previous member's contribution total.
+
+Use database transactions or equivalent concurrency controls to prevent two members from being allocated the same rotation position or the same completed cycle.
+
+# 7. Member contribution dashboard
+
+Create or improve the existing member dashboard to show:
+
+- Joined groups.
+- Selected contribution speeds.
+- Product images and target prices.
+- Current contribution amount.
+- Remaining amount.
+- Contribution deadlines.
+- Payment history and receipts.
+- Completed cycles.
+- Current allocation and rotation position.
+- Product collection eligibility.
+- Wallet balance.
+- Locked loan funds.
+- Reward points and coins.
+- Available shopping recommendations.
+
+Provide helpful, respectful reminders to members who have outstanding instalments.
+
+Examples:
+
+- “You are making progress. Your remaining balance is KSh X.”
+- “Your next contribution is due soon.”
+- “You are behind your planned schedule. Make your next contribution to keep progressing.”
+
+Do not shame members, publicly expose their financial details, or disclose private payment information to unrelated members.
+
+# 8. Points, optional reward coins, and promotional gifts
+
+Support optional loyalty features for merchants and groups.
+
+## Member points
+
+Award points according to configurable, documented rules, such as confirmed contributions or completed purchase cycles.
+
+Prevent duplicate point awards when a payment webhook, retry, or background task is processed more than once.
+
+## Reward coins
+
+Where enabled, allow authorized group members or administrators to reward eligible members for good contribution behaviour.
+
+Include:
+
+- A reward-coin ledger.
+- Sender and recipient.
+- Amount.
+- Timestamp.
+- Reason or description.
+- Applicable restrictions.
+- Administrative oversight and abuse prevention.
+
+Reward coins are optional. Do not make them a compulsory condition for joining a group.
+
+Do not confuse loyalty points or reward coins with withdrawable cash unless a separate, approved product feature explicitly supports that functionality.
+
+## Free promotional items
+
+Allow merchants to attach optional promotional gifts to products.
+
+Examples include:
+
+- A small phone.
+- Airtime.
+- Soap or other inexpensive household items.
+- Sponsored trips.
+- Other merchant-sponsored gifts or incentives.
+
+The available promotional items must be configurable and extensible rather than hard-coded to a fixed list.
+
+Each promotion should specify eligibility, quantity, availability, start and end dates where applicable, and any conditions.
+
+Display clearly whether the gift is free, conditional, limited in quantity, or subject to additional costs. Deduct promotional stock when a qualifying member receives a gift.
+
+# 9. Wallet and manual payment system
+
+Buyoll uses manual payment arrangements. **Do not introduce an escrow service or describe the platform as 100% escrow-protected.**
+
+Provide configurable payment instructions for the platform and for individual merchants.
+
+## Platform payment destination
+
+- Till number: 196853
+- Paybill number: 522533
+- Account/reference code: 4363
+
+## Merchant payment destination
+
+- Till number: 3463533
+- Paybill number: 26253326
+- Account/reference code: 4533
+
+These are the supplied configuration values. Store payment destinations in a secure administrative configuration rather than scattering them throughout frontend code.
+
+Allow the platform administrator to determine which payment destination applies to a transaction and allow authorized merchants to manage their own payment arrangements within the permitted rules.
+
+Clearly display the selected payment destination, amount, payment reference, and instructions before the customer pays.
+
+## Manual payment confirmation
+
+Implement a payment workflow with statuses such as:
+
+- Awaiting payment.
+- Submitted for verification.
+- Confirmed.
+- Rejected.
+- Reconciliation required.
+
+Record the payer, intended recipient, payment purpose, expected amount, submitted payment reference, timestamp, and reviewer.
+
+Do not mark a payment as confirmed merely because a member submits a screenshot or enters a transaction code. Provide appropriate administrative verification and reconciliation controls.
+
+Use idempotent transaction processing to prevent duplicate credits.
+
+## No misleading escrow claims
+
+Explain clearly that Buyoll facilitates the platform's configured shopping and contribution processes but does not provide escrow protection.
+
+Do not imply that a payment made directly to a merchant is held in escrow by Buyoll.
+
+Display the merchant's identity, applicable payment destination, purchase terms, and collection arrangements before payment.
+
+# 10. Non-withdrawable member wallet
+
+Implement or improve the existing member wallet according to the platform's non-withdrawal rules.
+
+Members may receive eligible funds through permitted deposits, approved loans, or other configured wallet-credit transactions. However, wallet balances are **not withdrawable** under these rules.
+
+Members can use eligible wallet balances for supported platform purchases, group contributions, and authorized reward-coin gifting.
+
+The wallet must include:
+
+- Available shopping balance.
+- Locked loan proceeds.
+- Pending credits.
+- Pending debits.
+- Confirmed transaction history.
+- Payment references.
+- Transaction descriptions.
+- Product and group associations.
+- Relevant restrictions.
+
+Never allow members to withdraw cash through the wallet interface or a direct API call.
+
+Enforce the restriction in the backend, not merely by hiding a withdrawal button.
+
+Use an immutable financial ledger and calculate balances from confirmed transactions. Do not allow members to edit balances or credit themselves through frontend requests.
+
+When a customer has insufficient balance for a selected product, recommend eligible products within the available balance, or allow the customer to continue contributing towards a target.
+
+Do not promise wallet refunds. Display clear wallet restrictions before deposits and purchases, and provide an administrative dispute-review process for errors, duplicate charges, or improperly recorded transactions. Never silently discard a valid financial claim.
+
+# 11. Simple group-based loan system
+
+Implement a lightweight shopping-loan workflow integrated with existing groups and wallets.
+
+The loan system must not become a complicated lending marketplace.
+
+## Member loan request
+
+A member participating in a group can:
+
+1. Select “Request Loan” or “Alert Lender.”
+2. Enter the requested amount and reason.
+3. Submit the request.
+4. See the request status.
+5. Receive a notification when a verified lender responds.
+
+Each request must include:
+
+- Group link and group ID.
+- Product associated with the group.
+- Borrowing member.
+- Requested amount.
+- Request date.
+- Status.
+- Relevant approval and payment records.
+
+## Lender dashboard
+
+Create a Lender Desk where registered and verified lenders can view eligible loan requests.
+
+A lender can open a group link and request access to the associated group for the purpose of reviewing the request.
+
+Allow **only one active lender assignment per group**. Enforce this rule on the backend using appropriate transactional controls.
+
+The lender and borrower arrange and sign their loan agreement outside the Buyoll platform. Record the relevant acknowledgement and transaction status without falsely representing Buyoll as the party to that agreement.
+
+## Mandatory 3% lender platform fee
+
+Correct the platform fee to **3%**, not 1%.
+
+The lender enters the proposed loan principal. The platform calculates the required fee:
+
+Platform fee = approved loan principal × 3%.
+
+For example, a proposed KSh 5,000 loan results in a KSh 150 platform fee.
+
+The platform must display the principal, the 3% fee, and the relevant payment instructions before proceeding.
+
+The lender must pay the fee to the configured platform payment destination using the manual payment process.
+
+The lender's loan console must remain locked until the fee has been submitted, verified, and approved by an authorized administrator.
+
+After approval:
+
+1. Open the lender's loan console.
+2. Allow the lender to initiate the approved loan disbursement.
+3. Credit the exact approved principal to the requesting member's wallet.
+4. Mark the funds as locked loan proceeds and non-withdrawable.
+5. Make the funds usable only for supported shopping or authorized gifting.
+6. Record the disbursement in the financial ledger.
+7. Associate the loan, lender, borrower, group, fee, and approval records.
+8. Notify the borrower, lender, and administrator as appropriate.
+
+Treat the 3% fee as a borrower-borne loan cost for disclosure and recordkeeping purposes, while requiring the lender to pay the fee upfront as specified. Make the fee arrangement explicit in the loan record and do not deduct it a second time from the borrower wallet unless the documented business rules expressly require that calculation.
+
+## Administrative loan console
+
+The administrator must be able to view:
+
+- All lender registrations.
+- Lender verification status.
+- Group loan requests.
+- Borrower and lender identities.
+- Requested and approved principal.
+- Calculated 3% fee.
+- Manual payment reference.
+- Fee payment status.
+- Approval history.
+- Loan disbursement status.
+- Borrower wallet credit.
+- Loan-related audit records.
+
+Prevent duplicate loan disbursements and duplicate fee recognition.
+
+Repayment between borrower and lender takes place outside Buyoll under their agreement. Do not invent an automated repayment or cash-withdrawal feature.
+
+# 12. Merchant, member, lender, and administrator permissions
+
+Implement role-based authorization consistently across frontend and backend.
+
+**Members:** Manage their profiles, join groups, contribute, use eligible wallet balances, view their transactions, request loans, and participate in permitted rewards.
+
+**Merchants:** Manage their own stores, products, images, configured groups, applicable promotions, product specifications, and authorized contribution-related information.
+
+**Lenders:** Manage their registration, view eligible loan requests, access permitted group information, pay applicable fees, and initiate authorized loan disbursements.
+
+**Administrators:** Manage platform configuration, merchant and lender verification, manual payment verification, fee approvals, loan approvals, disputes, financial oversight, and authorized moderation.
+
+Enforce ownership checks and role permissions on every protected backend operation. Never trust a role, price, balance, fee, payment status, or product owner supplied only by the browser.
+
+# 13. Product collection and delivery arrangements
+
+Buyoll does not manage delivery under this business model.
+
+Before collection, allow the member to inspect the selected product and confirm the condition and relevant specifications.
+
+Record the member's confirmation, the merchant's acknowledgement, and the transaction status where applicable.
+
+Allow the member and merchant to agree directly on:
+
+- Collection from the store.
+- A mutually agreed delivery arrangement.
+- Delivery method and cost.
+- Expected collection or delivery timing.
+
+Display these responsibilities clearly before the member completes a purchase.
+
+Do not represent a merchant's delivery promise as a Buyoll-operated delivery service. Preserve a support and dispute-review process for platform payment errors, fraud reports, or other matters that cannot be resolved merely by a product-inspection acknowledgement.
+
+# 14. Member profiles and allocation rotation
+
+In the Member Slots & Allocation Rotation interface, add an optional member profile image in the upper-right corner of each member's slot.
+
+Display the image in a circular container.
+
+Members may upload a face photograph or another permitted image, but an image must not be mandatory.
+
+If no image exists, display a neutral placeholder.
+
+Ensure the layout remains responsive on mobile, tablet, and desktop.
+
+Keep allocation order, current member, completed cycle, and next eligible member consistent across the group dashboard and database.
+
+# 15. Global help and customer support
+
+Add a global help and community-support section.
+
+Members must be able to post questions, ask for assistance, report problems, and raise complaints.
+
+Include:
+
+- A help-question feed.
+- Search and categorization.
+- Question and answer threads.
+- Reporting and moderation.
+- Status labels.
+- Administrator or support-team responses.
+- Notifications when a question receives a reply.
+- Privacy controls for sensitive complaints.
+- Rate limits and anti-spam protection.
+
+Do not expose sensitive account, wallet, loan, payment, or personal information in public help threads.
+
+Create a configurable Buyoll support email setting. Display the verified support email throughout the footer and help pages. Do not invent an email address.
+
+# 16. Website footer
+
+Implement the following footer structure across the appropriate public pages.
+
+## About Buyoll
+
+Provide a concise overview explaining that Buyoll connects shoppers, merchants, and members through product discovery, group contributions, gradual payment arrangements, shopping wallets, and merchant promotions.
+
+Explain the platform's role and its applicable payment and collection limitations clearly.
+
+## Make Money with Buyoll
+
+Include links for:
+
+- Become a Rider.
+- Become a Merchant.
+- Become a Referral Partner.
+
+Only advertise rider or referral functionality as operational if its onboarding and business workflows actually exist. Otherwise, connect the links to a clear registration or coming-soon page.
+
+## Need Help?
+
+Include:
+
+- Contact Support.
+- Community Questions.
+- Complaints and Feedback.
+- Frequently Asked Questions.
+- The configured support email.
+
+## Buyoll Partners and Useful Links
+
+Include the following partner names and descriptions:
+
+1. **Snaptube** — A crowdfunding, YouTube-like website.
+2. **Trender** — A microblogging and peer-to-peer gaming platform.
+3. **Pesewa** — An M-Pesa-like fintech platform.
+4. **ALO** — A WhatsApp-like betting platform.
+5. **Airus** — A video-based short-stay rental platform.
+6. **KiloKumi** — A social betting platform.
+
+Use the correct, verified destination URLs from existing project configuration where available. Do not invent URLs or silently link to unrelated websites.
+
+# 17. Notifications and system coordination
+
+Implement consistent notifications for important events:
+
+- Group join requests and confirmations.
+- Contribution received.
+- Payment rejected or awaiting verification.
+- Contribution approaching its deadline.
+- Target amount completed.
+- Member eligible to collect a product.
+- Rotation advanced to the next member.
+- Reward points or coins awarded.
+- Loan request received.
+- Lender assigned to a group.
+- Loan fee submitted or approved.
+- Loan proceeds credited.
+- Product stock or promotional gift changes.
+- Merchant responses to support questions.
+
+Prevent duplicate notifications and keep notifications linked to the appropriate record.
+
+Use background jobs or event-driven processing where necessary. A failed notification must not reverse a valid financial transaction.
+
+# 18. Database and backend implementation
+
+Audit and update the existing backend to support the full workflow.
+
+Reuse existing entities when possible. Add or extend database structures for the following logical records:
+
+- Users, roles, and profiles.
+- Merchant stores and verification.
+- Products, specifications, images, and discounts.
+- Product-specific AI conversations and insights.
+- Contribution groups and group configuration.
+- Group membership and member slots.
+- Contribution cycles and allocation rotation.
+- Payment submissions and payment verification.
+- Immutable wallet transactions and balances.
+- Loan requests, lenders, fees, approvals, and disbursements.
+- Reward points, reward coins, and their ledgers.
+- Promotional items and promotion eligibility.
+- Product collection confirmations.
+- Notifications.
+- Help questions, replies, and moderation.
+- Platform configuration.
+- Administrative audit logs.
+
+Use stable foreign keys, indexes, database constraints, pagination, and appropriate validation.
+
+Implement atomic transactions for contribution completion, group rotation, wallet crediting, loan disbursement, reward issuance, and payment reconciliation.
+
+Add idempotency protection for operations that may be retried.
+
+Do not store secrets, API keys, service credentials, or privileged database access tokens in frontend source code.
+
+If Buyoll already uses Base44-managed backend services, extend the existing supported services and data model rather than introducing an incompatible second backend. If the project uses a custom API, preserve its existing architecture unless a specific change is required.
+
+# 19. Frontend performance and user experience
+
+Make the platform fast, responsive, and easy to use.
+
+- Keep common shopping and contribution actions direct and intuitive.
+- Minimize unnecessary full-page reloads.
+- Add loading indicators, skeleton states, and clear success or error feedback.
+- Prevent accidental duplicate form submissions.
+- Handle network failures gracefully.
+- Validate user input before submission and again on the backend.
+- Use pagination or efficient loading for long product, group, and transaction lists.
+- Optimize images and expensive components.
+- Ensure accessible contrast, keyboard navigation, and clear labels.
+- Provide mobile-friendly navigation and forms.
+- Avoid exposing raw stack traces or technical errors to customers.
+
+Every visible action must have a meaningful outcome. Remove dead buttons, broken links, nonfunctional forms, placeholder financial calculations, and fake success messages.
+
+# 20. Fix GitHub deployment
+
+The existing Buyoll frontend must deploy successfully to the intended GitHub repository without introducing regressions.
+
+Target repository:
+
+`redbee316-cmd/buyoll`
+
+Use Node.js 20 and configure the GitHub Actions workflow appropriately.
+
+## Dependency lockfile
+
+Inspect the root `package.json` and determine the actual package manager and existing dependency structure.
+
+If the project uses npm:
+
+- Generate a valid root `package-lock.json` compatible with the current `package.json`.
+- Commit the lockfile.
+- Use `npm ci` in GitHub Actions.
+- Configure npm caching through `actions/setup-node`.
+- Do not generate a fake lockfile or manually fabricate dependency integrity entries.
+
+Do not replace an existing pnpm or Yarn setup with npm unless the migration is deliberate and all corresponding project configuration is updated consistently.
+
+## GitHub Actions workflow
+
+Update `.github/workflows/deploy.yml` or the actual deployment workflow to:
+
+- Check out the intended repository.
+- Use Node.js 20.
+- Set up the correct package-manager cache.
+- Install dependencies reproducibly.
+- Run the appropriate linting and tests where configured.
+- Run the production build.
+- Upload or publish the generated build artifact using the existing intended deployment method.
+- Fail clearly if installation or compilation fails.
+
+Use appropriate action versions and repository permissions. Do not print secrets in logs.
+
+Inspect the actual build output directory and deployment configuration before modifying deployment paths. Do not assume the application is deployed through GitHub Pages if it currently uses another deployment target.
+
+Preserve environment-variable requirements and ensure that production frontend variables are configured correctly. Secrets must remain outside source control.
+
+## Fix Vite WebSocket errors
+
+Investigate the existing errors:
+
+`WebSocket closed without opened.`
+
+`[vite] failed to connect to websocket`
+
+These messages originate from the Vite development-server client in the reported environment. Determine whether they are limited to the development preview, caused by proxy or WebSocket configuration, or also affect production.
+
+Do not attempt to fix a development WebSocket problem by disabling production checks or suppressing unrelated errors.
+
+Ensure that the production build does not depend on a development server, its HMR WebSocket, or the development preview URL. If a proxy or hosted development environment is responsible, correct its configuration without breaking local development.
+
+Verify that the deployed site loads its actual production assets and that the browser console does not show critical application errors.
+
+## Google AI Studio authorization
+
+Correct the project setup so the intended GitHub account is used when authorizing access:
+
+- Intended account: `cityandcountyre@gmail.com`
+- Intended repository: `redbee316-cmd/buyoll`
+
+Do not rely on the incorrect personal-account authorization associated with `@redbee316-cmd` if that is not the intended account.
+
+Review the repository access and OAuth or GitHub App installation configuration. Ensure the correct account has the required repository permissions and that the deployment integration is authorized appropriately.
+
+Do not hard-code an email address into application authentication logic as a substitute for configuring the correct external account. If manual authorization is required, identify the exact external authorization step that the repository owner must complete.
+
+# 21. Security and financial integrity
+
+Treat all money-related operations as sensitive.
+
+Implement:
+
+- Server-side authorization.
+- Ownership checks.
+- Input validation.
+- Rate limiting where appropriate.
+- Secure secret management.
+- Immutable financial transaction history.
+- Administrative audit trails.
+- Idempotent payment and loan processing.
+- Duplicate transaction prevention.
+- Safe error handling.
+- Protection against unauthorized wallet credits and role escalation.
+
+Never allow the browser to decide whether a payment is confirmed, a loan fee is approved, a product has been paid for, or a member is entitled to collect an item.
+
+Preserve the no-escrow business model and clearly distinguish manual payment verification from actual external payment-provider confirmation.
+
+# 22. Required implementation and acceptance tests
+
+Do not declare the project complete until the following scenarios have been tested.
+
+**Product management**
+- An authorized merchant creates and edits a product.
+- Product images upload and render correctly.
+- Product specifications, discounts, and promotions persist.
+- Unauthorized users cannot edit another merchant's product.
+
+**Group contributions**
+- All speeds from 1 to 10 are supported.
+- A merchant can configure fewer than ten groups.
+- A member can join multiple groups but occupy only one slot in each group.
+- Contribution totals update after confirmed payments.
+- Remaining balances and progress percentages are correct.
+- A completed cycle advances to the next member exactly once.
+- The next cycle begins at zero while previous history remains intact.
+
+**Buyoll.ai**
+- Every eligible product has its own assistant.
+- Product-specific answers use the correct product data.
+- Answers are concise, positive, and factually grounded.
+- Questions and answers are stored with appropriate access controls.
+- Merchant insights show useful trends without exposing private customer information.
+
+**Wallet and payments**
+- Pending payments do not increase confirmed balances.
+- Duplicate payment submissions do not duplicate credits.
+- Wallet withdrawals are blocked on both frontend and backend.
+- Wallet transactions are correctly recorded.
+- Loan proceeds remain locked against withdrawal.
+
+**Loans**
+- The 3% fee is calculated correctly.
+- The lender cannot disburse before administrative fee approval.
+- The loan is credited to the correct member and group.
+- Only one lender can be assigned to a group at a time.
+- Duplicate disbursements are prevented.
+- All relevant fee, approval, and loan records are visible to administrators.
+
+**Deployment**
+- Dependencies install successfully from the committed lockfile.
+- The production build completes successfully.
+- GitHub Actions runs using Node.js 20 and the intended repository configuration.
+- The deployed frontend loads successfully.
+- Production assets resolve correctly.
+- Environment variables are configured.
+- No development-server WebSocket dependency breaks production.
+- Critical browser-console errors and broken routes are resolved.
+
+Add or update automated tests for the most important business rules. Include database migration validation and tests for concurrent contribution completion, payment retries, and duplicate loan requests where the current stack supports them.
+
+# 23. Final delivery requirements
+
+Complete the actual implementation in the existing Buyoll project.
+
+At completion, provide a concise report stating:
+
+1. What existing components were inspected.
+2. Which frontend pages and components were updated.
+3. Which backend functions, database entities, or migrations were changed.
+4. Which workflows are operational.
+5. Which automated tests passed or failed.
+6. Whether the production build succeeded.
+7. Whether the GitHub Actions workflow completed successfully.
+8. Whether the deployed website was verified to load.
+9. Any remaining manual authorization, configuration, or external-service requirements.
+
+Clearly distinguish changes that were implemented and tested from those that remain pending.
+
+**Final objective:** A stable, production-ready improvement of the existing Buyoll platform, with reliable group contributions, configurable speeds from 1 to 10, product-specific Buyoll.ai, verified manual payments, non-withdrawable shopping wallets, simple group-linked loans, editable merchant products, promotional incentives, and a successful, reproducible GitHub deployment.
+
+Do not rebuild unnecessarily. Do not delete working functionality. Do not fake integrations or test results. Implement, verify, and document the actual changes.
