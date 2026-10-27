@@ -444,11 +444,102 @@ apiRouter.get('/products/:id/ai-history', async (req: Request, res: Response) =>
   });
 });
 
+// -------------------------------------------------------------
+// MERCHANT (BUYOLL DIRECT) ONBOARDING & SUBSCRIPTION FLOW
+// -------------------------------------------------------------
+apiRouter.post('/merchant/subscribe', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { plan, paymentCode, tillNumber, paybillNumber } = req.body;
+  const cleanPlan = plan === 'enterprise' ? 'enterprise' : plan === 'pro' ? 'pro' : 'starter';
+  const planAmounts: Record<string, number> = {
+    starter: 1500,
+    pro: 3500,
+    enterprise: 7000,
+  };
+  const amount = planAmounts[cleanPlan];
+
+  const trimmedCode = String(paymentCode || '').trim().toUpperCase();
+  if (!trimmedCode) {
+    return res.status(400).json({ error: 'Please enter your M-Pesa transaction code for the subscription payment.' });
+  }
+
+  const codeRegex = /^[A-Z0-9]{8,12}$/i;
+  if (!codeRegex.test(trimmedCode)) {
+    return res.status(400).json({
+      error: 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).',
+    });
+  }
+
+  const db = await getDatabase();
+
+  // Prevent duplicate code reuse
+  if (db.payments.some(p => p.code === trimmedCode)) {
+    return res.status(400).json({
+      error: `Transaction code "${trimmedCode}" has already been submitted on the platform.`,
+    });
+  }
+
+  // Update merchant subscription details
+  user.role = 'merchant';
+  user.merchantSubscriptionStatus = 'pending_verification';
+  user.merchantSubscriptionPlan = cleanPlan;
+  user.merchantSubscriptionTxCode = trimmedCode;
+  if (tillNumber) user.tillNumber = String(tillNumber).trim();
+  if (paybillNumber) user.paybillNumber = String(paybillNumber).trim();
+
+  // Matched statement check
+  const matchedStatement = (db.mpesaStatements || []).find(
+    s => s.code.toUpperCase() === trimmedCode && Math.abs(s.amount - amount) <= 10
+  );
+
+  const paymentRecord: PaymentRecord = {
+    id: db.nextIds.payment++,
+    type: 'merchant_subscription',
+    userId: user.id,
+    userName: user.name,
+    code: trimmedCode,
+    amount,
+    status: 'pending',
+    matchedTillEntry: matchedStatement,
+    createdAt: Date.now(),
+  };
+
+  db.payments.unshift(paymentRecord);
+  logAudit(
+    db,
+    user.id,
+    user.name,
+    'MERCHANT_SUBSCRIPTION_SUBMITTED',
+    `Submitted KSh ${amount.toLocaleString()} for ${cleanPlan.toUpperCase()} merchant plan (Code: ${trimmedCode})`
+  );
+
+  await saveDatabase(db);
+
+  res.status(201).json({
+    user,
+    payment: paymentRecord,
+    message: `Subscription for ${cleanPlan.toUpperCase()} plan (KSh ${amount.toLocaleString()}) submitted. Awaiting Admin verification. Status: Pending Verification.`,
+  });
+});
+
 // Vendor product creation
 apiRouter.post('/products', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only verified merchants or admins can create products' });
+  }
+
+  // Merchant gating check: Subscription must be active and merchant must be verified
+  if (user.role === 'merchant') {
+    if (user.merchantSubscriptionStatus !== 'active' || !user.verified) {
+      return res.status(403).json({
+        error: 'Active merchant subscription and Buyoll verification required to list products. Please complete subscription or wait for admin approval.',
+        subscriptionStatus: user.merchantSubscriptionStatus || 'inactive',
+        isVerified: Boolean(user.verified),
+      });
+    }
   }
 
   const { title, description, category, price, wasPrice, discountPercent, images, speedOptions, stockQuantity, attributes, promotionType, promotionDiscount, bonusGift } = req.body;
@@ -777,7 +868,14 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
   }
 
   // Any authenticated user can start a Chama group or solo Lipa Mdogomdogo plan
-  const { productId, size, name, months } = req.body;
+  const { productId, size, name, months, paymentMode } = req.body;
+
+  // Merchant check: If merchant, must be verified and active subscription
+  if (user.role === 'merchant' && (user.merchantSubscriptionStatus !== 'active' || !user.verified)) {
+    return res.status(403).json({
+      error: 'Active merchant subscription and Buyoll verification required to create speed groups.',
+    });
+  }
 
   // Mandatory speed check
   if (!size || Number(size) <= 0) {
@@ -821,6 +919,8 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   const groupName = (name || `${user.name}’s ${validSpeed.size}-Member Chama`).trim();
   const creatorCode = generateCode();
+  const resolvedPaymentMode: 'platform' | 'merchant' =
+    paymentMode === 'merchant' && (user.tillNumber || user.paybillNumber) ? 'merchant' : 'platform';
 
   // Create slots: slot #1 is assigned to creator immediately
   const slots: GroupSlot[] = Array.from({ length: validSpeed.size }, (_, i) => {
@@ -836,6 +936,9 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
         paidAmount: 0,
         targetAmount: product.price,
         joinedAt: Date.now(),
+        paidDays: [],
+        pendingDays: [],
+        dailyPaymentRecords: [],
       };
     }
     return {
@@ -846,6 +949,9 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
       inviteCode: generateCode(),
       paidAmount: 0,
       targetAmount: product.price,
+      paidDays: [],
+      pendingDays: [],
+      dailyPaymentRecords: [],
     };
   });
 
@@ -866,11 +972,12 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     slots,
     occupiedCount: 1,
     availableCount: validSpeed.size - 1,
+    paymentMode: resolvedPaymentMode,
     platformTill: '196853',
     platformPaybill: '522533',
     platformAccount: 'code4363',
     merchantTill: user.tillNumber || '3463533',
-    merchantPaybill: '26253326',
+    merchantPaybill: user.paybillNumber || '26253326',
     merchantAccount: 'Code4533',
     currentRound: 1,
     currentRecipientSlot: 1,
@@ -881,6 +988,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     deliveredRounds: [],
     lenderId: null,
     lenderName: null,
+    notifications: [],
     chat: [
       {
         id: `chat_${Date.now()}`,
@@ -914,7 +1022,7 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'You must be signed in to join a Chama group' });
   }
 
-  const { inviteCode } = req.body;
+  const { inviteCode, slotNumber } = req.body;
   const db = await getDatabase();
   const group = db.groups.find(g => g.id === Number(req.params.id));
 
@@ -945,10 +1053,18 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     }
   }
 
-  // Find next available slot: prefer replacement_eligible first, then open
-  let targetSlot = group.slots.find(s => s.status === 'replacement_eligible');
+  // Find target slot: if user specified slotNumber, check if it's available
+  let targetSlot: GroupSlot | undefined;
+  if (slotNumber) {
+    const requested = group.slots.find(s => s.slotNumber === Number(slotNumber));
+    if (requested && (requested.status === 'open' || requested.status === 'replacement_eligible')) {
+      targetSlot = requested;
+    }
+  }
+
+  // If not specified or not available, pick next available (replacement first, then open)
   if (!targetSlot) {
-    targetSlot = group.slots.find(s => s.status === 'open');
+    targetSlot = group.slots.find(s => s.status === 'replacement_eligible') || group.slots.find(s => s.status === 'open');
   }
 
   if (!targetSlot) {
@@ -963,6 +1079,9 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
   targetSlot.status = 'active';
   targetSlot.joinedAt = Date.now();
   targetSlot.isDefaulter = false;
+  targetSlot.paidDays = targetSlot.paidDays || [];
+  targetSlot.pendingDays = targetSlot.pendingDays || [];
+  targetSlot.dailyPaymentRecords = targetSlot.dailyPaymentRecords || [];
 
   group.occupiedCount = group.slots.filter(s => s.status === 'active').length;
   group.availableCount = group.size - group.occupiedCount;
@@ -980,6 +1099,17 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     timestamp: Date.now(),
   });
 
+  if (!group.notifications) group.notifications = [];
+  group.notifications.unshift({
+    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    groupId: group.id,
+    groupName: group.name,
+    title: 'New Member Joined',
+    message: `${user.name} joined as Member #${targetSlot.slotNumber}. Welcome to the cycle!`,
+    type: 'system',
+    timestamp: Date.now(),
+  });
+
   logAudit(db, user.id, user.name, 'MEMBER_JOINED', `Joined Chama #${group.id} as Member #${targetSlot.slotNumber}`);
   await saveDatabase(db);
 
@@ -987,6 +1117,204 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     group,
     assignedSlot: targetSlot.slotNumber,
     message: `Welcome! You are Member #${targetSlot.slotNumber}. Your allocation rotation is day ${targetSlot.slotNumber * group.cycleDays}.`,
+  });
+});
+
+// SUBMIT DAILY PAYMENT FOR A SPECIFIC DAY OR CLEAR MISSED ARREARS
+apiRouter.post('/groups/:id/pay-day', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { slotNumber, dayNumber, days, code, amount } = req.body;
+  const trimmedCode = String(code || '').trim().toUpperCase();
+  const numAmount = Number(amount);
+
+  if (!trimmedCode) {
+    return res.status(400).json({ error: 'Please enter your M-Pesa transaction code.' });
+  }
+
+  const codeRegex = /^[A-Z0-9]{8,12}$/i;
+  if (!codeRegex.test(trimmedCode)) {
+    return res.status(400).json({
+      error: 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).',
+    });
+  }
+
+  if (numAmount <= 0) {
+    return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
+  }
+
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const slot = group.slots.find(s => s.slotNumber === Number(slotNumber) && s.userId === user.id && s.status === 'active');
+  if (!slot) {
+    return res.status(400).json({ error: 'Active slot not found for your account in this group.' });
+  }
+
+  // Prevent duplicate transaction code reuse
+  if (db.payments.some(p => p.code === trimmedCode)) {
+    return res.status(400).json({
+      error: `Transaction code "${trimmedCode}" has already been submitted on the platform. Please check your M-Pesa SMS.`,
+    });
+  }
+
+  const daysToMark: number[] = Array.isArray(days) && days.length > 0
+    ? days.map(Number)
+    : dayNumber ? [Number(dayNumber)] : [1];
+
+  slot.paidDays = slot.paidDays || [];
+  slot.pendingDays = slot.pendingDays || [];
+  slot.dailyPaymentRecords = slot.dailyPaymentRecords || [];
+
+  for (const d of daysToMark) {
+    if (!slot.pendingDays.includes(d) && !slot.paidDays.includes(d)) {
+      slot.pendingDays.push(d);
+    }
+    slot.dailyPaymentRecords.unshift({
+      day: d,
+      code: trimmedCode,
+      amount: numAmount / daysToMark.length,
+      status: 'pending',
+      timestamp: Date.now(),
+    });
+  }
+
+  // Check matching against Till statement entries (simulated Daraja / statement check)
+  const matchedStatement = (db.mpesaStatements || []).find(
+    s => s.code.toUpperCase() === trimmedCode && Math.abs(s.amount - numAmount) <= 5
+  );
+
+  const paymentRecord: PaymentRecord = {
+    id: db.nextIds.payment++,
+    type: 'group_installment',
+    userId: user.id,
+    userName: user.name,
+    code: trimmedCode,
+    amount: numAmount,
+    groupId: group.id,
+    groupName: group.name,
+    slotNumber: slot.slotNumber,
+    productId: group.productId,
+    daysPaid: daysToMark,
+    status: 'pending',
+    matchedTillEntry: matchedStatement,
+    createdAt: Date.now(),
+  };
+
+  db.payments.unshift(paymentRecord);
+
+  // Real-time group notification broadcast to all members
+  if (!group.notifications) group.notifications = [];
+  const daysLabel = daysToMark.length === 1 ? `Day ${daysToMark[0]}` : `Days ${daysToMark.join(', ')}`;
+  group.notifications.unshift({
+    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    groupId: group.id,
+    groupName: group.name,
+    title: 'Contribution Submitted',
+    message: `${user.name} submitted KSh ${numAmount.toLocaleString()} for ${daysLabel} (Code: ${trimmedCode}). Pending Admin verification.`,
+    type: 'payment_submitted',
+    timestamp: Date.now(),
+  });
+
+  group.chat.push({
+    id: `chat_${Date.now()}`,
+    senderId: user.id,
+    senderName: user.name,
+    kind: 'normal',
+    text: `⏳ Submitted daily installment of KSh ${numAmount.toLocaleString()} for ${daysLabel} via M-Pesa (${trimmedCode}). Pending verification.`,
+    timestamp: Date.now(),
+  });
+
+  logAudit(db, user.id, user.name, 'PAYMENT_SUBMITTED', `Submitted payment for Chama #${group.id} slot #${slot.slotNumber} for ${daysLabel} (${trimmedCode})`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    group,
+    payment: paymentRecord,
+    message: `Payment code ${trimmedCode} submitted for ${daysLabel}! Status is Pending (amber clock ⏳) until Admin approval.`,
+  });
+});
+
+// GET REAL-TIME GROUP NOTIFICATIONS
+apiRouter.get('/groups/:id/notifications', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  res.json({ notifications: group.notifications || [] });
+});
+
+// MEMBER REQUESTS LOAN INSIDE GROUP (TRIGGERS LENDER ALERTS)
+apiRouter.post('/groups/:id/loan-request', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { amount, purpose, slotNumber } = req.body;
+  const numAmount = Number(amount);
+  if (numAmount <= 0) return res.status(400).json({ error: 'Loan amount must be greater than zero' });
+
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const slot = group.slots.find(s => s.slotNumber === Number(slotNumber) && s.userId === user.id);
+  if (!slot) return res.status(400).json({ error: 'You do not hold an active slot in this group' });
+
+  if (!db.peerLoans) db.peerLoans = [];
+  const platformFee = Math.round(numAmount * 0.03); // 3% platform commission
+
+  const newLoan: PeerLoanRequest = {
+    id: db.nextIds.peerLoan++,
+    groupId: group.id,
+    groupName: group.name,
+    slotNumber: slot.slotNumber,
+    requesterId: user.id,
+    requesterName: user.name,
+    requesterPhone: user.phone,
+    productTitle: group.productTitle,
+    productImage: group.productImage,
+    amount: numAmount,
+    purpose: (purpose || 'Chama installment advance').trim(),
+    status: 'open',
+    createdAt: Date.now(),
+    platformFeePercent: 3,
+    platformFeeAmount: platformFee,
+    platformFeeStatus: 'pending',
+    externalAgreementAcknowledged: true,
+  };
+
+  db.peerLoans.unshift(newLoan);
+
+  // Group notification broadcast
+  if (!group.notifications) group.notifications = [];
+  group.notifications.unshift({
+    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    groupId: group.id,
+    groupName: group.name,
+    title: 'Loan Request Posted',
+    message: `${user.name} requested an advance of KSh ${numAmount.toLocaleString()} for Slot #${slot.slotNumber}. Lenders notified!`,
+    type: 'loan_request',
+    timestamp: Date.now(),
+  });
+
+  group.chat.push({
+    id: `chat_${Date.now()}`,
+    senderId: user.id,
+    senderName: user.name,
+    kind: 'nudge',
+    text: `📢 LOAN REQUEST: I requested a peer loan of KSh ${numAmount.toLocaleString()} to fulfill my slot contribution schedule on time. Verified 3rd-party lenders can fund this loan directly!`,
+    timestamp: Date.now(),
+  });
+
+  logAudit(db, user.id, user.name, 'LOAN_REQUESTED', `Requested P2P loan #${newLoan.id} of KSh ${numAmount} for Chama #${group.id}`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    loan: newLoan,
+    group,
+    message: `Loan request of KSh ${numAmount.toLocaleString()} posted! All registered 3rd-party lenders have received a real-time notification with a direct link to your request.`,
   });
 });
 
@@ -1729,16 +2057,10 @@ apiRouter.post('/admin/loan-fees/:loanId/approve', async (req: Request, res: Res
 });
 
 // LENDER FUNDS MEMBER WALLET (ONLY USABLE FOR SHOPPING / SLOTS, NON-WITHDRAWABLE)
-apiRouter.post('/groups/:id/loans/:loanId/fund', async (req: Request, res: Response) => {
-  const lender = await getAuthenticatedUser(req);
-  if (!lender) return res.status(401).json({ error: 'You must be signed in to fund this peer loan.' });
-
-  const groupId = Number(req.params.id);
-  const loanId = Number(req.params.loanId);
+// LENDER FUNDS MEMBER WALLET (ATOMIC TRANSACTION: 97% BORROWER, 3% ADMIN COMMISSION)
+// Funds are strictly non-withdrawable; repayment is negotiated and settled externally
+async function processLoanFunding(lender: User, loanId: number, groupId: number | undefined, res: Response) {
   const db = await getDatabase();
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
-
   const loan = (db.peerLoans || []).find(l => l.id === loanId);
   if (!loan) return res.status(404).json({ error: 'Loan request not found' });
 
@@ -1753,53 +2075,132 @@ apiRouter.post('/groups/:id/loans/:loanId/fund', async (req: Request, res: Respo
   const requester = db.users.find(u => u.id === loan.requesterId);
   if (!requester) return res.status(404).json({ error: 'Borrowing member account not found.' });
 
-  const disburseAmount = loan.approvedAmount || loan.amount;
+  const resolvedGroupId = groupId || loan.groupId;
+  const group = db.groups.find(g => g.id === resolvedGroupId);
 
-  // Credit member's wallet balance directly (deposit-only, non-withdrawable)
-  requester.credit = (requester.credit || 0) + disburseAmount;
+  const totalAmount = loan.approvedAmount || loan.amount;
 
-  // Record member ledger statement entry for loan received
-  const requesterLedger = {
-    id: db.nextIds.ledger++,
-    userId: requester.id,
-    amount: disburseAmount,
-    balanceAfter: requester.credit,
-    type: 'admin_adjustment' as const,
-    referenceId: `P2P_LOAN_${loan.id}`,
-    note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Chama #${group.id} Slot #${loan.slotNumber}. Non-withdrawable; strictly for shopping and Chama contributions. Repayment external.`,
-    createdAt: Date.now(),
-  };
-  db.storeCreditLedger.unshift(requesterLedger);
+  // Enforce lender balance check
+  const currentLenderBalance = lender.credit || 0;
+  if (currentLenderBalance < totalAmount) {
+    return res.status(400).json({
+      error: `Insufficient wallet balance. You have KSh ${currentLenderBalance.toLocaleString()} but need KSh ${totalAmount.toLocaleString()} to fund this loan. Please deposit funds into your wallet to proceed.`,
+      requiredAmount: totalAmount,
+      currentBalance: currentLenderBalance,
+    });
+  }
+
+  // Atomic 3-way split: 3% platform commission to Admin, 97% net proceeds to Borrower
+  const platformCommission = Math.round(totalAmount * 0.03);
+  const borrowerNet = totalAmount - platformCommission;
+
+  // 1. Debit lender wallet
+  lender.credit = currentLenderBalance - totalAmount;
+
+  // 2. Credit admin wallet with 3% platform commission
+  const adminUser = db.users.find(u => u.role === 'admin') || db.users[0];
+  adminUser.credit = (adminUser.credit || 0) + platformCommission;
+
+  // 3. Credit borrower wallet with 97% net proceeds
+  requester.credit = (requester.credit || 0) + borrowerNet;
+
+  // Write 3 atomic ledger entries
+  const now = Date.now();
+  db.storeCreditLedger.unshift(
+    {
+      id: db.nextIds.ledger++,
+      userId: lender.id,
+      amount: -totalAmount,
+      balanceAfter: lender.credit,
+      type: 'admin_adjustment',
+      referenceId: `LOAN_FUND_${loan.id}`,
+      note: `Disbursed loan #${loan.id} to member ${requester.name} (Amount: KSh ${totalAmount.toLocaleString()}). External repayment terms apply.`,
+      createdAt: now,
+    },
+    {
+      id: db.nextIds.ledger++,
+      userId: adminUser.id,
+      amount: platformCommission,
+      balanceAfter: adminUser.credit,
+      type: 'admin_adjustment',
+      referenceId: `LOAN_COMM_${loan.id}`,
+      note: `3% platform commission on P2P loan #${loan.id} funded by lender ${lender.name} for borrower ${requester.name}`,
+      createdAt: now,
+    },
+    {
+      id: db.nextIds.ledger++,
+      userId: requester.id,
+      amount: borrowerNet,
+      balanceAfter: requester.credit,
+      type: 'admin_adjustment',
+      referenceId: `LOAN_RECV_${loan.id}`,
+      note: `Disbursed 97% of P2P loan #${loan.id} from lender ${lender.name} (KSh ${borrowerNet.toLocaleString()}). 3% platform fee deducted. Non-withdrawable; strictly for shopping & Chama contributions. Repayment terms settled externally.`,
+      createdAt: now,
+    }
+  );
 
   loan.status = 'funded';
   loan.fundedByUserId = lender.id;
   loan.fundedByUserName = lender.name;
-  loan.fundedAt = Date.now();
+  loan.fundedAt = now;
   loan.platformFeeStatus = 'paid';
 
-  // Group chat announcement
-  group.chat.push({
-    id: `chat_${Date.now()}`,
-    senderId: lender.id,
-    senderName: lender.name,
-    kind: 'system',
-    text: `✅ PEER LOAN FUNDED: 3rd-party lender ${lender.name} has released KSh ${disburseAmount.toLocaleString()} directly into ${requester.name}’s wallet! 3% platform commission verified. ${requester.name} can now use these wallet funds to pay for Slot #${loan.slotNumber} or shop items. (Loan repayment is handled manually outside Buyoll).`,
-    timestamp: Date.now(),
-  });
+  // Group single-lender attachment and notification
+  if (group) {
+    if (!group.lenderId) {
+      group.lenderId = lender.id;
+      group.lenderName = lender.name;
+    }
+
+    if (!group.notifications) group.notifications = [];
+    group.notifications.unshift({
+      id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+      groupId: group.id,
+      groupName: group.name,
+      title: 'Loan Funded Successfully',
+      message: `Lender ${lender.name} funded ${requester.name}'s loan request of KSh ${totalAmount.toLocaleString()}! KSh ${borrowerNet.toLocaleString()} (97%) credited to wallet.`,
+      type: 'system',
+      timestamp: now,
+    });
+
+    group.chat.push({
+      id: `chat_${now}`,
+      senderId: lender.id,
+      senderName: lender.name,
+      kind: 'system',
+      text: `✅ LOAN FUNDED ATOMICALLY: Lender ${lender.name} funded KSh ${totalAmount.toLocaleString()}. KSh ${borrowerNet.toLocaleString()} (97%) credited to ${requester.name}’s wallet for Chama installments. 3% platform fee (KSh ${platformCommission.toLocaleString()}) settled. Repayment is external.`,
+      timestamp: now,
+    });
+  }
 
   logAudit(
     db,
     lender.id,
     lender.name,
     'PEER_LOAN_FUNDED',
-    `Funded P2P loan #${loan.id} of KSh ${disburseAmount} for ${requester.name}. 3% commission settled.`
+    `Atomic funding of loan #${loan.id}: Debited lender KSh ${totalAmount}, credited admin KSh ${platformCommission} (3%), credited borrower KSh ${borrowerNet} (97%)`
   );
 
   await saveDatabase(db);
-  res.json({
+  return res.json({
     loan,
-    message: `Loan funded successfully! KSh ${disburseAmount.toLocaleString()} was transferred directly into ${requester.name}’s wallet.`,
+    lenderBalance: lender.credit,
+    borrowerNet,
+    platformCommission,
+    message: `Loan funded successfully! KSh ${borrowerNet.toLocaleString()} (97%) was credited into ${requester.name}’s wallet. KSh ${platformCommission.toLocaleString()} (3%) platform fee was paid.`,
   });
+}
+
+apiRouter.post('/groups/:id/loans/:loanId/fund', async (req: Request, res: Response) => {
+  const lender = await getAuthenticatedUser(req);
+  if (!lender) return res.status(401).json({ error: 'You must be signed in to fund this peer loan.' });
+  return processLoanFunding(lender, Number(req.params.loanId), Number(req.params.id), res);
+});
+
+apiRouter.post('/loans/:id/fund', async (req: Request, res: Response) => {
+  const lender = await getAuthenticatedUser(req);
+  if (!lender) return res.status(401).json({ error: 'You must be signed in to fund this peer loan.' });
+  return processLoanFunding(lender, Number(req.params.id), undefined, res);
 });
 
 // GLOBAL COMMUNITY HELP CHAT & COMPLAINTS BOARD ROUTES
@@ -2185,13 +2586,46 @@ apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
   });
 });
 
+apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const db = await getDatabase();
+  const paymentsWithMatching = db.payments.map(p => {
+    const matched = (db.mpesaStatements || []).find(
+      s => s.code.toUpperCase() === p.code.toUpperCase()
+    );
+    const hasCodeMismatch = !matched;
+    const hasAmountMismatch = matched ? Math.abs(matched.amount - p.amount) > 5 : false;
+    const isDuplicate = db.payments.filter(other => other.code === p.code).length > 1;
+
+    let verificationFlag: 'perfect_match' | 'amount_mismatch' | 'unmatched_code' | 'duplicate_detected' = 'perfect_match';
+    if (isDuplicate) verificationFlag = 'duplicate_detected';
+    else if (hasCodeMismatch) verificationFlag = 'unmatched_code';
+    else if (hasAmountMismatch) verificationFlag = 'amount_mismatch';
+
+    return {
+      ...p,
+      matchedTillEntry: matched || null,
+      verificationFlag,
+    };
+  });
+
+  res.json({
+    payments: paymentsWithMatching,
+    statements: db.mpesaStatements || [],
+  });
+});
+
 apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
-  const { decision } = req.body; // 'approve' | 'reject'
+  const { decision, reason } = req.body; // 'approve' | 'reject'
   const db = await getDatabase();
   const payment = db.payments.find(p => p.id === Number(req.params.id));
 
@@ -2200,42 +2634,86 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
     return res.status(400).json({ error: 'This payment has already been processed' });
   }
 
+  const now = Date.now();
+
   if (decision === 'approve') {
     payment.status = 'approved';
-    payment.approvedAt = Date.now();
+    payment.approvedAt = now;
 
-    // If it's a group payment, credit slot
+    // 1. If it's a group installment payment, credit slot and mark days as Paid (✓)
     if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
       const grp = db.groups.find(g => g.id === payment.groupId);
       if (grp) {
         const slot = grp.slots.find(s => s.slotNumber === payment.slotNumber);
         if (slot) {
           slot.paidAmount = (slot.paidAmount || 0) + payment.amount;
-          slot.lastPaymentDate = Date.now();
+          slot.lastPaymentDate = now;
+
+          slot.paidDays = slot.paidDays || [];
+          slot.pendingDays = slot.pendingDays || [];
+          slot.dailyPaymentRecords = slot.dailyPaymentRecords || [];
+
+          const daysApproved = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
+          for (const d of daysApproved) {
+            slot.pendingDays = slot.pendingDays.filter(pd => pd !== d);
+            if (!slot.paidDays.includes(d)) {
+              slot.paidDays.push(d);
+            }
+          }
+
+          // Mark daily payment records as approved
+          for (const rec of slot.dailyPaymentRecords) {
+            if (rec.code === payment.code) {
+              rec.status = 'approved';
+            }
+          }
 
           // Update group round tracking
           grp.currentRoundPaid = (grp.currentRoundPaid || 0) + payment.amount;
           const targetAmt = grp.targetAmountPerRound || grp.productPrice;
           grp.roundBalanceRemaining = Math.max(0, targetAmt - grp.currentRoundPaid);
+
           if (grp.currentRoundPaid >= targetAmt) {
             grp.isReadyForPickup = true;
             grp.chat.push({
-              id: `chat_${Date.now()}_pickup`,
+              id: `chat_${now}_pickup`,
               senderId: 1,
               senderName: 'System Verification',
               kind: 'system',
               text: `✅ 100% PAID! Full target amount of KSh ${targetAmt.toLocaleString()} has been reached! Item is now verified & READY FOR PICKUP for Member #${grp.currentRecipientSlot || 1}!`,
-              timestamp: Date.now(),
+              timestamp: now,
             });
           }
 
-          // Award reward points: 1 point for every 10 KSh paid
+          // Award platform points automatically to good payer (1 point for every 10 KSh)
           const payer = db.users.find(u => u.id === payment.userId);
           if (payer) {
-            payer.points = (payer.points || 0) + Math.floor(payment.amount / 10);
-            payer.lastActive = Date.now();
+            const pointsEarned = Math.max(1, Math.floor(payment.amount / 10));
+            payer.points = (payer.points || 0) + pointsEarned;
+            payer.lastActive = now;
           }
+
+          // Group broadcast notification
+          if (!grp.notifications) grp.notifications = [];
+          grp.notifications.unshift({
+            id: `notif_${now}_appr`,
+            groupId: grp.id,
+            groupName: grp.name,
+            title: 'Contribution Verified (✓)',
+            message: `Admin verified KSh ${payment.amount.toLocaleString()} for ${daysApproved.map(d => `Day ${d}`).join(', ')} from ${payment.userName}. Green tick recorded!`,
+            type: 'payment_approved',
+            timestamp: now,
+          });
         }
+      }
+    } else if (payment.type === 'merchant_subscription') {
+      const merchant = db.users.find(u => u.id === payment.userId);
+      if (merchant) {
+        merchant.merchantSubscriptionStatus = 'active';
+        merchant.verified = true;
+        merchant.verifiedAt = now;
+        merchant.starRating = 5;
+        logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription for ${merchant.name}`);
       }
     } else if (payment.type === 'loan_fee') {
       const loan = (db.peerLoans || []).find(l => l.id === payment.loanId || l.platformFeePaymentCode === payment.code);
@@ -2246,14 +2724,51 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
     } else if (payment.type === 'coin_purchase') {
       const payer = db.users.find(u => u.id === payment.userId);
       if (payer) {
-        payer.coins = (payer.coins || 0) + payment.amount;
+        const coinsToAdd = payment.amount * 2; // 2 coins per KSh 1
+        payer.coins = (payer.coins || 0) + coinsToAdd;
+        if (!db.coinLedger) db.coinLedger = [];
+        db.coinLedger.unshift({
+          id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          type: 'deposit',
+          senderId: 1,
+          senderName: 'M-Pesa Deposit Till',
+          recipientId: payer.id,
+          recipientName: payer.name,
+          amount: coinsToAdd,
+          reason: `Deposited coins via M-Pesa Till (Code: ${payment.code})`,
+          timestamp: now,
+        });
       }
     }
 
     logAudit(db, user.id, user.name, 'PAYMENT_APPROVED', `Approved payment ${payment.code} for KSh ${payment.amount}`);
   } else {
     payment.status = 'rejected';
-    logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}`);
+    payment.rejectionReason = (reason || 'Statement mismatch or unverified transaction code').trim();
+
+    // If it's a group installment, revert pending days
+    if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
+      const grp = db.groups.find(g => g.id === payment.groupId);
+      if (grp) {
+        const slot = grp.slots.find(s => s.slotNumber === payment.slotNumber);
+        if (slot) {
+          const daysToRevert = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
+          slot.pendingDays = (slot.pendingDays || []).filter(pd => !daysToRevert.includes(pd));
+          for (const rec of slot.dailyPaymentRecords || []) {
+            if (rec.code === payment.code) {
+              rec.status = 'rejected';
+            }
+          }
+        }
+      }
+    } else if (payment.type === 'merchant_subscription') {
+      const merchant = db.users.find(u => u.id === payment.userId);
+      if (merchant) {
+        merchant.merchantSubscriptionStatus = 'inactive';
+      }
+    }
+
+    logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}: ${payment.rejectionReason}`);
   }
 
   await saveDatabase(db);
@@ -2276,7 +2791,6 @@ apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) 
   if (adminNote) refund.adminNote = adminNote;
   if (status === 'completed') {
     refund.processedAt = Date.now();
-    // Mark associated default record as completed
     const def = db.defaultRecords.find(d => d.id === refund.defaultRecordId);
     if (def) def.resolutionStatus = 'completed';
   }
@@ -2287,13 +2801,25 @@ apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) 
   res.json({ refund, message: `Refund #${refund.id} status updated to ${status}.` });
 });
 
+// -------------------------------------------------------------
+// ADMIN USER MANAGEMENT & BADGING
+// -------------------------------------------------------------
+apiRouter.get('/admin/users', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  const db = await getDatabase();
+  res.json({ users: db.users });
+});
+
 apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
-  const { verified } = req.body;
+  const { verified, notes } = req.body;
   const db = await getDatabase();
   const merchant = db.users.find(u => u.id === Number(req.params.id) && u.role === 'merchant');
 
@@ -2301,11 +2827,422 @@ apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response
 
   merchant.verified = Boolean(verified);
   merchant.starRating = verified ? 5 : undefined;
-  logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `${verified ? 'Verified with 5 stars (Buyoll Verified)' : 'Suspended'} merchant ${merchant.shopName || merchant.name}`);
+  if (verified) {
+    merchant.verifiedAt = Date.now();
+    merchant.merchantSubscriptionStatus = 'active';
+  }
+  if (notes) merchant.verificationNotes = String(notes).trim();
+
+  logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `${verified ? 'Verified (Buyoll Verified badge awarded)' : 'Revoked verification for'} merchant ${merchant.shopName || merchant.name}`);
   await saveDatabase(db);
 
   res.json({
     merchant,
-    message: verified ? 'Merchant verified with 5 stars (Buyoll Verified).' : 'Merchant verification revoked.',
+    message: verified ? 'Merchant verified with 5 stars & Buyoll Verified badge.' : 'Merchant verification revoked.',
   });
 });
+
+apiRouter.post('/admin/users/:id/verify', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { verified, notes } = req.body;
+  const db = await getDatabase();
+  const target = db.users.find(u => u.id === Number(req.params.id));
+
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  target.verified = Boolean(verified);
+  if (verified) {
+    target.verifiedAt = Date.now();
+    if (target.role === 'merchant') {
+      target.starRating = 5;
+      target.merchantSubscriptionStatus = 'active';
+    }
+  }
+  if (notes) target.verificationNotes = String(notes).trim();
+
+  logAudit(db, user.id, user.name, 'USER_VERIFIED', `${verified ? 'Verified' : 'Unverified'} user #${target.id} (${target.name})`);
+  await saveDatabase(db);
+
+  res.json({ user: target, message: `User verification updated to ${verified}.` });
+});
+
+apiRouter.post('/admin/users/:id/suspend', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { isSuspended, reason } = req.body;
+  const db = await getDatabase();
+  const target = db.users.find(u => u.id === Number(req.params.id));
+
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  target.isSuspended = Boolean(isSuspended);
+  target.suspendReason = isSuspended ? (reason || 'Violation of platform terms').trim() : undefined;
+
+  logAudit(db, user.id, user.name, 'USER_SUSPENDED', `${isSuspended ? 'Suspended' : 'Reinstated'} user #${target.id} (${target.name})`);
+  await saveDatabase(db);
+
+  res.json({ user: target, message: `User has been ${isSuspended ? 'suspended' : 'reinstated'}.` });
+});
+
+apiRouter.post('/admin/users/:id/award-points', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { points, reason } = req.body;
+  const numPoints = Number(points);
+  if (!numPoints) return res.status(400).json({ error: 'Valid points amount required' });
+
+  const db = await getDatabase();
+  const target = db.users.find(u => u.id === Number(req.params.id));
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  target.points = (target.points || 0) + numPoints;
+  logAudit(db, user.id, user.name, 'POINTS_AWARDED', `Awarded ${numPoints} points to ${target.name}. Reason: ${reason || 'Good platform standing'}`);
+  await saveDatabase(db);
+
+  res.json({ user: target, message: `Awarded ${numPoints} points to ${target.name}. New total: ${target.points} pts.` });
+});
+
+// -------------------------------------------------------------
+// ADMIN WALLETS OVERSIGHT & CSV EXPORT
+// -------------------------------------------------------------
+apiRouter.get('/admin/wallets', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const db = await getDatabase();
+  const totalCredit = db.users.reduce((acc, u) => acc + (u.credit || 0), 0);
+  const totalCoins = db.users.reduce((acc, u) => acc + (u.coins || 0), 0);
+  const totalPoints = db.users.reduce((acc, u) => acc + (u.points || 0), 0);
+
+  res.json({
+    summary: { totalCredit, totalCoins, totalPoints, userCount: db.users.length },
+    wallets: db.users.map(u => ({
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      role: u.role,
+      credit: u.credit || 0,
+      coins: u.coins || 0,
+      points: u.points || 0,
+      verified: u.verified,
+      isSuspended: u.isSuspended,
+    })),
+    recentLedger: db.storeCreditLedger.slice(0, 50),
+    coinLedger: (db.coinLedger || []).slice(0, 50),
+  });
+});
+
+apiRouter.get('/admin/wallets/export-csv', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const db = await getDatabase();
+  const headers = ['User ID', 'Name', 'Phone', 'Role', 'Credit Balance (KSh)', 'Coins', 'Points', 'Verified', 'Suspended'];
+  const rows = db.users.map(u => [
+    u.id,
+    `"${(u.name || '').replace(/"/g, '""')}"`,
+    `"${u.phone || ''}"`,
+    u.role,
+    u.credit || 0,
+    u.coins || 0,
+    u.points || 0,
+    u.verified ? 'Yes' : 'No',
+    u.isSuspended ? 'Yes' : 'No',
+  ]);
+
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="buyoll_wallets.csv"');
+  res.send(csvContent);
+});
+
+// -------------------------------------------------------------
+// ADMIN CHAT MODERATION
+// -------------------------------------------------------------
+apiRouter.get('/admin/chat-logs', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const db = await getDatabase();
+  const allGroupChats = db.groups.flatMap(g =>
+    (g.chat || []).map(c => ({
+      ...c,
+      context: 'group',
+      groupId: g.id,
+      groupName: g.name,
+    }))
+  );
+
+  const helpChats = (db.helpChat || []).map(h => ({
+    ...h,
+    context: 'help_chat',
+    groupId: null,
+    groupName: 'Community Help & FAQ',
+  }));
+
+  const allLogs = [...allGroupChats, ...helpChats].sort((a, b) => b.timestamp - a.timestamp);
+
+  res.json({
+    logs: allLogs.slice(0, 200),
+    moderationActions: db.chatModerationLogs || [],
+  });
+});
+
+apiRouter.post('/admin/chat/moderate', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { action, targetUserId, groupId, messageId, reason } = req.body;
+  const db = await getDatabase();
+  const target = db.users.find(u => u.id === Number(targetUserId));
+
+  if (!target) return res.status(404).json({ error: 'Target user not found' });
+
+  const now = Date.now();
+  if (action === 'mute') {
+    target.isMuted = true;
+  } else if (action === 'unmute') {
+    target.isMuted = false;
+  } else if (action === 'remove_user' && groupId) {
+    const grp = db.groups.find(g => g.id === Number(groupId));
+    if (grp) {
+      const slot = grp.slots.find(s => s.userId === target.id);
+      if (slot) {
+        slot.status = 'replacement_eligible';
+        slot.userId = null;
+        slot.userName = null;
+        slot.userPhone = null;
+      }
+    }
+  }
+
+  // Remove offending message if messageId provided
+  if (messageId && groupId) {
+    const grp = db.groups.find(g => g.id === Number(groupId));
+    if (grp) {
+      grp.chat = (grp.chat || []).filter(c => c.id !== messageId);
+    }
+  }
+
+  if (!db.chatModerationLogs) db.chatModerationLogs = [];
+  db.chatModerationLogs.unshift({
+    id: `mod_${now}`,
+    adminId: user.id,
+    targetUserId: target.id,
+    targetUserName: target.name,
+    action,
+    reason: (reason || 'Community guidelines violation').trim(),
+    timestamp: now,
+  });
+
+  logAudit(db, user.id, user.name, 'CHAT_MODERATED', `Action: ${action} on ${target.name}. Reason: ${reason}`);
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    message: `Moderation action "${action}" executed on ${target.name}.`,
+    targetUser: target,
+  });
+});
+
+// -------------------------------------------------------------
+// PROMPT 7: COINS & PEER-TO-PEER REWARD SYSTEM
+// -------------------------------------------------------------
+apiRouter.post('/coins/award', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { recipientIds, amountPerRecipient, reason } = req.body;
+  if (!Array.isArray(recipientIds) || recipientIds.length === 0) {
+    return res.status(400).json({ error: 'Please select at least one member to reward.' });
+  }
+
+  const coinsPerPerson = Math.max(1, Number(amountPerRecipient) || 5);
+  const totalCoinsNeeded = recipientIds.length * coinsPerPerson;
+
+  // Enforce no self-awarding
+  if (recipientIds.includes(user.id)) {
+    return res.status(400).json({ error: 'You cannot award coins to yourself.' });
+  }
+
+  // Enforce non-negative balance and double-spend check
+  const currentCoins = user.coins || 0;
+  if (currentCoins < totalCoinsNeeded) {
+    return res.status(400).json({
+      error: `Insufficient coins balance. You have ${currentCoins} coins, but awarding ${coinsPerPerson} coins to ${recipientIds.length} member(s) requires ${totalCoinsNeeded} coins.`,
+    });
+  }
+
+  const db = await getDatabase();
+  const validRecipients = db.users.filter(u => recipientIds.includes(u.id));
+
+  if (validRecipients.length === 0) {
+    return res.status(400).json({ error: 'No valid recipient members found.' });
+  }
+
+  // Atomic debit
+  user.coins = currentCoins - (validRecipients.length * coinsPerPerson);
+
+  const now = Date.now();
+  if (!db.coinLedger) db.coinLedger = [];
+
+  // Atomic credits and ledger records
+  for (const recipient of validRecipients) {
+    recipient.coins = (recipient.coins || 0) + coinsPerPerson;
+    db.coinLedger.unshift({
+      id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
+      type: 'transfer',
+      senderId: user.id,
+      senderName: user.name,
+      recipientId: recipient.id,
+      recipientName: recipient.name,
+      amount: coinsPerPerson,
+      reason: (reason || 'Applauding prompt Chama commitment & great team spirit!').trim(),
+      timestamp: now,
+    });
+  }
+
+  logAudit(
+    db,
+    user.id,
+    user.name,
+    'COINS_AWARDED',
+    `Awarded ${coinsPerPerson} coins to ${validRecipients.length} members (Total: ${validRecipients.length * coinsPerPerson})`
+  );
+
+  await saveDatabase(db);
+  res.json({
+    remainingCoins: user.coins,
+    awardedCount: validRecipients.length,
+    totalAwarded: validRecipients.length * coinsPerPerson,
+    message: `Successfully awarded ${coinsPerPerson} coins each to ${validRecipients.length} member(s)! 🌟`,
+  });
+});
+
+apiRouter.post('/coins/reward-platform', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { amount, message } = req.body;
+  const coinsToSend = Math.max(1, Number(amount) || 10);
+
+  const currentCoins = user.coins || 0;
+  if (currentCoins < coinsToSend) {
+    return res.status(400).json({
+      error: `Insufficient coins. You have ${currentCoins} coins, but tried to send ${coinsToSend}.`,
+    });
+  }
+
+  const db = await getDatabase();
+  const adminUser = db.users.find(u => u.role === 'admin') || db.users[0];
+
+  user.coins = currentCoins - coinsToSend;
+  adminUser.coins = (adminUser.coins || 0) + coinsToSend;
+
+  const now = Date.now();
+  if (!db.coinLedger) db.coinLedger = [];
+  db.coinLedger.unshift({
+    id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
+    type: 'reward_platform',
+    senderId: user.id,
+    senderName: user.name,
+    recipientId: adminUser.id,
+    recipientName: 'Buyoll Platform Escrow',
+    amount: coinsToSend,
+    reason: (message || 'Rewarding Buyoll community platform infrastructure').trim(),
+    timestamp: now,
+  });
+
+  logAudit(db, user.id, user.name, 'PLATFORM_REWARDED', `Sent ${coinsToSend} coins to Buyoll Platform`);
+  await saveDatabase(db);
+
+  res.json({
+    remainingCoins: user.coins,
+    message: `Thank you! Sent ${coinsToSend} coins to the Buyoll platform community pool.`,
+  });
+});
+
+apiRouter.post('/coins/deposit', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { packageId, amount, paymentCode } = req.body;
+  const numAmount = Number(amount);
+  const trimmedCode = String(paymentCode || '').trim().toUpperCase();
+
+  if (!trimmedCode) {
+    return res.status(400).json({ error: 'M-Pesa transaction code is required for coin purchase.' });
+  }
+
+  const codeRegex = /^[A-Z0-9]{8,12}$/i;
+  if (!codeRegex.test(trimmedCode)) {
+    return res.status(400).json({ error: 'Invalid M-Pesa code format. Must be 8-12 alphanumeric characters.' });
+  }
+
+  if (numAmount <= 0) {
+    return res.status(400).json({ error: 'Invalid deposit amount' });
+  }
+
+  const db = await getDatabase();
+
+  if (db.payments.some(p => p.code === trimmedCode)) {
+    return res.status(400).json({ error: 'This transaction code has already been registered on the platform.' });
+  }
+
+  const matchedStatement = (db.mpesaStatements || []).find(
+    s => s.code.toUpperCase() === trimmedCode && Math.abs(s.amount - numAmount) <= 5
+  );
+
+  const paymentRecord: PaymentRecord = {
+    id: db.nextIds.payment++,
+    type: 'coin_purchase',
+    userId: user.id,
+    userName: user.name,
+    code: trimmedCode,
+    amount: numAmount,
+    status: 'pending',
+    matchedTillEntry: matchedStatement,
+    createdAt: Date.now(),
+  };
+
+  db.payments.unshift(paymentRecord);
+  logAudit(db, user.id, user.name, 'COIN_DEPOSIT_SUBMITTED', `Submitted coin deposit of KSh ${numAmount} (Code: ${trimmedCode})`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    payment: paymentRecord,
+    message: `Coin purchase code ${trimmedCode} submitted! Once approved by admin, ${numAmount * 2} coins will be credited to your wallet.`,
+  });
+});
+
+apiRouter.get('/coins/ledger', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const db = await getDatabase();
+  const userLedger = (db.coinLedger || []).filter(
+    l => l.senderId === user.id || l.recipientId === user.id || user.role === 'admin'
+  );
+
+  res.json({ ledger: userLedger });
+});
+
+

@@ -187,11 +187,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
     setNotice('');
     try {
+      const referrer = typeof window !== 'undefined' ? localStorage.getItem('buyoll_referrer') : null;
       const res = await api.register({
         role,
         name: reg.name.trim(),
         email: reg.email.trim(),
         password: reg.password.trim(),
+        referredBy: referrer || undefined,
       });
 
       onNotify('success', res.notice || `Account created successfully! Welcome to Buyoll.`);

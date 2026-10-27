@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Sparkles,
   Tag,
+  X,
 } from 'lucide-react';
 
 interface VendorDashboardPageProps {
@@ -32,6 +33,85 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+
+  // PROMPT 4: Merchant Onboarding & Subscription 3-Step Flow state
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [subStep, setSubStep] = useState<1 | 2 | 3>(1);
+  const [subPlan, setSubPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
+  const [subPaymentCode, setSubPaymentCode] = useState('');
+  const [subTillNumber, setSubTillNumber] = useState(currentUser?.tillNumber || '');
+  const [subPaybillNumber, setSubPaybillNumber] = useState(currentUser?.paybillNumber || '');
+  const [submittingSubscription, setSubmittingSubscription] = useState(false);
+
+  // PROMPT 4: 10-Speed Group Creation modal
+  const [isSpeedGroupModalOpen, setIsSpeedGroupModalOpen] = useState(false);
+  const [selectedProductForGroup, setSelectedProductForGroup] = useState<Product | null>(null);
+  const [selectedSpeedSize, setSelectedSpeedSize] = useState<number>(10);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'platform' | 'merchant'>('platform');
+  const [submittingSpeedGroup, setSubmittingSpeedGroup] = useState(false);
+
+  const isSubscribedAndVerified = Boolean(
+    currentUser?.merchantSubscriptionStatus === 'active' && currentUser?.verified
+  );
+
+  async function handleSubscriptionSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const code = subPaymentCode.trim().toUpperCase();
+    if (!code) {
+      onNotify('error', 'Please enter your M-Pesa transaction code.');
+      return;
+    }
+    if (!/^[A-Z0-9]{8,12}$/i.test(code)) {
+      onNotify('error', 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters.');
+      return;
+    }
+
+    setSubmittingSubscription(true);
+    try {
+      const res = await api.subscribeMerchant({
+        plan: subPlan,
+        paymentCode: code,
+        tillNumber: subTillNumber || undefined,
+        paybillNumber: subPaybillNumber || undefined,
+      });
+      onNotify('success', res.message);
+      setIsSubscriptionModalOpen(false);
+      setSubPaymentCode('');
+      loadVendorData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to submit merchant subscription');
+    } finally {
+      setSubmittingSubscription(false);
+    }
+  }
+
+  async function handleCreateSpeedGroup(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedProductForGroup) return;
+
+    if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
+      onNotify('error', 'Active merchant subscription and verification required to launch speed groups.');
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+
+    setSubmittingSpeedGroup(true);
+    try {
+      const res = await api.createGroup({
+        productId: selectedProductForGroup.id,
+        size: selectedSpeedSize,
+        paymentMode: selectedPaymentMode,
+      });
+      onNotify('success', `Created ${selectedSpeedSize}-Member Speed Group!`);
+      setIsSpeedGroupModalOpen(false);
+      loadVendorData();
+      onNavigate('group', res.group.id);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to create speed group');
+    } finally {
+      setSubmittingSpeedGroup(false);
+    }
+  }
 
   useEffect(() => {
     loadVendorData();
@@ -61,6 +141,16 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     return acc + g.slots.filter(s => s.status === 'active').reduce((sum, s) => sum + (s.paidAmount || 0), 0);
   }, 0);
 
+  function handleOpenCreateProduct() {
+    if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
+      onNotify('info', 'Active merchant subscription and verification required to post products.');
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    setEditingProduct(null);
+    setIsEditorOpen(true);
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -77,7 +167,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               </span>
             ) : (
               <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
-                Verification Pending
+                {currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Pending Admin Approval' : 'Subscription Inactive'}
               </span>
             )}
           </div>
@@ -86,17 +176,56 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setEditingProduct(null);
-            setIsEditorOpen(true);
-          }}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-sm self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Post New Listing</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {!isSubscribedAndVerified && (
+            <button
+              onClick={() => setIsSubscriptionModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>{currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'View Subscription Status' : 'Subscribe & Activate Store'}</span>
+            </button>
+          )}
+          <button
+            onClick={handleOpenCreateProduct}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-sm self-start sm:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Post New Listing</span>
+          </button>
+        </div>
       </div>
+
+      {/* PROMPT 4: ONBOARDING BANNER IF NOT SUBSCRIBED */}
+      {!isSubscribedAndVerified && (
+        <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-teal-500/10 border-2 border-emerald-600/30 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2 py-0.5 bg-[#0E5A3C] text-white text-[10px] font-black uppercase rounded-full">
+                Step 1 of 3: Merchant Onboarding
+              </span>
+              <span className="text-xs font-bold text-amber-800">
+                {currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Payment submitted · Awaiting Admin verification' : 'Activation Required'}
+              </span>
+            </div>
+            <h3 className="text-base font-extrabold text-slate-900">
+              {currentUser?.merchantSubscriptionStatus === 'pending_verification'
+                ? 'Your Subscription Payment is Awaiting Admin Verification'
+                : 'Subscribe to Buyoll Direct to Start Listing Products & Opening Speed Groups'}
+            </h3>
+            <p className="text-xs text-slate-600 mt-1 max-w-2xl">
+              Verified merchants can list unlimited products, configure 1-10 member speed groups, collect payments directly to their Till (Option A) or via Buyoll Escrow (Option B), and receive 5-star verified merchant badges.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsSubscriptionModalOpen(true)}
+            className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2"
+          >
+            <span>{currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Check Payment Status' : 'Choose Plan & Subscribe'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -261,6 +390,19 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       <td className="py-3 px-6 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
+                            onClick={() => {
+                              setSelectedProductForGroup(p);
+                              setSelectedSpeedSize(10);
+                              setSelectedPaymentMode(currentUser?.tillNumber ? 'merchant' : 'platform');
+                              setIsSpeedGroupModalOpen(true);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs transition-colors"
+                            title="Launch 1-10 Member Speed Group"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Launch Speed</span>
+                          </button>
+                          <button
                             onClick={() => onNavigate('product', p.id)}
                             className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg"
                             title="View Public Page"
@@ -325,11 +467,310 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         <VendorProductEditorModal
           product={editingProduct}
           onClose={() => setIsEditorOpen(false)}
-          onSaved={(savedProduct) => {
+          onSaved={() => {
             loadVendorData();
           }}
           onNotify={onNotify}
         />
+      )}
+
+      {/* PROMPT 4: MERCHANT ONBOARDING & SUBSCRIPTION 3-STEP MODAL */}
+      {isSubscriptionModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setIsSubscriptionModalOpen(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Stepper Header */}
+            <div className="pb-4 border-b border-slate-100 mb-5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
+                Buyoll Direct Merchant Onboarding · 3-Step Flow
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                {subStep === 1
+                  ? 'Step 1: Choose Your Merchant Subscription Plan'
+                  : subStep === 2
+                  ? 'Step 2: Payment Instructions & Store Till'
+                  : 'Step 3: Submit M-Pesa Code for Verification'}
+              </h3>
+            </div>
+
+            {/* Step 1: Choose Plan */}
+            {subStep === 1 && (
+              <div className="space-y-4">
+                <div className="space-y-2.5">
+                  {[
+                    { id: 'starter', name: 'Starter Merchant', price: 1500, desc: 'Up to 5 listings · Standard Chama speeds · Platform Till Option B' },
+                    { id: 'pro', name: 'Pro Merchant (Recommended)', price: 3500, desc: 'Up to 20 listings · 1-10 full speed spectrum · Verified store badge · Own Till Option A' },
+                    { id: 'enterprise', name: 'Enterprise Store', price: 7000, desc: 'Unlimited listings · Dedicated Account Manager · Top hero placement' },
+                  ].map((plan) => (
+                    <div
+                      key={plan.id}
+                      onClick={() => setSubPlan(plan.id as any)}
+                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                        subPlan === plan.id
+                          ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-slate-900 text-xs">{plan.name}</span>
+                        <b className="text-[#0E5A3C] font-mono text-sm">KSh {plan.price.toLocaleString()} / mo</b>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-normal">{plan.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setIsSubscriptionModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setSubStep(2)}
+                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <span>Proceed to Step 2</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Payment Till Instructions & Store Details */}
+            {subStep === 2 && (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1.5 text-emerald-950">
+                  <div className="font-bold text-sm">Pay Subscription Fee via M-Pesa:</div>
+                  <div className="font-mono text-xs">Amount: <b>KSh {subPlan === 'enterprise' ? '7,000' : subPlan === 'pro' ? '3,500' : '1,500'}</b></div>
+                  <div className="font-mono text-xs">Buy Goods Till: <b>196853</b> (Buyoll Platform)</div>
+                  <div className="font-mono text-xs">Or Paybill: <b>522533</b> · Account: <b>code4363</b></div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Your Store M-Pesa Till Number (Optional for Option A):
+                    </label>
+                    <input
+                      type="text"
+                      value={subTillNumber}
+                      onChange={(e) => setSubTillNumber(e.target.value)}
+                      placeholder="e.g. 3463533 (for direct member payments)"
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Your Store Paybill Number (Optional):
+                    </label>
+                    <input
+                      type="text"
+                      value={subPaybillNumber}
+                      onChange={(e) => setSubPaybillNumber(e.target.value)}
+                      placeholder="e.g. 26253326"
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <button
+                    onClick={() => setSubStep(1)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Back to Step 1
+                  </button>
+                  <button
+                    onClick={() => setSubStep(3)}
+                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <span>Proceed to Step 3</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Enter M-Pesa Code */}
+            {subStep === 3 && (
+              <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Plan:</span>
+                    <b className="text-slate-900 uppercase">{subPlan}</b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Subscription Amount:</span>
+                    <b className="text-[#0E5A3C] font-mono">
+                      KSh {subPlan === 'enterprise' ? '7,000' : subPlan === 'pro' ? '3,500' : '1,500'}
+                    </b>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Enter M-Pesa Transaction Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={12}
+                    value={subPaymentCode}
+                    onChange={(e) => setSubPaymentCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. QJL890KN12"
+                    className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Once submitted, our Admin team verifies the Till statement and activates your store with a 5-star verified badge!
+                  </p>
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSubStep(2)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Back to Step 2
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingSubscription}
+                    className="px-5 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                  >
+                    {submittingSubscription ? 'Submitting...' : 'Submit Code for Activation'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PROMPT 4: 10-SPEED GROUP CREATION MODAL */}
+      {isSpeedGroupModalOpen && selectedProductForGroup && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setIsSpeedGroupModalOpen(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Launch Speed Chama Group
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Open a new Chama group for <b>{selectedProductForGroup.title}</b> (KSh {selectedProductForGroup.price.toLocaleString()}) with 1 to 10 member speed options.
+            </p>
+
+            <form onSubmit={handleCreateSpeedGroup} className="space-y-4">
+              {/* 10 Speed Selection Options */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Choose Group Speed (1 to 10 Members):
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sz) => {
+                    const isSolo = sz === 1;
+                    const daily = isSolo
+                      ? Math.ceil(selectedProductForGroup.price / 90)
+                      : Math.ceil(selectedProductForGroup.price / sz / 10);
+
+                    return (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setSelectedSpeedSize(sz)}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          selectedSpeedSize === sz
+                            ? 'border-[#0E5A3C] bg-emerald-50 text-[#0E5A3C] font-black ring-2 ring-[#0E5A3C]/30'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-700 font-bold'
+                        }`}
+                      >
+                        <div className="text-xs">{sz} {isSolo ? 'Solo' : 'Mem'}</div>
+                        <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                          KSh {daily.toLocaleString()}/d
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Payment Mode Selection: Option A (Merchant Till) vs Option B (Platform Till) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Choose Payment Collection Mode:
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div
+                    onClick={() => setSelectedPaymentMode('merchant')}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      selectedPaymentMode === 'merchant'
+                        ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900 mb-1">
+                      Option A: Merchant Direct Till
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      Members pay directly to your store Till ({currentUser?.tillNumber || 'Merchant Till'}). No platform escrow.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setSelectedPaymentMode('platform')}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      selectedPaymentMode === 'platform'
+                        ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900 mb-1">
+                      Option B: Buyoll Platform Till
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      Members pay via Buyoll Platform Till (196853) / Paybill (522533). Released upon item collection.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSpeedGroupModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingSpeedGroup}
+                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                >
+                  {submittingSpeedGroup ? 'Opening Group...' : `Launch ${selectedSpeedSize}-Member Speed Group`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

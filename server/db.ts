@@ -14,6 +14,9 @@ import {
   SpeedOption,
   PeerLoanRequest,
   HelpChatMessage,
+  CoinLedgerEntry,
+  ChatModerationEvent,
+  MpesaStatementRecord,
 } from '../src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +33,9 @@ export interface DatabaseSchema {
   payments: PaymentRecord[];
   peerLoans: PeerLoanRequest[];
   storeCreditLedger: StoreCreditLedgerEntry[];
+  coinLedger: CoinLedgerEntry[];
+  chatModerationLogs: ChatModerationEvent[];
+  mpesaStatements: MpesaStatementRecord[];
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -41,6 +47,8 @@ export interface DatabaseSchema {
     payment: number;
     peerLoan: number;
     ledger: number;
+    coinLedger: number;
+    moderation: number;
     audit: number;
   };
 }
@@ -637,9 +645,39 @@ function getInitialDatabase(): DatabaseSchema {
       payment: 10,
       peerLoan: 1,
       ledger: 1,
+      coinLedger: 1,
+      moderation: 1,
       audit: 10,
     },
     peerLoans: [],
+    coinLedger: [],
+    chatModerationLogs: [],
+    mpesaStatements: [
+      {
+        code: 'QJK4X8L2PA',
+        amount: 6800,
+        phone: '0712345678',
+        payerName: 'Samuel Mwangi',
+        timestamp: now - 3 * dayMs,
+        channel: 'Till 196853',
+      },
+      {
+        code: 'RC88K99LPX',
+        amount: 3500,
+        phone: '0722334455',
+        payerName: 'David Kariuki',
+        timestamp: now - 2 * dayMs,
+        channel: 'Till 196853',
+      },
+      {
+        code: 'TL55M77QPZ',
+        amount: 1500,
+        phone: '0711002233',
+        payerName: 'Mercy Achieng',
+        timestamp: now - 1 * dayMs,
+        channel: 'Paybill 522533',
+      },
+    ],
   };
 }
 
@@ -652,10 +690,79 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     dbCache = JSON.parse(raw);
     if (!dbCache!.peerLoans) dbCache!.peerLoans = [];
     if (!dbCache!.helpChat) dbCache!.helpChat = [];
+    if (!dbCache!.coinLedger) dbCache!.coinLedger = [];
+    if (!dbCache!.chatModerationLogs) dbCache!.chatModerationLogs = [];
+    if (!dbCache!.mpesaStatements) {
+      dbCache!.mpesaStatements = [
+        {
+          code: 'RFM9B3V5KT',
+          amount: 2040,
+          phone: '0711000000',
+          payerName: 'Faith Chebet',
+          timestamp: Date.now() - 3600000,
+          channel: 'Till 196853',
+        },
+        {
+          code: 'QAD8912KLM',
+          amount: 6800,
+          phone: '0712345678',
+          payerName: 'Samuel Mwangi',
+          timestamp: Date.now() - 7200000,
+          channel: 'Till 196853',
+        },
+        {
+          code: 'TX99281MNB',
+          amount: 500,
+          phone: '0722334455',
+          payerName: 'Grace Muthoni',
+          timestamp: Date.now() - 14400000,
+          channel: 'Paybill 522533',
+        },
+      ];
+    }
+    if (!dbCache!.nextIds) {
+      dbCache!.nextIds = {
+        user: 20,
+        product: 30,
+        group: 300,
+        defaultRecord: 1,
+        refundRequest: 1,
+        payment: 20,
+        peerLoan: 1,
+        ledger: 1,
+        coinLedger: 1,
+        moderation: 1,
+        audit: 20,
+      };
+    }
+    if (!dbCache!.nextIds.coinLedger) dbCache!.nextIds.coinLedger = 1;
+    if (!dbCache!.nextIds.moderation) dbCache!.nextIds.moderation = 1;
     if (!dbCache!.nextIds.peerLoan) dbCache!.nextIds.peerLoan = 1;
     return dbCache!;
   } catch {
     const initial = getInitialDatabase();
+    initial.coinLedger = [];
+    initial.chatModerationLogs = [];
+    initial.mpesaStatements = [
+      {
+        code: 'RFM9B3V5KT',
+        amount: 2040,
+        phone: '0711000000',
+        payerName: 'Faith Chebet',
+        timestamp: Date.now() - 3600000,
+        channel: 'Till 196853',
+      },
+      {
+        code: 'QAD8912KLM',
+        amount: 6800,
+        phone: '0712345678',
+        payerName: 'Samuel Mwangi',
+        timestamp: Date.now() - 7200000,
+        channel: 'Till 196853',
+      },
+    ];
+    if (!initial.nextIds.coinLedger) initial.nextIds.coinLedger = 1;
+    if (!initial.nextIds.moderation) initial.nextIds.moderation = 1;
     await saveDatabase(initial);
     dbCache = initial;
     return dbCache;

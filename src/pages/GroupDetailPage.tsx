@@ -90,6 +90,17 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [statementData, setStatementData] = useState<MemberStatement | null>(null);
   const [loadingStatement, setLoadingStatement] = useState(false);
 
+  // PROMPT 3: 3-Step Slot Picking state
+  const [slotPickerTarget, setSlotPickerTarget] = useState<GroupSlot | null>(null);
+  const [slotPickerStep, setSlotPickerStep] = useState<1 | 2 | 3>(1);
+  const [slotPickerSubmitting, setSlotPickerSubmitting] = useState(false);
+
+  // PROMPT 3: Arrears clearing modal state
+  const [showArrearsModal, setShowArrearsModal] = useState(false);
+  const [selectedMissedDays, setSelectedMissedDays] = useState<number[]>([]);
+  const [arrearsPaymentCode, setArrearsPaymentCode] = useState('');
+  const [submittingArrears, setSubmittingArrears] = useState(false);
+
   useEffect(() => {
     loadGroup();
   }, [groupId]);
@@ -421,19 +432,78 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // Quick Join into an open or replacement-eligible slot
-  async function handleDirectJoin(slot: GroupSlot) {
+  // PROMPT 3: 3-step slot picking flow
+  function handleDirectJoin(slot: GroupSlot) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to join this Chama slot.');
       onOpenAuth();
       return;
     }
+    setSlotPickerTarget(slot);
+    setSlotPickerStep(1);
+  }
+
+  async function handleConfirmSlotPick() {
+    if (!currentUser) {
+      onNotify('info', 'Please sign in to join this Chama slot.');
+      onOpenAuth();
+      return;
+    }
+    if (!slotPickerTarget || !group) return;
+
+    setSlotPickerSubmitting(true);
     try {
-      const res = await api.joinGroup(group!.id, slot.inviteCode || group!.inviteCode);
+      const res = await api.joinGroup(group.id, slotPickerTarget.inviteCode || group.inviteCode, slotPickerTarget.slotNumber);
       onNotify('success', res.message);
+      setSlotPickerTarget(null);
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to claim slot');
+    } finally {
+      setSlotPickerSubmitting(false);
+    }
+  }
+
+  // PROMPT 3: Pay for missed days (Arrears clearing)
+  async function handlePayArrearsSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentUser || !mySlot || !group) return;
+
+    const trimmedCode = arrearsPaymentCode.trim().toUpperCase();
+    if (!trimmedCode) {
+      onNotify('error', 'Please enter your M-Pesa transaction code.');
+      return;
+    }
+
+    if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
+      onNotify('error', 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters.');
+      return;
+    }
+
+    if (selectedMissedDays.length === 0) {
+      onNotify('error', 'Please select at least one missed day to clear.');
+      return;
+    }
+
+    const totalArrearsAmount = selectedMissedDays.length * group.dailyAmount;
+    setSubmittingArrears(true);
+    try {
+      const res = await api.payDay(group.id, {
+        slotNumber: mySlot.slotNumber,
+        days: selectedMissedDays,
+        amount: totalArrearsAmount,
+        code: trimmedCode,
+      });
+
+      onNotify('success', res.message);
+      setShowArrearsModal(false);
+      setArrearsPaymentCode('');
+      setSelectedMissedDays([]);
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to submit arrears payment');
+    } finally {
+      setSubmittingArrears(false);
     }
   }
 
@@ -539,6 +609,44 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* REAL-TIME GROUP NOTIFICATIONS FEED (Prompt 3) */}
+      {group.notifications && group.notifications.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6 shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+              <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
+                Real-Time Chama Broadcast Feed
+              </h3>
+            </div>
+            <span className="text-[11px] font-mono text-emerald-700">
+              {group.notifications.length} update{group.notifications.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            {group.notifications.slice(0, 4).map((notif) => (
+              <div
+                key={notif.id}
+                className="bg-white/80 p-2.5 rounded-xl border border-emerald-100 text-xs flex items-center justify-between gap-2 shadow-2xs"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-base shrink-0">
+                    {notif.type === 'loan_request' ? '📢' : notif.type === 'payment_submitted' ? '⏳' : notif.type === 'payment_approved' ? '✅' : '🔔'}
+                  </span>
+                  <div className="min-w-0">
+                    <span className="font-bold text-slate-900 block truncate">{notif.title}</span>
+                    <span className="text-[11px] text-slate-600 block truncate">{notif.message}</span>
+                  </div>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                  {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* REAL-TIME CONTRIBUTION TRACKER & ROTATION CYCLE COMPONENT (Specification Section 6) */}
       {(() => {
@@ -816,6 +924,74 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                 `KSh ${Math.max(0, group.productPrice - (slot.paidAmount || 0)).toLocaleString()} remaining`
                               )}
                             </span>
+                          </div>
+
+                          {/* PROMPT 3: Daily Calendar Contribution Tracker (Paid ✓, Pending ⏳, Missed ✗) */}
+                          <div className="mt-2.5 pt-2 border-t border-slate-100">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                              <span>Daily Tracker ({Math.min(group.cycleDays, 10)} Days):</span>
+                              <span className="font-mono text-[9px] text-slate-400">✓ Paid · ⏳ Pending · ✗ Missed</span>
+                            </div>
+
+                            {(() => {
+                              const cycleDaysTotal = Math.min(group.cycleDays, 10);
+                              const currentDayNum = Math.min(
+                                cycleDaysTotal,
+                                Math.max(1, Math.ceil((Date.now() - (slot.joinedAt || group.createdAt)) / 86400000))
+                              );
+                              const missedDaysForSlot: number[] = [];
+
+                              return (
+                                <>
+                                  <div className="flex flex-wrap gap-1">
+                                    {Array.from({ length: cycleDaysTotal }, (_, di) => {
+                                      const dayNum = di + 1;
+                                      const isPaid = (slot.paidDays || []).includes(dayNum);
+                                      const isPending = (slot.pendingDays || []).includes(dayNum);
+                                      const isMissed = !isPaid && !isPending && dayNum < currentDayNum;
+                                      if (isMissed) missedDaysForSlot.push(dayNum);
+
+                                      return (
+                                        <span
+                                          key={dayNum}
+                                          title={`Day ${dayNum}: ${isPaid ? 'Paid (Verified)' : isPending ? 'Pending Verification' : isMissed ? 'Missed / Arrears' : 'Upcoming'}`}
+                                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold flex items-center gap-0.5 border ${
+                                            isPaid
+                                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                              : isPending
+                                              ? 'bg-amber-100 text-amber-800 border-amber-300 animate-pulse'
+                                              : isMissed
+                                              ? 'bg-red-100 text-red-800 border-red-300'
+                                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                                          }`}
+                                        >
+                                          <span>D{dayNum}</span>
+                                          <span>{isPaid ? '✓' : isPending ? '⏳' : isMissed ? '✗' : '○'}</span>
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Pay for missed days arrears button (Prompt 3) */}
+                                  {isMe && missedDaysForSlot.length > 0 && (
+                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-2">
+                                      <div className="text-[11px] text-red-800 font-semibold">
+                                        ⚠️ {missedDaysForSlot.length} missed day{missedDaysForSlot.length !== 1 ? 's' : ''} (KSh {(missedDaysForSlot.length * group.dailyAmount).toLocaleString()})
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedMissedDays(missedDaysForSlot);
+                                          setShowArrearsModal(true);
+                                        }}
+                                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-xs shrink-0"
+                                      >
+                                        Pay Missed Days
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       )}
@@ -1995,6 +2171,313 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* PROMPT 3: 3-STEP SLOT PICKING MODAL */}
+
+      {slotPickerTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setSlotPickerTarget(null)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Stepper Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
+                  3-Step Slot Selection & Onboarding
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {slotPickerStep === 1
+                    ? 'Step 1: Choose & Confirm Slot'
+                    : slotPickerStep === 2
+                    ? 'Step 2: Review Cycle & Payment Mode'
+                    : 'Step 3: Confirm & Join Group'}
+                </h3>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-xs font-bold">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 1 ? 'bg-[#0E5A3C] text-white' : 'bg-emerald-100 text-emerald-800'}`}>1</span>
+                <span className="w-3 h-0.5 bg-slate-200" />
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 2 ? 'bg-[#0E5A3C] text-white' : 'bg-slate-100 text-slate-500'}`}>2</span>
+                <span className="w-3 h-0.5 bg-slate-200" />
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 3 ? 'bg-[#0E5A3C] text-white' : 'bg-slate-100 text-slate-500'}`}>3</span>
+              </div>
+            </div>
+
+            {/* Step 1: Slot Picking */}
+            {slotPickerStep === 1 && (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  You are picking <b>Slot #{slotPickerTarget.slotNumber}</b> in <span className="text-slate-900 font-bold">{group.name}</span>.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Your Rotation Position:</span>
+                    <b className="text-slate-900 text-sm">Member #{slotPickerTarget.slotNumber}</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Item Delivery Day:</span>
+                    <b className="text-[#0E5A3C] text-sm">Day {slotPickerTarget.slotNumber * group.cycleDays}</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Daily Installment:</span>
+                    <b className="text-slate-900 text-sm">KSh {group.dailyAmount.toLocaleString()} / day</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Total Target:</span>
+                    <b className="text-slate-900 text-sm">KSh {group.productPrice.toLocaleString()}</b>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-emerald-50 text-emerald-900 rounded-xl text-xs flex items-start gap-2">
+                  <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                  <span>
+                    Chama rotation is strictly sequential. As Member #{slotPickerTarget.slotNumber}, your delivery is scheduled when cycle round #{slotPickerTarget.slotNumber} is reached!
+                  </span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setSlotPickerTarget(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setSlotPickerStep(2)}
+                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                  >
+                    <span>Proceed to Step 2</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Payment Plan & Till Mode Review */}
+            {slotPickerStep === 2 && (
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                  <div className="flex justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Group Speed:</span>
+                    <span className="font-bold text-slate-900">{group.size} Members ({group.cycleDays} Days/Round)</span>
+                  </div>
+                  <div className="flex justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Payment Collection Mode:</span>
+                    <span className="font-bold text-[#0E5A3C]">
+                      {group.paymentMode === 'merchant' ? 'Option A: Merchant Direct Till' : 'Option B: Buyoll Platform Till'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Payment Channel:</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      Till: {group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Mandatory Daily Obligation:</span>
+                    <span className="font-mono font-black text-slate-900">KSh {group.dailyAmount.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Prompt Payment Policy & Platform Coins:</span>
+                  </div>
+                  <p>
+                    Prompt payers receive automatic points on their Buyoll Financial CV and fellow members can reward you with coins. Missed days accumulate in arrears and must be settled promptly.
+                  </p>
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <button
+                    onClick={() => setSlotPickerStep(1)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Back to Step 1
+                  </button>
+                  <button
+                    onClick={() => setSlotPickerStep(3)}
+                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                  >
+                    <span>Proceed to Step 3</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Final Confirmation & Activation */}
+            {slotPickerStep === 3 && (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-2">
+                  <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Slot #{slotPickerTarget.slotNumber} Ready for Activation</span>
+                  </div>
+                  <p className="text-emerald-900 leading-relaxed">
+                    By clicking "Confirm & Join Slot", you become an active member of this Chama group. You will start making daily contributions of <b>KSh {group.dailyAmount.toLocaleString()}</b> and can begin tracking your progress immediately.
+                  </p>
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <button
+                    onClick={() => setSlotPickerStep(2)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Back to Step 2
+                  </button>
+                  <button
+                    onClick={handleConfirmSlotPick}
+                    disabled={slotPickerSubmitting}
+                    className="px-6 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-extrabold rounded-xl transition-colors shadow-sm flex items-center gap-2"
+                  >
+                    {slotPickerSubmitting ? (
+                      <span>Claiming Slot #{slotPickerTarget.slotNumber}...</span>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Confirm & Join as Member #{slotPickerTarget.slotNumber}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PROMPT 3: PAY FOR MISSED DAYS (ARREARS CLEARING) MODAL */}
+      {showArrearsModal && mySlot && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowArrearsModal(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Pay for Missed Days (Clear Arrears)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Select which missed days you are paying for to restore your green checkmarks (✓) and maintain high financial CV standing.
+            </p>
+
+            <form onSubmit={handlePayArrearsSubmit} className="space-y-4">
+              {/* Day selection checklist */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Select Days to Pay:
+                </label>
+                <div className="grid grid-cols-5 gap-2 max-h-36 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
+                  {Array.from({ length: Math.min(group.cycleDays, 10) }, (_, i) => i + 1).map((dayNum) => {
+                    const isAlreadyPaid = (mySlot.paidDays || []).includes(dayNum);
+                    const isAlreadyPending = (mySlot.pendingDays || []).includes(dayNum);
+                    const isSelected = selectedMissedDays.includes(dayNum);
+
+                    return (
+                      <button
+                        key={dayNum}
+                        type="button"
+                        disabled={isAlreadyPaid || isAlreadyPending}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedMissedDays(prev => prev.filter(d => d !== dayNum));
+                          } else {
+                            setSelectedMissedDays(prev => [...prev, dayNum]);
+                          }
+                        }}
+                        className={`p-2 rounded-lg text-xs font-mono font-bold border transition-colors flex flex-col items-center justify-center ${
+                          isAlreadyPaid
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 opacity-60 cursor-not-allowed'
+                            : isAlreadyPending
+                            ? 'bg-amber-50 text-amber-800 border-amber-200 opacity-70 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-[#0E5A3C] text-white border-[#0E5A3C] shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                        }`}
+                      >
+                        <span>D{dayNum}</span>
+                        <span className="text-[10px] font-normal">
+                          {isAlreadyPaid ? '✓' : isAlreadyPending ? '⏳' : isSelected ? '✓ Pick' : '✗ Miss'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Total Calculation */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold">Total Arrears Amount:</span>
+                  <span className="text-slate-700">
+                    {selectedMissedDays.length} day{selectedMissedDays.length !== 1 ? 's' : ''} × KSh {group.dailyAmount.toLocaleString()}
+                  </span>
+                </div>
+                <b className="text-lg font-mono font-black text-[#0E5A3C]">
+                  KSh {(selectedMissedDays.length * group.dailyAmount).toLocaleString()}
+                </b>
+              </div>
+
+              {/* Payment Till Instructions */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200/60 rounded-xl text-xs space-y-1 text-emerald-950">
+                <span className="font-bold block">1. Pay via M-Pesa Buy Goods or Paybill:</span>
+                <div className="font-mono text-[11px] space-y-0.5">
+                  <div>Till Number: <b>{group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}</b></div>
+                  <div>Paybill: <b>{group.paymentMode === 'merchant' ? (group.merchantPaybill || '26253326') : (group.platformPaybill || '522533')}</b> (Acc: <b>{group.paymentMode === 'merchant' ? group.merchantAccount : group.platformAccount}</b>)</div>
+                </div>
+              </div>
+
+              {/* M-Pesa Code Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  2. Enter M-Pesa Transaction Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={12}
+                  value={arrearsPaymentCode}
+                  onChange={(e) => setArrearsPaymentCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. RJL798K2MN (8-12 alphanumeric characters)"
+                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArrearsModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingArrears || selectedMissedDays.length === 0}
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                >
+                  {submittingArrears ? 'Submitting Payment...' : 'Submit Arrears Payment'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

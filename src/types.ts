@@ -19,11 +19,25 @@ export interface User {
   shopName?: string;
   shopDescription?: string;
   verified?: boolean;
+  verificationNotes?: string;
+  merchantVerificationNotes?: string;
+  verifiedAt?: number;
+  isSuspended?: boolean;
+  suspendReason?: string;
+  isMuted?: boolean;
+  merchantSubscriptionStatus?: 'inactive' | 'pending' | 'pending_verification' | 'active';
+  merchantSubscriptionPlan?: 'starter' | 'pro' | 'enterprise';
+  merchantSubscriptionTxCode?: string;
+  merchantSubscriptionExpiresAt?: number;
+  referralCode?: string;
+  referredBy?: string;
   starRating?: number; // 1 to 5
   ratingCount?: number;
   reviews?: MerchantReview[];
   tillNumber?: string; // e.g. merchant M-Pesa till
+  paybillNumber?: string;
   credit: number; // in KSh
+  nonWithdrawableBalance?: number; // in KSh
   coins: number;
   points: number;
   lastActive: number;
@@ -74,6 +88,15 @@ export interface Product {
   updatedAt: number;
 }
 
+export interface DailyPaymentRecord {
+  day: number;
+  code: string;
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected';
+  timestamp: number;
+  rejectionReason?: string;
+}
+
 export interface GroupSlot {
   slotNumber: number; // 1 to size
   userId: number | null;
@@ -84,6 +107,9 @@ export interface GroupSlot {
   inviteCode: string;
   paidAmount: number;
   targetAmount: number;
+  paidDays?: number[]; // list of days that have been approved (e.g. [1, 2, 3])
+  pendingDays?: number[]; // list of days with pending submission (e.g. [4])
+  dailyPaymentRecords?: DailyPaymentRecord[];
   lastPaymentDate?: number;
   joinedAt?: number;
   isDefaulter?: boolean;
@@ -95,6 +121,18 @@ export interface GroupChatMessage {
   senderName: string;
   kind?: 'normal' | 'reward' | 'nudge' | 'system';
   text: string;
+  isFlagged?: boolean;
+  timestamp: number;
+}
+
+export interface GroupNotification {
+  id: string;
+  groupId: number;
+  groupName: string;
+  recipientUserId?: number; // if null, broadcast to entire group
+  title: string;
+  message: string;
+  type: 'payment_submitted' | 'payment_approved' | 'missed_payment' | 'loan_request' | 'system';
   timestamp: number;
 }
 
@@ -135,14 +173,17 @@ export interface ChamaGroup {
   occupiedCount: number;
   availableCount: number;
   chat: GroupChatMessage[];
+  notifications?: GroupNotification[];
   createdAt: number;
+  // Payment Collection Mode: Option A (merchant till) vs Option B (platform till)
+  paymentMode?: 'platform' | 'merchant';
   // Manual Till & Paybill details (No escrow):
   platformTill?: string; // '196853'
   platformPaybill?: string; // '522533'
   platformAccount?: string; // 'code4363'
-  merchantTill?: string; // '3463533'
-  merchantPaybill?: string; // '26253326'
-  merchantAccount?: string; // 'Code4533'
+  merchantTill?: string; // e.g. '3463533' or custom
+  merchantPaybill?: string; // e.g. '26253326'
+  merchantAccount?: string; // e.g. 'Code4533'
   // Group contribution round / cycle tracking:
   currentRound?: number; // 1 to size
   currentRecipientSlot?: number; // Slot # of the member who receives this round's item
@@ -193,9 +234,20 @@ export interface RefundRequest {
   processedAt?: number;
 }
 
+export interface MpesaStatementRecord {
+  code: string;
+  amount: number;
+  phone?: string;
+  payerName?: string;
+  senderName?: string;
+  tillOrPaybill?: string;
+  timestamp?: number | string;
+  channel?: string;
+}
+
 export interface PaymentRecord {
   id: number;
-  type: 'group_installment' | 'listing_fee' | 'coin_purchase' | 'loan_fee';
+  type: 'group_installment' | 'listing_fee' | 'coin_purchase' | 'loan_fee' | 'merchant_subscription';
   userId: number;
   userName: string;
   code: string; // M-Pesa transaction reference
@@ -205,17 +257,56 @@ export interface PaymentRecord {
   slotNumber?: number;
   productId?: number;
   loanId?: number;
+  daysPaid?: number[]; // e.g. [1] or [1, 2]
   status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
+  matchedTillEntry?: MpesaStatementRecord;
+  idempotencyKey?: string;
   createdAt: number;
   approvedAt?: number;
 }
+
+export interface CoinLedgerEntry {
+  id: string | number;
+  senderId: number;
+  senderName: string;
+  recipientId: number;
+  recipientName: string;
+  amount: number;
+  senderBalanceAfter?: number;
+  recipientBalanceAfter?: number;
+  type: 'member_award' | 'platform_reward' | 'reward_platform' | 'coin_deposit' | 'loan_funding' | 'transfer' | 'deposit';
+  note?: string;
+  reason?: string;
+  timestamp: number;
+}
+
+export interface ChatModerationEvent {
+  id: string;
+  groupId?: number;
+  groupName?: string;
+  messageId?: string;
+  senderId?: number;
+  senderName?: string;
+  targetUserId?: number;
+  targetUserName?: string;
+  messageText?: string;
+  action: string;
+  reason: string;
+  adminId?: number;
+  adminName?: string;
+  moderatorId?: number;
+  moderatorName?: string;
+  timestamp: number;
+}
+
 
 export interface StoreCreditLedgerEntry {
   id: number;
   userId: number;
   amount: number; // + or -
   balanceAfter: number;
-  type: 'default_conversion' | 'point_redemption' | 'purchase_deduction' | 'admin_adjustment';
+  type: 'default_conversion' | 'point_redemption' | 'purchase_deduction' | 'admin_adjustment' | 'loan_disbursement' | 'loan_funding' | 'loan_commission';
   referenceId?: string;
   note: string;
   createdAt: number;

@@ -805,6 +805,7 @@ export const api = {
     phone?: string;
     shopName?: string;
     shopDescription?: string;
+    referredBy?: string;
   }): Promise<{ user: User; notice?: string }> {
     try {
       const data = await fetchApi<{ user: User; notice?: string }>('/auth/register', {
@@ -1072,7 +1073,7 @@ export const api = {
     }
   },
 
-  async createGroup(data: { productId: number; size: number; name?: string }): Promise<{ group: ChamaGroup; message: string }> {
+  async createGroup(data: { productId: number; size: number; name?: string; paymentMode?: 'merchant' | 'platform' }): Promise<{ group: ChamaGroup; message: string }> {
     try {
       return await fetchApi<{ group: ChamaGroup; message: string }>('/groups', {
         method: 'POST',
@@ -1155,11 +1156,11 @@ export const api = {
     }
   },
 
-  async joinGroup(id: number, inviteCode?: string): Promise<{ group: ChamaGroup; assignedSlot: number; message: string }> {
+  async joinGroup(id: number, inviteCode?: string, slotNumber?: number): Promise<{ group: ChamaGroup; assignedSlot: number; message: string }> {
     try {
       return await fetchApi<{ group: ChamaGroup; assignedSlot: number; message: string }>(`/groups/${id}/join`, {
         method: 'POST',
-        body: JSON.stringify({ inviteCode }),
+        body: JSON.stringify({ inviteCode, slotNumber }),
       });
     } catch {
       const db = getClientDb();
@@ -1168,7 +1169,13 @@ export const api = {
       const group = db.groups.find(g => g.id === Number(id));
       if (!group) throw new Error('Chama group not found');
 
-      let targetSlot = group.slots.find(s => s.status === 'replacement_eligible') || group.slots.find(s => s.status === 'open');
+      let targetSlot: GroupSlot | undefined;
+      if (slotNumber) {
+        targetSlot = group.slots.find(s => s.slotNumber === Number(slotNumber) && (s.status === 'open' || s.status === 'replacement_eligible'));
+      }
+      if (!targetSlot) {
+        targetSlot = group.slots.find(s => s.status === 'replacement_eligible') || group.slots.find(s => s.status === 'open');
+      }
       if (!targetSlot) throw new Error('This Chama group is full.');
 
       targetSlot.userId = user.id;
@@ -2223,5 +2230,136 @@ export const api = {
       return { merchant };
     }
   },
+
+  // PROMPT 3: Daily payment & arrears
+  async payDay(
+    groupId: number,
+    data: { slotNumber: number; dayNumber?: number; days?: number[]; code: string; amount: number }
+  ): Promise<{ group: ChamaGroup; payment: PaymentRecord; message: string }> {
+    return await fetchApi<{ group: ChamaGroup; payment: PaymentRecord; message: string }>(`/groups/${groupId}/pay-day`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getGroupNotifications(groupId: number): Promise<{ notifications: any[] }> {
+    return await fetchApi<{ notifications: any[] }>(`/groups/${groupId}/notifications`);
+  },
+
+  async requestGroupLoan(
+    groupId: number,
+    data: { amount: number; purpose?: string; slotNumber: number }
+  ): Promise<{ loan: PeerLoanRequest; group: ChamaGroup; message: string }> {
+    return await fetchApi<{ loan: PeerLoanRequest; group: ChamaGroup; message: string }>(`/groups/${groupId}/loan-request`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // PROMPT 4: Merchant onboarding & subscription
+  async subscribeMerchant(data: {
+    plan: string;
+    paymentCode: string;
+    tillNumber?: string;
+    paybillNumber?: string;
+  }): Promise<{ user: User; payment: PaymentRecord; message: string }> {
+    return await fetchApi<{ user: User; payment: PaymentRecord; message: string }>('/merchant/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // PROMPT 5: Lender atomic funding
+  async fundLoan(loanId: number, groupId?: number): Promise<any> {
+    const endpoint = groupId ? `/groups/${groupId}/loans/${loanId}/fund` : `/loans/${loanId}/fund`;
+    return await fetchApi<any>(endpoint, {
+      method: 'POST',
+    });
+  },
+
+  // PROMPT 6: Admin payment reconciliation, user management & moderation
+  async getAdminPayments(): Promise<{ payments: any[]; statements: any[] }> {
+    return await fetchApi<{ payments: any[]; statements: any[] }>('/admin/payments');
+  },
+
+  async adminDecidePayment(paymentId: number, decision: 'approve' | 'reject', reason?: string): Promise<any> {
+    return await fetchApi<any>(`/admin/payments/${paymentId}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, reason }),
+    });
+  },
+
+  async getAdminUsers(): Promise<{ users: User[] }> {
+    return await fetchApi<{ users: User[] }>('/admin/users');
+  },
+
+  async adminVerifyUser(userId: number, verified: boolean, notes?: string): Promise<any> {
+    return await fetchApi<any>(`/admin/users/${userId}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ verified, notes }),
+    });
+  },
+
+  async adminSuspendUser(userId: number, isSuspended: boolean, reason?: string): Promise<any> {
+    return await fetchApi<any>(`/admin/users/${userId}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify({ isSuspended, reason }),
+    });
+  },
+
+  async adminAwardPoints(userId: number, points: number, reason?: string): Promise<any> {
+    return await fetchApi<any>(`/admin/users/${userId}/award-points`, {
+      method: 'POST',
+      body: JSON.stringify({ points, reason }),
+    });
+  },
+
+  async getAdminWallets(): Promise<any> {
+    return await fetchApi<any>('/admin/wallets');
+  },
+
+  async getAdminChatLogs(): Promise<any> {
+    return await fetchApi<any>('/admin/chat-logs');
+  },
+
+  async moderateChat(data: {
+    action: string;
+    targetUserId: number;
+    groupId?: number;
+    messageId?: string;
+    reason?: string;
+  }): Promise<any> {
+    return await fetchApi<any>('/admin/chat/moderate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // PROMPT 7: Coins transfer, reward platform & deposit
+  async awardCoins(recipientIds: number[], amountPerRecipient: number, reason?: string): Promise<any> {
+    return await fetchApi<any>('/coins/award', {
+      method: 'POST',
+      body: JSON.stringify({ recipientIds, amountPerRecipient, reason }),
+    });
+  },
+
+  async rewardPlatform(amount: number, message?: string): Promise<any> {
+    return await fetchApi<any>('/coins/reward-platform', {
+      method: 'POST',
+      body: JSON.stringify({ amount, message }),
+    });
+  },
+
+  async depositCoins(amount: number, paymentCode: string, packageId?: string): Promise<any> {
+    return await fetchApi<any>('/coins/deposit', {
+      method: 'POST',
+      body: JSON.stringify({ amount, paymentCode, packageId }),
+    });
+  },
+
+  async getCoinLedger(): Promise<{ ledger: any[] }> {
+    return await fetchApi<{ ledger: any[] }>('/coins/ledger');
+  },
 };
+
 

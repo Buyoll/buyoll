@@ -22,10 +22,14 @@ import {
   Flame,
   X,
 } from 'lucide-react';
+import { User } from '../types.ts';
+import { useSearchHistory } from '../hooks/useSearchHistory.ts';
 
 interface HomePageProps {
+  currentUser?: User | null;
   onSelectProduct: (productId: number) => void;
   searchQuery: string;
+  onSearchChange?: (query: string) => void;
   onClearSearch?: () => void;
 }
 
@@ -44,8 +48,10 @@ const CATEGORIES = [
 type DayFilter = 'all' | 0 | 1 | 2 | 3 | 5 | 6 | 7;
 
 export const HomePage: React.FC<HomePageProps> = ({
+  currentUser,
   onSelectProduct,
   searchQuery,
+  onSearchChange,
   onClearSearch,
 }) => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -149,10 +155,72 @@ export const HomePage: React.FC<HomePageProps> = ({
     }
   }
 
+  const { history, addSearch, removeSearch, clearHistory } = useSearchHistory(currentUser?.id);
+
+  // When searchQuery changes from a submitted query, add to history
+  useEffect(() => {
+    if (searchQuery && searchQuery.trim().length > 1) {
+      addSearch(searchQuery.trim());
+    }
+  }, [searchQuery, addSearch]);
+
   const currentFeatured = displayFeatured[featuredIndex] || displayFeatured[0];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      {/* Search History Chips Row (Prompt 2 Feature A) */}
+      {history && history.length > 0 && (
+        <div
+          role="region"
+          aria-label="Recent search history"
+          className="mb-5 flex items-center gap-2 flex-wrap text-xs animate-in fade-in duration-150"
+        >
+          <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5 shrink-0 select-none">
+            <Clock className="w-3.5 h-3.5 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+            <span>Recent searches:</span>
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {history.map((query) => (
+              <div
+                key={query}
+                className="inline-flex items-center gap-1 pl-3 pr-1 py-0.5 bg-slate-100 dark:bg-[#1A2622] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] text-slate-700 dark:text-slate-300 hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] rounded-full transition-colors border border-slate-200 dark:border-[#24312C] text-xs"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    addSearch(query);
+                    onSearchChange?.(query);
+                  }}
+                  className="cursor-pointer font-medium hover:underline focus:outline-none"
+                  aria-label={`Search for ${query}`}
+                >
+                  {query}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeSearch(query);
+                  }}
+                  className="w-4 h-4 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  aria-label={`Remove ${query} from search history`}
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={clearHistory}
+            className="text-[11px] font-medium text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400 underline ml-1 cursor-pointer transition-colors"
+            aria-label="Clear all search history"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
       {/* 1. FEATURED DEAL SECTION ON HERO (Moving right-to-left at 2.5s interval, KSh 500/image merchant fee, 100k scale) */}
       {!searchQuery && selectedCategory === 'All' && currentFeatured && (
         <section

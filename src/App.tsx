@@ -50,6 +50,19 @@ export default function App() {
           // If session expired or invalid, keep stored or clean up
         });
     }
+
+    // Capture referral code if opened via /join?ref=... or ?ref=...
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const refParam = params.get('ref');
+      if (refParam) {
+        try {
+          localStorage.setItem('buyoll_referrer', refParam);
+        } catch {
+          // Ignore
+        }
+      }
+    }
   }, []);
 
   function handleNotify(type: 'success' | 'error' | 'info', message: string) {
@@ -77,8 +90,17 @@ export default function App() {
     setIsHelpOpen(true);
   }
 
+  function handleOpenAuth(role?: 'member' | 'merchant' | 'lender' | 'admin') {
+    if (role) {
+      setAuthInitialRole(role);
+    } else {
+      setAuthInitialRole('member');
+    }
+    setIsAuthOpen(true);
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F9FBF9] text-slate-900 font-sans selection:bg-[#0E5A3C] selection:text-white">
+    <div className="min-h-screen flex flex-col bg-[#F9FBF9] dark:bg-[#0B1210] text-slate-900 dark:text-[#F3F4F6] font-sans selection:bg-[#0E5A3C] selection:text-white transition-colors duration-200">
       {/* Toast Notification */}
       {notification && (
         <div className="fixed top-20 right-4 z-50 max-w-sm w-full animate-in fade-in slide-in-from-top-4 duration-200">
@@ -112,19 +134,23 @@ export default function App() {
         currentUser={currentUser}
         currentView={currentView}
         onNavigate={handleNavigate}
-        onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenAuth={handleOpenAuth}
         onLogout={handleLogout}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        onSearchSubmit={(q) => setSearchQuery(q)}
         onOpenHelp={handleOpenHelp}
+        onNotify={handleNotify}
       />
 
       {/* Main Content View Container */}
       <main className="flex-1 pb-20 md:pb-8">
         {currentView === 'home' && (
           <HomePage
+            currentUser={currentUser}
             onSelectProduct={(id) => handleNavigate('product', id)}
             searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
             onClearSearch={() => setSearchQuery('')}
           />
         )}
@@ -134,7 +160,7 @@ export default function App() {
             productId={Number(viewArg)}
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => setIsAuthOpen(true)}
+            onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
           />
         )}
@@ -144,7 +170,7 @@ export default function App() {
             groupId={Number(viewArg)}
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => setIsAuthOpen(true)}
+            onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
           />
         )}
@@ -153,7 +179,7 @@ export default function App() {
           <MyChamasPage
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => setIsAuthOpen(true)}
+            onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
           />
         )}
@@ -162,7 +188,7 @@ export default function App() {
           <WalletPage
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => setIsAuthOpen(true)}
+            onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
             onUserUpdate={() => {
               if (currentUser) {
@@ -192,7 +218,7 @@ export default function App() {
           <LendersDashboardPage
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => setIsAuthOpen(true)}
+            onOpenAuth={() => handleOpenAuth('lender')}
             onNotify={handleNotify}
           />
         )}
@@ -202,15 +228,15 @@ export default function App() {
       <Footer
         onNavigate={handleNavigate}
         onOpenHelp={handleOpenHelp}
-        onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenAuth={handleOpenAuth}
       />
 
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 flex items-center justify-around h-16 px-2 shadow-lg">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-[#111A17] border-t border-slate-200 dark:border-[#24312C] z-40 flex items-center justify-around h-16 px-2 shadow-lg transition-colors">
         <button
           onClick={() => handleNavigate('home')}
-          className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium ${
-            currentView === 'home' ? 'text-[#0E5A3C] font-bold' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+            currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
           }`}
         >
           <Home className="w-5 h-5 mb-0.5" />
@@ -220,8 +246,8 @@ export default function App() {
         {currentUser && (
           <button
             onClick={() => handleNavigate('my-chamas')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium ${
-              currentView === 'my-chamas' ? 'text-[#0E5A3C] font-bold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+              currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Users className="w-5 h-5 mb-0.5" />
@@ -232,8 +258,8 @@ export default function App() {
         {currentUser && (
           <button
             onClick={() => handleNavigate('wallet')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium ${
-              currentView === 'wallet' ? 'text-[#0E5A3C] font-bold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+              currentView === 'wallet' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <WalletIcon className="w-5 h-5 mb-0.5" />
@@ -244,8 +270,8 @@ export default function App() {
         {currentUser?.role === 'merchant' && (
           <button
             onClick={() => handleNavigate('vendor-dashboard')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium ${
-              currentView === 'vendor-dashboard' ? 'text-[#0E5A3C] font-bold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+              currentView === 'vendor-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Store className="w-5 h-5 mb-0.5" />
@@ -256,8 +282,8 @@ export default function App() {
         {currentUser?.role === 'admin' && (
           <button
             onClick={() => handleNavigate('admin-dashboard')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium ${
-              currentView === 'admin-dashboard' ? 'text-[#0E5A3C] font-bold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+              currentView === 'admin-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Shield className="w-5 h-5 mb-0.5" />
@@ -269,9 +295,14 @@ export default function App() {
       {/* Auth Modal */}
       {isAuthOpen && (
         <AuthModal
+          initialRole={authInitialRole}
           onClose={() => setIsAuthOpen(false)}
-          onSuccess={(user) => {
+          onSuccess={(user, targetRoute) => {
             setCurrentUser(user);
+            setIsAuthOpen(false);
+            if (targetRoute) {
+              handleNavigate(targetRoute);
+            }
           }}
           onNotify={handleNotify}
         />
