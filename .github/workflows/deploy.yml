@@ -1,4 +1,4 @@
-# Deployment workflow targeting repository 'redbee316-cmd/buyoll'
+# Deployment workflow for repository 'Buyoll/buyoll'
 name: Deploy to GitHub Pages
 
 on:
@@ -17,8 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    # Explicitly target redbee316-cmd/buyoll repository
-    if: github.repository == 'redbee316-cmd/buyoll' || github.repository_owner != ''
+    if: github.repository == 'Buyoll/buyoll'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -26,8 +25,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
