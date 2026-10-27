@@ -25,6 +25,12 @@ import {
   Lock,
   Bot,
   HelpCircle,
+  Coins,
+  Award,
+  TrendingUp,
+  HandCoins,
+  MessageSquare,
+  ThumbsUp,
 } from 'lucide-react';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { BuyollAIModal } from '../components/BuyollAIModal.tsx';
@@ -45,6 +51,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   onNotify,
 }) => {
   const [product, setProduct] = useState<Product | null>(null);
+  const [merchantInfo, setMerchantInfo] = useState<User | null>(null);
   const [groups, setGroups] = useState<ChamaGroup[]>([]);
   const [recommendedProducts, setRecommendedProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +74,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [submittingJoin, setSubmittingJoin] = useState(false);
 
+  // Merchant rating state
+  const [ratingScore, setRatingScore] = useState<number>(5);
+  const [ratingHover, setRatingHover] = useState<number | null>(null);
+  const [ratingComment, setRatingComment] = useState<string>('');
+  const [isSubmittingRating, setIsSubmittingRating] = useState<boolean>(false);
+  const [hasRatedMerchant, setHasRatedMerchant] = useState<boolean>(false);
+
   useEffect(() => {
     loadProductDetails();
   }, [productId]);
@@ -82,22 +96,75 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       setProduct(prodRes.product);
       setGroups(prodRes.groups || []);
 
+      // Fetch verified merchant details
+      if (prodRes.product.vendorId) {
+        api.getMerchant(prodRes.product.vendorId)
+          .then((mRes) => setMerchantInfo(mRes.merchant))
+          .catch(() => {});
+      }
+
       // Default to 10-member speed if available
       if (prodRes.product.speedOptions && prodRes.product.speedOptions.length > 0) {
         setSelectedSpeed(prodRes.product.speedOptions[0].size);
+      } else {
+        setSelectedSpeed(10);
       }
 
-      // Filter products from other items/merchants (guaranteeing at least 5 recommendations)
+      // Filter and rank products from other shops & merchants:
+      // Ensure recommended items are almost similar to the current item (same category, closest price range)
       const others = allProdRes.products.filter(
         (p: Product) => p.id !== Number(productId)
       );
-      setRecommendedProducts(others);
+      const currentCat = (prodRes.product.category || '').toLowerCase().trim();
+      const currentPrice = prodRes.product.price;
+
+      const similarRanked = [...others].sort((a, b) => {
+        const aCatMatch = (a.category || '').toLowerCase().trim() === currentCat ? 1 : 0;
+        const bCatMatch = (b.category || '').toLowerCase().trim() === currentCat ? 1 : 0;
+        if (aCatMatch !== bCatMatch) {
+          return bCatMatch - aCatMatch; // Prioritize same category
+        }
+        // Then sort by closest price proximity
+        const aDiff = Math.abs(a.price - currentPrice);
+        const bDiff = Math.abs(b.price - currentPrice);
+        return aDiff - bDiff;
+      });
+
+      setRecommendedProducts(similarRanked.slice(0, 10));
     } catch (err: any) {
       setError(err.message || 'Failed to load product details.');
     } finally {
       setLoading(false);
     }
   }
+
+  // Handle Member Merchant Rating Submission
+  async function handleRateMerchant() {
+    if (!currentUser) {
+      onNotify('info', 'Please sign in to rate this shop owner.');
+      onOpenAuth();
+      return;
+    }
+    if (!product) return;
+
+    setIsSubmittingRating(true);
+    try {
+      const res = await api.rateMerchant(
+        product.vendorId,
+        ratingScore,
+        ratingComment.trim() || undefined
+      );
+      setMerchantInfo(res.merchant);
+      setHasRatedMerchant(true);
+      setRatingComment('');
+      onNotify('success', res.message || 'Rating submitted! +15 loyalty points added to your Financial CV.');
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to submit rating.');
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  }
+
 
   // Pre-create 4 speed groups (10, 8, 6, 4 or 2 members) - Store Owner / Merchant / Admin action
   async function handleGenerateGroups() {
@@ -389,8 +456,158 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 <span>Manual Till Verification</span>
               </div>
             </div>
+
+            {/* PRODUCT MARKETABILITY, LOAN ADVANCE & MEMBER CV ADVANTAGES */}
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <div className="bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 border border-emerald-200 rounded-2xl p-5 shadow-xs">
+                <div className="flex items-center gap-2.5 mb-3.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#0E5A3C] text-amber-300 flex items-center justify-center shrink-0">
+                    <Award className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 leading-tight">
+                      Financial Empowerment &amp; Member Credit CV Advantages
+                    </h3>
+                    <p className="text-[11.5px] text-slate-500">
+                      Loan advance options, member coins, automated credibility scoring &amp; merchant feedback
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
+                  {/* Feature 1: Possibility of Loan Advance */}
+                  <div className="p-3.5 bg-white border border-emerald-100 rounded-xl shadow-xs">
+                    <div className="flex items-center gap-2 text-[#0E5A3C] font-bold mb-1">
+                      <HandCoins className="w-4 h-4 text-[#0E5A3C]" />
+                      <span>Possibility of Loan Advance for this Product</span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Active savers on this product are eligible for 3rd-Party Chama Peer Loan Advances up to 100% of product value. Apply on the Lenders Desk at a transparent 3% rate to receive this item before your final rotation!
+                    </p>
+                  </div>
+
+                  {/* Feature 2: Reward Coins from Members */}
+                  <div className="p-3.5 bg-white border border-amber-100 rounded-xl shadow-xs">
+                    <div className="flex items-center gap-2 text-amber-700 font-bold mb-1">
+                      <Coins className="w-4 h-4 text-amber-500" />
+                      <span>Earn Applaud Coins from Fellow Members</span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Chama members can reward you with Applaud Coins whenever you honor and meet your contribution obligations promptly. Use your accumulated coins across the Buyoll ecosystem or stake them for priority slots.
+                    </p>
+                  </div>
+
+                  {/* Feature 3: Automatic Platform Points & Financial CV */}
+                  <div className="p-3.5 bg-white border border-indigo-100 rounded-xl shadow-xs">
+                    <div className="flex items-center gap-2 text-indigo-700 font-bold mb-1">
+                      <TrendingUp className="w-4 h-4 text-indigo-600" />
+                      <span>Automatic Loyalty Points &amp; Financial CV</span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Good payers are automatically awarded credit points by the platform algorithm upon each verified payment. Your high-scoring Buyoll Financial CV proves repayment reliability for higher loan amounts.
+                    </p>
+                  </div>
+
+                  {/* Feature 4: Mandatory Merchant Rating */}
+                  <div className="p-3.5 bg-white border border-emerald-100 rounded-xl shadow-xs">
+                    <div className="flex items-center gap-2 text-emerald-800 font-bold mb-1">
+                      <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                      <span>Mandatory Merchant Rating by Members</span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      All members must rate the shop owner/merchant. Verified reviews directly build merchant reputation and trust, helping high-performing shop owners attract more customers across Kenya.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Interactive Merchant Rating & Review Component */}
+                <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Rate Shop Owner: {product.vendorName}
+                      </span>
+                      <span className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-0.5">
+                        <span className="text-amber-500 font-bold">★ {merchantInfo?.starRating || 4.9} / 5.0</span>
+                        <span>·</span>
+                        <span>{merchantInfo?.ratingCount || 16} Verified Member Reviews</span>
+                        <span className="text-emerald-700 font-bold">(Helps merchant get more customers)</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setRatingScore(star)}
+                          onMouseEnter={() => setRatingHover(star)}
+                          onMouseLeave={() => setRatingHover(null)}
+                          className="p-1 hover:scale-110 transition-transform"
+                          title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                        >
+                          <Star
+                            className={`w-5 h-5 ${
+                              (ratingHover !== null ? star <= ratingHover : star <= ratingScore)
+                                ? 'text-amber-400 fill-amber-400'
+                                : 'text-slate-300'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                      <span className="text-xs font-bold text-amber-700 ml-1.5">{ratingHover || ratingScore}.0</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={ratingComment}
+                      onChange={(e) => setRatingComment(e.target.value)}
+                      placeholder="Share your experience with this merchant (quality, communication, delivery speed)..."
+                      className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRateMerchant}
+                      disabled={isSubmittingRating}
+                      className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shrink-0 shadow-xs disabled:opacity-50"
+                    >
+                      {isSubmittingRating ? 'Submitting...' : 'Submit Rating & Review (+15 pts)'}
+                    </button>
+                  </div>
+
+                  {hasRatedMerchant && (
+                    <div className="p-2.5 mt-2.5 bg-emerald-100/90 border border-emerald-300 rounded-lg text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>Thank you! Your verified merchant rating has been recorded, boosting this merchant's visibility and awarding +15 loyalty points to your Financial CV.</span>
+                    </div>
+                  )}
+
+                  {/* Recent Merchant Reviews Preview */}
+                  {merchantInfo?.reviews && merchantInfo.reviews.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-emerald-200/60">
+                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">
+                        Recent Verified Member Ratings for this Merchant:
+                      </div>
+                      <div className="space-y-1.5">
+                        {merchantInfo.reviews.slice(0, 3).map((rev) => (
+                          <div key={rev.id} className="p-2 bg-white rounded-lg border border-emerald-100 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-slate-900">{rev.userName}</span>
+                              <span className="text-amber-500 font-bold">{'★'.repeat(rev.rating)}</span>
+                            </div>
+                            {rev.comment && <p className="text-[11.5px] text-slate-600 mt-0.5">{rev.comment}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
 
         {/* RIGHT COLUMN: Buy & Chama Speed Selector (~42%) */}
         <div className="lg:col-span-5 flex flex-col gap-6">
@@ -457,23 +674,35 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-500 mb-3">
-                Select your preferred group speed (10, 8, 6, 4, 2, or 1-member solo Lipa Mdogomdogo).
+                Select your preferred group speed (10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member solo Lipa Mdogomdogo).
               </p>
 
               {/* Speed Option Cards */}
-              <div className="space-y-2.5">
+              <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                 {(() => {
-                  const hasSolo = product.speedOptions?.some(s => s.size === 1);
-                  const displayOptions: SpeedOption[] = [
-                    ...(product.speedOptions || []),
-                    ...(!hasSolo ? [{
-                      size: 1,
-                      cycleDays: soloMonths * 30,
-                      dailyAmount: Math.ceil(product.price / (soloMonths * 30)),
+                  const standardSizes = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+                  const displayOptions: SpeedOption[] = standardSizes.map((sz) => {
+                    if (sz === 1) {
+                      return {
+                        size: 1,
+                        cycleDays: soloMonths * 30,
+                        dailyAmount: Math.ceil(product.price / (soloMonths * 30)),
+                        totalAmount: product.price,
+                        description: `1 Member Solo (Lipa Mdogomdogo) · ${soloMonths} Months gradual payment`,
+                      };
+                    }
+                    const existing = product.speedOptions?.find((s) => s.size === sz);
+                    if (existing) return existing;
+
+                    const daily = Math.ceil(product.price / (sz * 10));
+                    return {
+                      size: sz,
+                      cycleDays: 10,
+                      dailyAmount: daily,
                       totalAmount: product.price,
-                      description: `1 Member Solo (Lipa Mdogomdogo) · ${soloMonths} Months gradual payment`,
-                    }] : []),
-                  ];
+                      description: `${sz} members · KSh ${daily.toLocaleString()} daily · 1 item delivery every 10 days`,
+                    };
+                  });
 
                   return displayOptions.map((opt) => {
                     const isSelected = selectedSpeed === opt.size;
@@ -483,9 +712,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       <div
                         key={opt.size}
                         onClick={() => setSelectedSpeed(opt.size)}
-                        className={`relative flex items-center justify-between p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
+                        className={`relative flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer ${
                           isSelected
-                            ? 'border-[#0E5A3C] bg-emerald-50/40 shadow-xs'
+                            ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs ring-1 ring-[#0E5A3C]/20'
                             : 'border-slate-200 bg-white hover:border-slate-300'
                         }`}
                       >
@@ -498,20 +727,40 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                             className="w-4 h-4 text-[#0E5A3C] focus:ring-[#0E5A3C] border-slate-300"
                           />
                           <div>
-                            <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                               <span>{opt.size === 1 ? '1 Member Speed (Solo Lipa Mdogomdogo)' : `${opt.size} Members Speed`}</span>
                               {opt.size === 10 && (
                                 <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded">
-                                  Most Popular
+                                  Standard / Popular
+                                </span>
+                              )}
+                              {opt.size === 9 && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
+                                  Fast Track 9
+                                </span>
+                              )}
+                              {opt.size === 8 && (
+                                <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.2 rounded">
+                                  8-Member Speed
+                                </span>
+                              )}
+                              {opt.size === 5 && (
+                                <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">
+                                  Rapid 5-Sprint
+                                </span>
+                              )}
+                              {opt.size === 3 && (
+                                <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.2 rounded">
+                                  Turbo 3-Member
                                 </span>
                               )}
                               {opt.size === 1 && (
                                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
-                                  Pay Slowly (1-6 Months)
+                                  Pay Slowly (1-6 Mo)
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-slate-500 mt-0.5">
                               {opt.size === 1
                                 ? `Contribute gradually over ${soloMonths} month${soloMonths > 1 ? 's' : ''} (${soloMonths * 30} days) without waiting for others`
                                 : opt.description || `Delivery cycle every ${opt.cycleDays} days`}
@@ -519,7 +768,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           </div>
                         </div>
 
-                        <div className="text-right">
+                        <div className="text-right shrink-0 ml-2">
                           <div className="text-sm font-extrabold text-[#0E5A3C] tabular-nums">
                             KSh {daily.toLocaleString()}
                             <span className="text-xs font-normal text-slate-500"> / day</span>
@@ -533,6 +782,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   });
                 })()}
               </div>
+
 
               {/* 1-MEMBER SPECIAL DURATION SELECTOR (1 to 6 Months Lipa Mdogomdogo) */}
               {selectedSpeed === 1 && (
@@ -797,15 +1047,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 <Store className="w-4 h-4" />
               </span>
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                Recommended from Other Shops & Merchants
+                Recommended from Other Shops &amp; Merchants
               </h2>
             </div>
             <p className="text-xs text-slate-500">
-              Explore alternative verified items from independent partner merchants across Kenya.
+              Similar alternative verified items in <span className="font-bold text-slate-800">{product.category}</span> and comparable price ranges from independent partner merchants across Kenya.
             </p>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full shrink-0">
-            {recommendedProducts.length} Alternate Shops
+          <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-[#0E5A3C] border border-emerald-200 rounded-full shrink-0">
+            {recommendedProducts.length} Similar Matching Items
           </span>
         </div>
 
@@ -814,6 +1064,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             const minDaily = rec.speedOptions && rec.speedOptions.length > 0
               ? Math.min(...rec.speedOptions.map(s => s.dailyAmount))
               : Math.ceil(rec.price / 10 / 10);
+
+            const isSameCategory = (rec.category || '').toLowerCase() === (product.category || '').toLowerCase();
 
             return (
               <div
@@ -836,14 +1088,22 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                         -{rec.discountPercent}%
                       </span>
                     )}
+                    {isSameCategory && (
+                      <span className="absolute bottom-2 left-2 bg-[#0E5A3C] text-white text-[9.5px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                        Similar Category
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-slate-500 mb-1 flex items-center justify-between">
-                    <span className="truncate">{rec.category}</span>
+                    <span className="truncate max-w-[100px]">{rec.category}</span>
                     <span className="text-amber-500 font-bold">★★★★★</span>
                   </div>
-                  <h4 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug mb-2">
+                  <h4 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug mb-1">
                     {rec.title}
                   </h4>
+                  <p className="text-[10.5px] text-slate-400 line-clamp-1 mb-2">
+                    {rec.vendorName}
+                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100">

@@ -23,6 +23,21 @@
           event.preventDefault();
         }
       });
+
+      // Initialize Buyoll Dark/Light Theme instantly to prevent flicker
+      (function() {
+        try {
+          var theme = localStorage.getItem('buyoll_theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (theme === 'dark' || (!theme && prefersDark)) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

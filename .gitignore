@@ -1,8 +1,10 @@
+.aistudio/
+.env
+.env.local
 node_modules/
-build/
 dist/
+build/
 coverage/
 .DS_Store
 *.log
-.env*
 !.env.example

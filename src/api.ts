@@ -214,6 +214,7 @@ function getInitialClientDb(): ClientDatabase {
       id: 3,
       name: 'Samuel Mwangi',
       phone: '0712345678',
+      email: 'samuel@buyoll.com',
       role: 'buyer',
       credit: 0,
       coins: 50,
@@ -225,6 +226,7 @@ function getInitialClientDb(): ClientDatabase {
       id: 4,
       name: 'Faith Chebet',
       phone: '0723456789',
+      email: 'faith@buyoll.com',
       role: 'buyer',
       credit: 0,
       coins: 40,
@@ -712,28 +714,74 @@ export const api = {
     }
   },
 
-  async login(payload: { phone: string; name?: string; role?: string; shopName?: string; shopDescription?: string }): Promise<{ user: User }> {
+  async login(payload: {
+    identifier?: string;
+    phone?: string;
+    password?: string;
+    role?: string;
+    name?: string;
+    shopName?: string;
+    shopDescription?: string;
+  }): Promise<{ user: User; notice?: string }> {
     try {
-      const data = await fetchApi<{ user: User }>('/auth/login', {
+      const data = await fetchApi<{ user: User; notice?: string }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       setStoredUser(data.user);
       return data;
-    } catch {
+    } catch (err: any) {
+      if (err.message && !err.message.includes('Static Mode') && !err.message.includes('fetch')) {
+        throw err;
+      }
       const db = getClientDb();
-      const trimmedPhone = payload.phone.trim();
-      let user = db.users.find(u => u.phone === trimmedPhone);
-      if (!user) {
+      const lookup = (payload.identifier || payload.phone || '').trim().toLowerCase();
+      if (!lookup) {
+        throw new Error('Please enter your email or phone number.');
+      }
+
+      let user = db.users.find(
+        (u) =>
+          (u.email && u.email.toLowerCase() === lookup) ||
+          (u.phone && u.phone.toLowerCase() === lookup) ||
+          (u.name && u.name.toLowerCase() === lookup)
+      );
+
+      if (user) {
+        const reqRole = payload.role === 'member' ? 'buyer' : payload.role;
+        const userRole = user.role === 'member' ? 'buyer' : user.role;
+        if (reqRole && reqRole !== userRole && reqRole !== 'admin') {
+          const displayRole = user.role === 'buyer' ? 'Member' : user.role === 'merchant' ? 'Merchant' : user.role === 'lender' ? 'Lender' : 'Admin';
+          throw new Error(`This account is registered as a ${displayRole}. Please select the ${displayRole} tab to sign in.`);
+        }
+        if (user.password && payload.password && user.password !== payload.password) {
+          throw new Error('Incorrect password. Please verify and try again.');
+        }
+        if (payload.password && !user.password) {
+          user.password = payload.password;
+        }
+        user.lastActive = Date.now();
+        saveClientDb(db);
+        setStoredUser(user);
+        return { user, notice: `Welcome back, ${user.name}!` };
+      }
+
+      if (payload.role === 'admin') {
+        throw new Error('Admin account not found. Admin console access is restricted to verified administrators by invitation only.');
+      }
+
+      if (payload.phone && !payload.identifier) {
+        const trimmedPhone = payload.phone.trim();
         user = {
           id: db.nextIds.user++,
           name: (payload.name || 'User ' + trimmedPhone.slice(-4)).trim(),
           phone: trimmedPhone,
-          role: (payload.role === 'merchant' ? 'merchant' : payload.role === 'admin' ? 'admin' : 'buyer'),
+          email: `${trimmedPhone}@buyoll.com`,
+          role: (payload.role === 'merchant' ? 'merchant' : payload.role === 'lender' ? 'lender' : 'member'),
           shopName: payload.role === 'merchant' ? (payload.shopName || payload.name || 'My Store').trim() : undefined,
-          shopDescription: payload.role === 'merchant' ? (payload.shopDescription || 'Authentic store on Alibaird').trim() : undefined,
+          shopDescription: payload.role === 'merchant' ? (payload.shopDescription || 'Authentic store on Buyoll').trim() : undefined,
           verified: payload.role === 'merchant' ? false : undefined,
-          credit: 0,
+          credit: payload.role === 'lender' ? 50000 : 0,
           coins: 50,
           points: 10,
           lastActive: Date.now(),
@@ -741,9 +789,76 @@ export const api = {
         };
         db.users.push(user);
         saveClientDb(db);
+        setStoredUser(user);
+        return { user };
       }
-      setStoredUser(user);
-      return { user };
+
+      throw new Error('No account found with this email/phone. Please switch to Sign up or check your credentials.');
+    }
+  },
+
+  async register(payload: {
+    role: string;
+    name: string;
+    email: string;
+    password: string;
+    phone?: string;
+    shopName?: string;
+    shopDescription?: string;
+  }): Promise<{ user: User; notice?: string }> {
+    try {
+      const data = await fetchApi<{ user: User; notice?: string }>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setStoredUser(data.user);
+      return data;
+    } catch (err: any) {
+      if (err.message && !err.message.includes('Static Mode') && !err.message.includes('fetch')) {
+        throw err;
+      }
+      if (payload.role === 'admin') {
+        throw new Error('Admin accounts cannot be registered publicly. Access is strictly by invitation only.');
+      }
+      if (!payload.name?.trim()) throw new Error('Please enter your full or business name.');
+      if (!payload.email?.trim()) throw new Error('Please provide a valid email address.');
+      if (!payload.password || payload.password.length < 4) throw new Error('Password must be at least 4 characters long.');
+
+      const db = getClientDb();
+      const cleanEmail = payload.email.trim().toLowerCase();
+      const existing = db.users.find(
+        (u) =>
+          (u.email && u.email.toLowerCase() === cleanEmail) ||
+          (payload.phone && u.phone && u.phone === payload.phone.trim())
+      );
+      if (existing) {
+        throw new Error('An account with this email address already exists. Please log in instead.');
+      }
+
+      const cleanRole = payload.role === 'merchant' ? 'merchant' : payload.role === 'lender' ? 'lender' : 'member';
+      const autoPhone = payload.phone ? payload.phone.trim() : '07' + Math.floor(10000000 + Math.random() * 90000000).toString();
+
+      const newUser: User = {
+        id: db.nextIds.user++,
+        name: payload.name.trim(),
+        email: cleanEmail,
+        phone: autoPhone,
+        password: payload.password.trim(),
+        role: cleanRole,
+        shopName: cleanRole === 'merchant' ? (payload.shopName || payload.name).trim() : undefined,
+        shopDescription: cleanRole === 'merchant' ? (payload.shopDescription || 'Verified store on Buyoll. Authentic goods with Chama installment plan.').trim() : undefined,
+        verified: cleanRole === 'merchant' ? false : undefined,
+        credit: cleanRole === 'lender' ? 50000 : 0,
+        coins: 100,
+        points: 25,
+        lastActive: Date.now(),
+        createdAt: Date.now(),
+      };
+
+      db.users.push(newUser);
+      saveClientDb(db);
+      setStoredUser(newUser);
+      return { user: newUser, notice: 'Account created successfully! Welcome to Buyoll.' };
     }
   },
 
@@ -2054,4 +2169,59 @@ export const api = {
       };
     }
   },
+
+  async rateMerchant(merchantId: number, rating: number, comment?: string): Promise<{ success: boolean; merchant: User; message: string }> {
+    try {
+      return await fetchApi<any>(`/merchants/${merchantId}/rate`, {
+        method: 'POST',
+        body: JSON.stringify({ rating, comment }),
+      });
+    } catch {
+      const db = getClientDb();
+      const user = getStoredUser();
+      const merchant = db.users.find(u => u.id === Number(merchantId));
+      if (!merchant) throw new Error('Merchant not found');
+
+      if (!merchant.reviews) merchant.reviews = [];
+      const newReview = {
+        id: `rev_${Date.now()}_${(merchant.reviews.length || 0) + 1}`,
+        userId: user?.id || 0,
+        userName: user?.name || 'Buyoll Member',
+        rating,
+        comment: comment || '',
+        createdAt: Date.now(),
+      };
+      merchant.reviews.unshift(newReview);
+      merchant.ratingCount = merchant.reviews.length;
+      const sum = merchant.reviews.reduce((acc, r) => acc + r.rating, 0);
+      merchant.starRating = Number((sum / merchant.ratingCount).toFixed(1));
+
+      if (user) {
+        const reviewer = db.users.find(u => u.id === user.id);
+        if (reviewer) {
+          reviewer.points = (reviewer.points || 0) + 15;
+          setStoredUser(reviewer);
+        }
+      }
+
+      saveClientDb(db);
+      return {
+        success: true,
+        merchant,
+        message: 'Thank you! Your verified merchant review and rating have been recorded.',
+      };
+    }
+  },
+
+  async getMerchant(merchantId: number): Promise<{ merchant: User }> {
+    try {
+      return await fetchApi<any>(`/merchants/${merchantId}`);
+    } catch {
+      const db = getClientDb();
+      const merchant = db.users.find(u => u.id === Number(merchantId));
+      if (!merchant) throw new Error('Merchant not found');
+      return { merchant };
+    }
+  },
 };
+

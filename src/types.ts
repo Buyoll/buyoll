@@ -1,15 +1,27 @@
-export type UserRole = 'buyer' | 'merchant' | 'admin' | 'lender';
+export type UserRole = 'buyer' | 'member' | 'merchant' | 'admin' | 'lender';
+
+export interface MerchantReview {
+  id: string;
+  userId: number;
+  userName: string;
+  rating: number; // 1 to 5
+  comment: string;
+  createdAt: number;
+}
 
 export interface User {
   id: number;
   name: string;
   phone: string;
   email?: string;
+  password?: string;
   role: UserRole;
   shopName?: string;
   shopDescription?: string;
   verified?: boolean;
-  starRating?: number; // 5 for Buyoll Verified merchants
+  starRating?: number; // 1 to 5
+  ratingCount?: number;
+  reviews?: MerchantReview[];
   tillNumber?: string; // e.g. merchant M-Pesa till
   credit: number; // in KSh
   coins: number;

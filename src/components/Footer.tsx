@@ -1,20 +1,6 @@
 import React, { useState } from 'react';
 import { resolveImageUrl } from '../api.ts';
-import {
-  ExternalLink,
-  Mail,
-  ShieldCheck,
-  Store,
-  Bike,
-  Share2,
-  HelpCircle,
-  MessageSquare,
-  FileText,
-  AlertCircle,
-  X,
-  CheckCircle2,
-  Building,
-} from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface FooterProps {
   onNavigate?: (view: string, arg?: any) => void;
@@ -25,232 +11,428 @@ interface FooterProps {
 export const Footer: React.FC<FooterProps> = ({
   onNavigate,
   onOpenHelp,
-  onOpenAuth,
 }) => {
-  const [partnerModal, setPartnerModal] = useState<string | null>(null);
-  const [earnModal, setEarnModal] = useState<'rider' | 'merchant' | 'referral' | null>(null);
+  const [earnModal, setEarnModal] = useState<'rider' | 'merchant' | 'referral' | 'legal' | null>(null);
+  const [legalTitle, setLegalTitle] = useState<string>('Terms & Conditions');
+  const [openPartner, setOpenPartner] = useState<number | null>(null);
 
   const partners = [
     {
       name: 'Snaptube',
-      desc: 'A crowdfunding, YouTube-like website.',
       tag: 'Crowdfunding & Video',
+      desc: 'A crowdfunding, YouTube-like website.',
     },
     {
       name: 'Trender',
-      desc: 'A microblogging and peer-to-peer gaming platform.',
       tag: 'Microblogging & P2P Gaming',
+      desc: 'A microblogging and peer-to-peer gaming platform.',
     },
     {
       name: 'Pesewa',
-      desc: 'An M-Pesa-like fintech platform.',
       tag: 'Fintech & Mobile Money',
+      desc: 'An M-Pesa-like fintech platform.',
     },
     {
       name: 'ALO',
-      desc: 'A WhatsApp-like betting platform.',
       tag: 'Social & Wagering',
+      desc: 'A WhatsApp-like betting platform.',
     },
     {
-      name: 'Airus',
-      desc: 'A video-based short-stay rental platform.',
+      name: 'Airbus',
       tag: 'Hospitality & Stays',
+      desc: 'A video-based short-stay rental platform.',
     },
     {
       name: 'KiloKumi',
-      desc: 'A social betting platform.',
       tag: 'Social Gaming',
+      desc: 'A social betting platform.',
     },
   ];
 
+  function openLegalDoc(title: string) {
+    setLegalTitle(title);
+    setEarnModal('legal');
+  }
+
   return (
-    <footer className="bg-white border-t border-slate-200 pt-12 pb-24 lg:pb-12 text-xs text-slate-600">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
-        {/* Main 4-Column Footer Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
-          
-          {/* Column 1: About Buyoll */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2.5">
-              <img
-                src={resolveImageUrl('buyoll_logo.png')}
-                alt="Buyoll"
-                className="h-8 w-auto object-contain"
-                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-              />
-              <span className="font-extrabold text-slate-900 text-sm tracking-tight">
-                Buyoll Fintech
-              </span>
+    <>
+      <footer className="bg-white border-t border-[#E5E7EB] text-[#4B5563] text-sm leading-[1.55]">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-12">
+          {/* Top 4-Column Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr] gap-8 lg:gap-10">
+            {/* Column 1: Brand & About */}
+            <div className="space-y-3">
+              <details className="group" open>
+                <summary className="list-none cursor-pointer inline-flex items-center gap-3 p-1.5 pl-0 rounded-xl select-none">
+                  <img
+                    src={resolveImageUrl('buyoll_logo.png')}
+                    alt="Buyoll"
+                    className="h-14 w-auto object-contain block shrink-0"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (!target.src.endsWith('Buyoll_Shopping_Cart_Logo_23c2cc30.png')) {
+                        target.src = './assets/aistudio/Buyoll_Shopping_Cart_Logo_23c2cc30.png';
+                      }
+                    }}
+                  />
+                  <span className="font-extrabold text-[17px] text-[#111827] leading-tight group-hover:text-[#0F5C3A] transition-colors">
+                    Buyoll Social Fintech Marketplace
+                  </span>
+                  <svg
+                    className="w-4 h-4 shrink-0 text-[#4B5563] group-open:rotate-180 transition-transform"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </summary>
+                <p className="mt-3 text-sm text-[#4B5563] leading-relaxed max-w-[420px]">
+                  Buyoll connects shoppers, merchants and members across Kenya through product discovery, configurable group-contribution Chama systems (from 10 members down to a 1-member Lipa Mdogomdogo), gradual payment arrangements, non-withdrawable shopping wallets and merchant-sponsored promotional incentives.
+                </p>
+              </details>
             </div>
 
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Buyoll connects shoppers, merchants, and members across Kenya through product discovery, configurable group-contribution Chama systems (speeds 10 down to 1-member Lipa Mdogomdogo), gradual payment arrangements, non-withdrawable shopping wallets, and merchant-sponsored promotional incentives.
-            </p>
+            {/* Column 2: Make money with Buyoll */}
+            <details className="group border-t border-[#E5E7EB] pt-3.5 sm:border-t-0 sm:pt-0" open>
+              <summary className="list-none cursor-pointer flex items-center justify-between mb-3 text-[12.5px] uppercase tracking-[0.08em] font-extrabold text-[#111827]">
+                <span>Make money with Buyoll</span>
+                <svg
+                  className="w-4 h-4 shrink-0 text-[#4B5563] group-open:rotate-180 transition-transform sm:hidden"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <ul className="grid gap-1">
+                <li>
+                  <button
+                    onClick={() => setEarnModal('rider')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="6" cy="16" r="3.5" /><circle cx="18" cy="16" r="3.5" /><path d="M6 16 9 8h4l3 8M13 8l-2-3h-2" />
+                    </svg>
+                    <span>Become a Rider / Delivery Partner</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => {
+                      if (onNavigate) onNavigate('vendor-dashboard');
+                      else setEarnModal('merchant');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 9 5.5 4h13L20 9M4 9v10h16V9M4 9a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0A2.7 2.7 0 0 0 20 9M10 19v-5h4v5" />
+                    </svg>
+                    <span>Become a Verified Merchant</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => setEarnModal('referral')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6" />
+                    </svg>
+                    <span>Become a Referral Partner</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => onNavigate?.('lenders-dashboard')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
+                    </svg>
+                    <span>Serve as a 3rd-Party Group Lender (3% fee)</span>
+                  </button>
+                </li>
+              </ul>
+            </details>
 
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-[11px]">
-              <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                <span>Transparent Manual Payments</span>
+            {/* Column 3: Need help & support? */}
+            <details className="group border-t border-[#E5E7EB] pt-3.5 sm:border-t-0 sm:pt-0" open>
+              <summary className="list-none cursor-pointer flex items-center justify-between mb-3 text-[12.5px] uppercase tracking-[0.08em] font-extrabold text-[#111827]">
+                <span>Need help &amp; support?</span>
+                <svg
+                  className="w-4 h-4 shrink-0 text-[#4B5563] group-open:rotate-180 transition-transform sm:hidden"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <ul className="grid gap-1">
+                <li>
+                  <button
+                    onClick={() => onOpenHelp?.('inquiry')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 5h16v11H9l-5 4Z" />
+                    </svg>
+                    <span>Community Questions &amp; Feed</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => onOpenHelp?.('complaint')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="9" /><path d="M12 7.5v5M12 16h.01" />
+                    </svg>
+                    <span>Complaints &amp; Dispute Feedback</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => onOpenHelp?.('faq')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
+                    </svg>
+                    <span>Frequently Asked Questions (FAQ)</span>
+                  </button>
+                </li>
+              </ul>
+              <div className="text-[11.5px] font-bold tracking-[0.06em] uppercase text-[#4B5563] mt-5 mb-1.5">
+                Official support email
               </div>
-              <p className="text-slate-500">
-                Payments are made manually to <b>Platform Till: 196853</b> / <b>Paybill: 522533</b> (Acc: <b>4363</b>) or direct to <b>Merchant Till: 3463533</b>. Buyoll facilitates coordinated shopping and does not claim 100% escrow protection.
-              </p>
-            </div>
-          </div>
-
-          {/* Column 2: Make Money with Buyoll */}
-          <div className="space-y-3">
-            <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
-              Make Money with Buyoll
-            </h3>
-            <ul className="space-y-2 text-xs">
-              <li>
-                <button
-                  onClick={() => setEarnModal('rider')}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <Bike className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                  <span>Become a Rider / Delivery Partner</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => {
-                    if (onNavigate) onNavigate('vendor-dashboard');
-                    else setEarnModal('merchant');
-                  }}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <Store className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                  <span>Become a Verified Merchant</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => setEarnModal('referral')}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                  <span>Become a Referral Partner</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => {
-                    if (onNavigate) onNavigate('lenders-dashboard');
-                  }}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <Building className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                  <span>Serve as a 3rd-Party Group Lender (3% Fee)</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Column 3: Need Help? */}
-          <div className="space-y-3">
-            <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
-              Need Help & Support?
-            </h3>
-            <ul className="space-y-2 text-xs">
-              <li>
-                <button
-                  onClick={() => onOpenHelp && onOpenHelp('inquiry')}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Community Questions & Feed</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => onOpenHelp && onOpenHelp('complaint')}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-                  <span>Complaints & Dispute Feedback</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => onOpenHelp && onOpenHelp('general')}
-                  className="hover:text-[#0E5A3C] transition-colors flex items-center gap-2 text-left text-slate-600 hover:font-semibold"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-[#0E5A3C]" />
-                  <span>Frequently Asked Questions (FAQ)</span>
-                </button>
-              </li>
-            </ul>
-
-            <div className="pt-2">
-              <span className="text-[11px] text-slate-400 font-semibold block uppercase">Official Support Email</span>
               <a
                 href="mailto:cityandcountyre@gmail.com"
-                className="font-mono text-xs font-bold text-[#0E5A3C] hover:underline flex items-center gap-1.5 mt-0.5"
+                className="inline-flex gap-2 items-center text-[#0F5C3A] font-semibold text-sm hover:underline break-all"
               >
-                <Mail className="w-3.5 h-3.5" />
+                <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
+                </svg>
                 <span>cityandcountyre@gmail.com</span>
               </a>
-            </div>
+            </details>
+
+            {/* Column 4: Legal */}
+            <details className="group border-t border-[#E5E7EB] pt-3.5 sm:border-t-0 sm:pt-0" open>
+              <summary className="list-none cursor-pointer flex items-center justify-between mb-3 text-[12.5px] uppercase tracking-[0.08em] font-extrabold text-[#111827]">
+                <span>Legal</span>
+                <svg
+                  className="w-4 h-4 shrink-0 text-[#4B5563] group-open:rotate-180 transition-transform sm:hidden"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <ul className="grid gap-1">
+                <li>
+                  <button
+                    onClick={() => openLegalDoc('Terms & Conditions')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M7 3h7l4 4v14H7ZM14 3v4h4M10 12h5M10 16h5" />
+                    </svg>
+                    <span>Terms &amp; Conditions</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openLegalDoc('Privacy Policy')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                    </svg>
+                    <span>Privacy Policy</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openLegalDoc('Cookie Policy')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3a9 9 0 1 0 9 9 4 4 0 0 1-4-4 4 4 0 0 1-5-5Z" /><path d="M9 10h.01M13 15h.01M8 15h.01" />
+                    </svg>
+                    <span>Cookie Policy</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openLegalDoc('Refund & Dispute Policy')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" />
+                    </svg>
+                    <span>Refund &amp; Dispute Policy</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openLegalDoc('Chama & Lender Agreement')}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] hover:bg-[#E7F3EC] hover:text-[#0F5C3A] transition-colors"
+                  >
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 4v16M6 20h12M5 7h14M5 7l-3 7a3 3 0 0 0 6 0Zm14 0-3 7a3 3 0 0 0 6 0Z" />
+                    </svg>
+                    <span>Chama &amp; Lender Agreement</span>
+                  </button>
+                </li>
+              </ul>
+            </details>
           </div>
 
-          {/* Column 4: Buyoll Partners & Useful Links */}
-          <div className="space-y-3">
-            <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <span>Buyoll Partners & Ecosystem</span>
-            </h3>
-            <p className="text-[11px] text-slate-500">
-              Verified ecosystem partner platforms:
-            </p>
-
-            <div className="space-y-2">
-              {partners.map((partner, idx) => (
-                <div
+          {/* Section: Buyoll Partners & Ecosystem */}
+          <section className="mt-10 pt-8 border-t border-[#E5E7EB]" aria-labelledby="pt">
+            <div className="flex items-baseline gap-3 flex-wrap mb-4">
+              <h3 id="pt" className="text-[12.5px] uppercase tracking-[0.08em] font-extrabold text-[#111827] m-0">
+                Buyoll partners &amp; ecosystem
+              </h3>
+              <span className="text-[13.5px] text-[#4B5563]">
+                Verified ecosystem partner platforms. Tap a partner to learn more.
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+              {partners.map((p, idx) => (
+                <details
                   key={idx}
-                  className="p-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors"
+                  open={openPartner === idx}
+                  className="border border-[#E5E7EB] rounded-xl bg-[#F9FAFB] transition-all"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900 text-xs">{partner.name}</span>
-                    <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-medium">
-                      {partner.tag}
+                  <summary
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setOpenPartner(openPartner === idx ? null : idx);
+                    }}
+                    className="list-none cursor-pointer flex items-center gap-2.5 p-3 sm:px-3.5"
+                  >
+                    <span className="font-bold text-sm text-[#111827] flex-1">{p.name}</span>
+                    <span className="text-[11px] font-semibold text-[#0F5C3A] bg-[#E7F3EC] px-2.5 py-0.5 rounded-full whitespace-nowrap">
+                      {p.tag}
                     </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    {partner.desc}
-                  </p>
-                </div>
+                    <svg
+                      className={`w-4 h-4 shrink-0 text-[#4B5563] transition-transform ${
+                        openPartner === idx ? 'rotate-180' : ''
+                      }`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </summary>
+                  <p className="m-0 px-3.5 pb-3.5 text-[13.5px] text-[#4B5563]">{p.desc}</p>
+                </details>
               ))}
             </div>
-          </div>
+          </section>
 
+          {/* Section: Transparent Manual Payments */}
+          <details className="mt-6 border border-[#E5E7EB] rounded-xl bg-[#F9FAFB] group" open>
+            <summary className="list-none cursor-pointer flex items-center gap-2.5 p-3.5 sm:p-4 font-bold text-sm text-[#111827]">
+              <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" /><path d="m9 12 2 2 4-4" />
+              </svg>
+              <span>Transparent Manual Payments</span>
+              <svg
+                className="w-4 h-4 shrink-0 text-[#4B5563] ml-auto group-open:rotate-180 transition-transform"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </summary>
+            <div className="px-4 pb-4 text-[13.5px] text-[#4B5563]">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
+                <div className="bg-white border border-[#E5E7EB] rounded-xl p-2.5 sm:px-3">
+                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] font-medium">
+                    Platform Till
+                  </small>
+                  <b className="text-base text-[#111827] tabular-nums font-mono">196853</b>
+                </div>
+                <div className="bg-white border border-[#E5E7EB] rounded-xl p-2.5 sm:px-3">
+                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] font-medium">
+                    Paybill (Acc: 4363)
+                  </small>
+                  <b className="text-base text-[#111827] tabular-nums font-mono">522533</b>
+                </div>
+                <div className="bg-white border border-[#E5E7EB] rounded-xl p-2.5 sm:px-3">
+                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] font-medium">
+                    Merchant Till
+                  </small>
+                  <b className="text-base text-[#111827] tabular-nums font-mono">3463533</b>
+                </div>
+              </div>
+              Payments are made manually to the Platform Till or Paybill above, or directly to the Merchant Till. Buyoll facilitates coordinated shopping and does not claim 100% escrow protection.
+            </div>
+          </details>
+
+          {/* Bottom Copyright & Legal links */}
+          <div className="mt-8 border-t border-[#E5E7EB] py-5 sm:py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-[13px] text-[#4B5563]">
+            <span>© 2026 Buyoll Fintech. All rights reserved. Made in Kenya.</span>
+            <nav aria-label="Legal" className="flex gap-4 sm:gap-5 flex-wrap">
+              <button
+                onClick={() => openLegalDoc('Terms & Conditions')}
+                className="text-[#4B5563] hover:text-[#0F5C3A] transition-colors"
+              >
+                Terms
+              </button>
+              <button
+                onClick={() => openLegalDoc('Privacy Policy')}
+                className="text-[#4B5563] hover:text-[#0F5C3A] transition-colors"
+              >
+                Privacy
+              </button>
+              <button
+                onClick={() => openLegalDoc('Cookie Policy')}
+                className="text-[#4B5563] hover:text-[#0F5C3A] transition-colors"
+              >
+                Cookies
+              </button>
+            </nav>
+          </div>
         </div>
+      </footer>
 
-        {/* Bottom Strip */}
-        <div className="pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div>
-            © {new Date().getFullYear()} <b>Buyoll</b>. All rights reserved. Registered in Kenya.
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px]">
-            <span>Platform Till: <b className="font-mono text-[#0E5A3C]">196853</b></span>
-            <span>Paybill: <b className="font-mono text-[#0E5A3C]">522533</b> (Acc: <b>4363</b>)</span>
-            <span>Merchant Till: <b className="font-mono text-slate-800">3463533</b></span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Make Money Onboarding Modal */}
+      {/* Make Money / Legal Documentation Modal */}
       {earnModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="font-bold text-slate-900 text-sm">
                 {earnModal === 'rider' && '🚴 Rider & Delivery Partner Onboarding'}
-                {earnModal === 'merchant' && '🏪 Buyoll Merchant Registration'}
-                {earnModal === 'referral' && '🤝 Referral Partner Program'}
+                {earnModal === 'merchant' && '🏪 Verified Merchant Storefront Application'}
+                {earnModal === 'referral' && '🤝 Buyoll Referral Partner Program'}
+                {earnModal === 'legal' && `⚖️ ${legalTitle}`}
               </h3>
               <button
                 onClick={() => setEarnModal(null)}
@@ -260,7 +442,7 @@ export const Footer: React.FC<FooterProps> = ({
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-600 leading-relaxed mb-6">
+            <div className="space-y-3 text-xs text-slate-600 leading-relaxed mb-6 max-h-[60vh] overflow-y-auto pr-1">
               {earnModal === 'rider' && (
                 <>
                   <p>
@@ -270,24 +452,27 @@ export const Footer: React.FC<FooterProps> = ({
                     <span className="font-bold block mb-1">Rider Requirements:</span>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
                       <li>Valid National ID & Driver/Rider License</li>
-                      <li>Registered Motorbike or Bicycle with lockable carrier</li>
+                      <li>Registered Motorbike or Bicycle with secure carrier</li>
                       <li>Smart device with active M-Pesa phone number</li>
                     </ul>
                   </div>
+                  <p className="text-[11px] text-slate-500">
+                    To register, send your credentials to <b>cityandcountyre@gmail.com</b>.
+                  </p>
                 </>
               )}
 
               {earnModal === 'merchant' && (
                 <>
                   <p>
-                    Join over 500+ verified merchants offering appliances, furniture, and electronics with instant Chama group formation.
+                    Join verified shop owners and distributors across Kenya offering appliances, electronics, solar stations, and furniture with configurable Chama speed groups.
                   </p>
                   <div className="p-3 bg-emerald-50 text-emerald-950 rounded-xl border border-emerald-200">
-                    <span className="font-bold block mb-1">Merchant Benefits:</span>
+                    <span className="font-bold block mb-1">Merchant Privileges:</span>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                      <li>Configurable 1 to 10-member speed groups</li>
-                      <li>Dedicated Buyoll.ai sales assistant for every product</li>
-                      <li>Direct payments to your Merchant Till: 3463533</li>
+                      <li>Create speed options from 10 down to 1-member solo plans</li>
+                      <li>Built-in Buyoll.ai sales assistant for every product</li>
+                      <li>Receive payments directly on your Merchant Till: 3463533</li>
                     </ul>
                   </div>
                 </>
@@ -296,22 +481,38 @@ export const Footer: React.FC<FooterProps> = ({
               {earnModal === 'referral' && (
                 <>
                   <p>
-                    Earn 100 Reward Coins and store credits for every active Chama member you refer who completes their first installment.
+                    Earn 100 Reward Coins and store credits for every active Chama member you invite who completes their first installment.
                   </p>
                   <div className="p-3 bg-amber-50 text-amber-950 rounded-xl border border-amber-200">
-                    <span className="font-bold block mb-1">Referral Terms:</span>
+                    <span className="font-bold block mb-1">Referral Guidelines:</span>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                      <li>Share unique Chama invitation codes with friends & family</li>
-                      <li>Coins can be gifted or redeemed for shopping discounts</li>
-                      <li>Wallet credit is non-withdrawable and strictly for shopping</li>
+                      <li>Share unique Chama invitation codes with friends and networks</li>
+                      <li>Coins can be gifted or used for shopping discounts</li>
+                      <li>Wallet credits remain strictly non-withdrawable for purchases</li>
                     </ul>
                   </div>
                 </>
               )}
 
-              <p className="text-[11px] text-slate-500">
-                To complete your onboarding or submit credentials, contact our support desk directly at <b>cityandcountyre@gmail.com</b>.
-              </p>
+              {earnModal === 'legal' && (
+                <div className="space-y-2.5 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-900">
+                    Buyoll Social Fintech Chama Marketplace ({legalTitle})
+                  </p>
+                  <p>
+                    1. <b>Platform Facilitation</b>: Buyoll facilitates transparent member coordination, Chama group savings cycles, and store credit ledgers. Buyoll is not a banking institution and payments are made manually via M-Pesa Till 196853, Paybill 522533 (Account 4363), or direct Merchant Till 3463533.
+                  </p>
+                  <p>
+                    2. <b>Non-Withdrawable Store Credit Policy</b>: All balances in user wallets are exclusively designated for marketplace item purchases and cannot be withdrawn as liquid cash.
+                  </p>
+                  <p>
+                    3. <b>Peer Loans &amp; Speed Options</b>: 3rd-Party Chama group lenders operate under a fixed 3% facilitator rate. Members must fulfill their contribution obligations in full to maintain a high platform Financial CV.
+                  </p>
+                  <p>
+                    4. <b>Merchant Ratings</b>: Members agree to submit verified star ratings and constructive feedback for shop owners upon group completion or interaction.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -322,16 +523,15 @@ export const Footer: React.FC<FooterProps> = ({
                 Close
               </button>
               <a
-                href="mailto:cityandcountyre@gmail.com?subject=Buyoll%20Partner%20Application"
-                className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
+                href="mailto:cityandcountyre@gmail.com?subject=Buyoll%20Inquiry"
+                className="px-4 py-2 bg-[#0F5C3A] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
               >
-                Email Support Team
+                Contact Support
               </a>
             </div>
           </div>
         </div>
       )}
-
-    </footer>
+    </>
   );
 };

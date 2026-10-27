@@ -31,6 +31,7 @@ export default function App() {
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authInitialRole, setAuthInitialRole] = useState<'member' | 'merchant' | 'lender' | 'admin'>('member');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [helpCategory, setHelpCategory] = useState<string>('inquiry');
 
