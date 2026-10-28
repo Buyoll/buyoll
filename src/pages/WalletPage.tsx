@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, DefaultRecord, RefundRequest, PaymentRecord, StoreCreditLedgerEntry, CoinLedgerEntry } from '../types.ts';
+import { User, DefaultRecord, RefundRequest, PaymentRecord, StoreCreditLedgerEntry, CoinLedgerEntry, WalletDepositRequest } from '../types.ts';
 import { api } from '../api.ts';
 import {
   Wallet,
@@ -24,6 +24,7 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   X,
+  Plus,
 } from 'lucide-react';
 
 interface WalletPageProps {
@@ -46,8 +47,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [ledger, setLedger] = useState<StoreCreditLedgerEntry[]>([]);
   const [coinLedger, setCoinLedger] = useState<CoinLedgerEntry[]>([]);
-  const [communityMembers, setCommunityMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Deposit Funds state (M-Pesa to Wallet)
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositAmount, setDepositAmount] = useState<number>(1000);
+  const [depositMpesaCode, setDepositMpesaCode] = useState('');
+  const [depositNotes, setDepositNotes] = useState('');
+  const [submittingDeposit, setSubmittingDeposit] = useState(false);
+  const [myDeposits, setMyDeposits] = useState<WalletDepositRequest[]>([]);
 
   // Coin topup state
   const [coinMpesaCode, setCoinMpesaCode] = useState('');
@@ -60,14 +68,6 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [resolving, setResolving] = useState(false);
   const [showStatementModal, setShowStatementModal] = useState(false);
 
-  // PROMPT 7: Award Coins Modal State
-  const [showAwardModal, setShowAwardModal] = useState(false);
-  const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
-  const [coinsPerMember, setCoinsPerMember] = useState(5);
-  const [awardReason, setAwardReason] = useState('Applauding prompt Chama commitment & great team spirit! 🌟');
-  const [memberSearchQuery, setMemberSearchQuery] = useState('');
-  const [awarding, setAwarding] = useState(false);
-
   // PROMPT 7: Reward Platform Modal State
   const [showPlatformModal, setShowPlatformModal] = useState(false);
   const [platformAmount, setPlatformAmount] = useState(10);
@@ -75,7 +75,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [rewardingPlatform, setRewardingPlatform] = useState(false);
 
   // Active ledger view tab
-  const [historyTab, setHistoryTab] = useState<'mpesa' | 'coins' | 'credit'>('mpesa');
+  const [historyTab, setHistoryTab] = useState<'mpesa' | 'deposits' | 'coins' | 'credit'>('mpesa');
 
   useEffect(() => {
     loadWalletData();
@@ -85,21 +85,18 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     if (!currentUser) return;
     setLoading(true);
     try {
-      const [defaultsRes, paymentsRes, coinLedgerRes, usersRes] = await Promise.all([
+      const [defaultsRes, paymentsRes, coinLedgerRes, depositsRes] = await Promise.all([
         api.getMyDefaults(),
         api.getMyPayments(),
         api.getCoinLedger().catch(() => ({ ledger: [] })),
-        api.getAdminUsers().catch(() => ({ users: [] })),
+        api.getMyWalletDeposits().catch(() => ({ deposits: [] })),
       ]);
       setDefaults(defaultsRes.defaults);
       setRefunds(defaultsRes.refunds);
       setPayments(paymentsRes.payments);
       setLedger(paymentsRes.ledger);
       if (coinLedgerRes?.ledger) setCoinLedger(coinLedgerRes.ledger);
-      if (usersRes?.users) {
-        // Exclude current user from community recipients
-        setCommunityMembers(usersRes.users.filter((u: User) => u.id !== currentUser.id));
-      }
+      if (depositsRes?.deposits) setMyDeposits(depositsRes.deposits);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load wallet data');
     } finally {
@@ -168,36 +165,44 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     }
   }
 
-  // PROMPT 7: Handle Award Coins to Multiple Members
-  async function handleAwardCoinsSubmit(e: React.FormEvent) {
+  // Deposit Funds to Wallet submission
+  async function handleProcessDeposit(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUser) return;
 
-    if (selectedMemberIds.length === 0) {
-      onNotify('error', 'Please select at least one Chama member to award coins to.');
+    const trimmedCode = depositMpesaCode.trim().toUpperCase();
+    if (!trimmedCode) {
+      onNotify('error', 'Please enter your M-Pesa transaction code.');
       return;
     }
 
-    const coinsEach = Math.max(1, Number(coinsPerMember) || 1);
-    const totalRequired = selectedMemberIds.length * coinsEach;
-
-    if ((currentUser.coins || 0) < totalRequired) {
-      onNotify('error', `Insufficient coins! You have ${currentUser.coins || 0} coins, but need ${totalRequired} coins.`);
+    if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
+      onNotify('error', 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).');
       return;
     }
 
-    setAwarding(true);
+    if (depositAmount <= 0) {
+      onNotify('error', 'Deposit amount must be greater than zero.');
+      return;
+    }
+
+    setSubmittingDeposit(true);
     try {
-      const res = await api.awardCoins(selectedMemberIds, coinsEach, awardReason);
-      onNotify('success', res.message || `Awarded ${coinsEach} coins each to ${selectedMemberIds.length} members!`);
-      setShowAwardModal(false);
-      setSelectedMemberIds([]);
-      if (onUserUpdate) onUserUpdate();
+      const res = await api.depositToWallet({
+        amount: depositAmount,
+        mpesaCode: trimmedCode,
+        notes: depositNotes.trim() || undefined,
+      });
+      onNotify('success', res.message || 'Deposit submitted! The admin will verify and credit your wallet.');
+      setShowDepositModal(false);
+      setDepositMpesaCode('');
+      setDepositNotes('');
       loadWalletData();
+      if (onUserUpdate) onUserUpdate();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to award coins');
+      onNotify('error', err.message || 'Failed to submit deposit');
     } finally {
-      setAwarding(false);
+      setSubmittingDeposit(false);
     }
   }
 
@@ -226,29 +231,6 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     }
   }
 
-  // Toggle member selection
-  function toggleMemberSelection(id: number) {
-    setSelectedMemberIds(prev =>
-      prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]
-    );
-  }
-
-  // Filtered members for modal
-  const filteredModalMembers = communityMembers.filter(m =>
-    m.name.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
-    m.phone.includes(memberSearchQuery)
-  );
-
-  function handleSelectAllVisibleMembers() {
-    const visibleIds = filteredModalMembers.map(m => m.id);
-    const allSelected = visibleIds.every(id => selectedMemberIds.includes(id));
-    if (allSelected) {
-      setSelectedMemberIds(prev => prev.filter(id => !visibleIds.includes(id)));
-    } else {
-      setSelectedMemberIds(prev => Array.from(new Set([...prev, ...visibleIds])));
-    }
-  }
-
   if (!currentUser) {
     return (
       <div className="max-w-md mx-auto px-4 py-16 text-center">
@@ -268,8 +250,6 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   }
 
   const userCoins = currentUser.coins || 0;
-  const totalCoinsNeeded = selectedMemberIds.length * coinsPerMember;
-  const hasEnoughCoins = userCoins >= totalCoinsNeeded;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -280,23 +260,23 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             Shopping Wallet & Applaud System
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Manage your verified shopping balance, award motivate coins to faithful Chama members, reward the platform, and track your transparent statement.
+            Manage your verified shopping balance, deposit via M-Pesa Till or Paybill, reward the platform, and track your statement.
           </p>
         </div>
 
         {/* Quick action buttons */}
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
           <button
-            onClick={() => setShowAwardModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            onClick={() => setShowDepositModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
-            <Gift className="w-4 h-4" />
-            <span>Award Coins to Members</span>
+            <ArrowDownLeft className="w-4 h-4" />
+            <span>Deposit Funds (M-Pesa)</span>
           </button>
 
           <button
             onClick={() => setShowPlatformModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <Heart className="w-4 h-4" />
             <span>Reward Platform</span>
@@ -307,21 +287,34 @@ export const WalletPage: React.FC<WalletPageProps> = ({
       {/* 3 Main Balances */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {/* Store Credit */}
-        <div className="bg-white border-2 border-emerald-500/30 rounded-2xl p-6 shadow-xs relative overflow-hidden">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Store Credit Balance
-            </span>
-            <Wallet className="w-5 h-5 text-[#0E5A3C]" />
+        <div className="bg-white border-2 border-emerald-500/30 rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Store Credit Balance
+              </span>
+              <Wallet className="w-5 h-5 text-[#0E5A3C]" />
+            </div>
+            <div className="text-3xl font-black text-slate-900 tabular-nums mb-1">
+              KSh {currentUser.credit.toLocaleString()}
+            </div>
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
+              <span>Locked Chama Balance:</span>
+              <span className="font-bold text-emerald-800 tabular-nums">
+                KSh {(currentUser.nonWithdrawableBalance || 0).toLocaleString()}
+              </span>
+            </div>
           </div>
-          <div className="text-3xl font-black text-slate-900 tabular-nums mb-1">
-            KSh {currentUser.credit.toLocaleString()}
-          </div>
-          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
-            <span>Locked Chama Balance:</span>
-            <span className="font-bold text-emerald-800 tabular-nums">
-              KSh {(currentUser.nonWithdrawableBalance || 0).toLocaleString()}
-            </span>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-[11px] text-slate-500">Till 196853 / Paybill 522533</span>
+            <button
+              onClick={() => setShowDepositModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+            >
+              <ArrowDownLeft className="w-3.5 h-3.5" />
+              <span>+ Deposit Funds</span>
+            </button>
           </div>
         </div>
 
@@ -554,10 +547,10 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             </div>
 
             {/* Sub-tabs for Ledgers */}
-            <div className="flex gap-2 mb-4 border-b border-slate-100 pb-2">
+            <div className="flex gap-2 mb-4 border-b border-slate-100 pb-2 overflow-x-auto">
               <button
                 onClick={() => setHistoryTab('mpesa')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                   historyTab === 'mpesa'
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -567,8 +560,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </button>
 
               <button
+                onClick={() => setHistoryTab('deposits')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                  historyTab === 'deposits'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Wallet Deposits ({myDeposits.length})
+              </button>
+
+              <button
                 onClick={() => setHistoryTab('coins')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                   historyTab === 'coins'
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -579,7 +583,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
               <button
                 onClick={() => setHistoryTab('credit')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                   historyTab === 'credit'
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -628,6 +632,67 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                                 }`}
                               >
                                 {p.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: Wallet Deposits History */}
+            {historyTab === 'deposits' && (
+              <div>
+                {myDeposits.length === 0 ? (
+                  <div className="py-10 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <Wallet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-slate-700">No wallet deposits submitted yet</p>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                      Click "+ Deposit Funds" to deposit via M-Pesa Till 196853 or Paybill 522533. Once processed by admin, your store credit will be credited.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">M-Pesa Code</th>
+                          <th className="py-2.5 px-3">Amount</th>
+                          <th className="py-2.5 px-3">Reference / Note</th>
+                          <th className="py-2.5 px-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {myDeposits.map((d) => (
+                          <tr key={d.id} className="hover:bg-slate-50/60">
+                            <td className="py-2.5 px-3 text-slate-500">
+                              {new Date(d.createdAt).toLocaleDateString()}{' '}
+                              <span className="text-slate-400 text-[10px]">
+                                {new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{d.mpesaCode}</td>
+                            <td className="py-2.5 px-3 font-bold text-emerald-800 tabular-nums">
+                              KSh {d.amount.toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 max-w-xs truncate">
+                              {d.notes || <span className="text-slate-300 italic">None</span>}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  d.status === 'approved'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : d.status === 'declined'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-amber-100 text-amber-800 animate-pulse'
+                                }`}
+                              >
+                                {d.status === 'approved' ? '✓ Credited' : d.status === 'pending' ? '⏳ Pending Approval' : '✗ Declined'}
                               </span>
                             </td>
                           </tr>
@@ -732,171 +797,130 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         </div>
       </div>
 
-      {/* PROMPT 7: AWARD COINS TO MULTIPLE MEMBERS MODAL */}
-      {showAwardModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 my-8">
+      {/* WALLET M-PESA DEPOSIT MODAL */}
+      {showDepositModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2">
-                <Gift className="w-5 h-5 text-amber-500" />
-                <h3 className="text-base font-bold text-slate-900">Award Coins to Chama Members</h3>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center font-bold">
+                  <ArrowDownLeft className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Deposit Funds to Wallet</h3>
+                  <p className="text-[11px] text-slate-500">Fast M-Pesa automatic credit verification</p>
+                </div>
               </div>
               <button
-                onClick={() => setShowAwardModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                onClick={() => setShowDepositModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 mb-4">
-              Applaud fellow Chama members who fulfill contributions on time. Motivating peers strengthens group reliability and boosts overall platform trust.
-            </p>
-
-            <form onSubmit={handleAwardCoinsSubmit} className="space-y-4">
-              {/* Member Search & Select All */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-700">
-                    Select Recipients ({selectedMemberIds.length} selected)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleSelectAllVisibleMembers}
-                    className="text-[11px] text-[#0E5A3C] font-bold hover:underline"
-                  >
-                    {filteredModalMembers.every(m => selectedMemberIds.includes(m.id)) && filteredModalMembers.length > 0
-                      ? 'Deselect All'
-                      : 'Select All Visible'}
-                  </button>
+            <form onSubmit={handleProcessDeposit} className="space-y-4">
+              {/* Payment Details Box */}
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1.5 text-emerald-950">
+                <span className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#0E5A3C]" />
+                  Pay via M-Pesa Buy Goods Till or Paybill:
+                </span>
+                <div className="font-mono text-[11px] space-y-0.5 bg-white/70 p-2 rounded-lg border border-emerald-100">
+                  <div className="flex justify-between">
+                    <span>Till Number:</span>
+                    <b className="text-slate-900">196853</b> (Buy Goods)
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Paybill Number:</span>
+                    <b className="text-slate-900">522533</b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Account:</span>
+                    <b className="text-[#0E5A3C]">WALLET-{currentUser.id}</b> or <b>{currentUser.phone}</b>
+                  </div>
                 </div>
-
-                <div className="relative mb-2">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={memberSearchQuery}
-                    onChange={(e) => setMemberSearchQuery(e.target.value)}
-                    placeholder="Search member by name or phone..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
-                  />
-                </div>
-
-                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 p-1">
-                  {filteredModalMembers.length === 0 ? (
-                    <p className="text-xs text-slate-400 p-4 text-center">No matching members found.</p>
-                  ) : (
-                    filteredModalMembers.map((member) => {
-                      const isSelected = selectedMemberIds.includes(member.id);
-                      return (
-                        <div
-                          key={member.id}
-                          onClick={() => toggleMemberSelection(member.id)}
-                          className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
-                            isSelected ? 'bg-emerald-50/70 text-slate-900' : 'hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-[#0E5A3C]" />
-                            ) : (
-                              <Square className="w-4 h-4 text-slate-300" />
-                            )}
-                            <div>
-                              <div className="text-xs font-bold text-slate-900">{member.name}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{member.phone}</div>
-                            </div>
-                          </div>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-600">
-                            {member.role}
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                <p className="text-[10px] text-emerald-800 leading-relaxed">
+                  After sending funds, input your transaction details below and click Process. The admin will verify and your balance will increase automatically.
+                </p>
               </div>
 
-              {/* Amount per member */}
+              {/* Quick Amount Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Coins per Recipient
+                  Amount Paid (KSh) <span className="text-red-500">*</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  {[2, 5, 10, 20].map((amt) => (
+                <div className="grid grid-cols-4 gap-1.5 mb-2">
+                  {[500, 1000, 2500, 5000].map((amt) => (
                     <button
                       type="button"
                       key={amt}
-                      onClick={() => setCoinsPerMember(amt)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                        coinsPerMember === amt
+                      onClick={() => setDepositAmount(amt)}
+                      className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                        depositAmount === amt
                           ? 'border-[#0E5A3C] bg-emerald-50 text-[#0E5A3C]'
-                          : 'border-slate-200 text-slate-600'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      {amt} Coins
+                      KSh {amt}
                     </button>
                   ))}
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={coinsPerMember}
-                    onChange={(e) => setCoinsPerMember(Number(e.target.value))}
-                    className="w-24 px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-center"
-                  />
                 </div>
-              </div>
-
-              {/* Reason */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Encouragement Note / Reason
-                </label>
                 <input
-                  type="text"
-                  value={awardReason}
-                  onChange={(e) => setAwardReason(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
-                  placeholder="e.g. Great consistency in our 10-day Speed Chama!"
+                  type="number"
+                  min="50"
+                  required
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] font-mono font-bold"
+                  placeholder="Enter exact amount paid"
                 />
               </div>
 
-              {/* Atomic Calculation & Insufficient Coins Warning */}
-              <div className={`p-3 rounded-xl border text-xs ${
-                hasEnoughCoins ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200 text-red-900'
-              }`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-slate-600">Total Coins to Debit:</span>
-                  <span className="font-black text-slate-900 tabular-nums">
-                    {totalCoinsNeeded} coins ({selectedMemberIds.length} × {coinsPerMember})
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-600">Your Available Balance:</span>
-                  <span className="font-bold text-amber-700 tabular-nums">{userCoins} coins</span>
-                </div>
-                {!hasEnoughCoins && (
-                  <p className="text-[11px] text-red-700 font-bold mt-2">
-                    ⚠ Insufficient coin balance. Need {totalCoinsNeeded - userCoins} more coins. Please deselect recipients or top up below.
-                  </p>
-                )}
+              {/* M-Pesa Code Input */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  M-Pesa Transaction Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={12}
+                  value={depositMpesaCode}
+                  onChange={(e) => setDepositMpesaCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. RJL798K2MN (8-12 alphanumeric characters)"
+                  className="w-full px-3 py-2 text-xs font-mono uppercase tracking-wider border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              {/* Optional Notes */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Payment Reference / Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={depositNotes}
+                  onChange={(e) => setDepositNotes(e.target.value)}
+                  placeholder="e.g. Chama deposit for Solar station"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowAwardModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  onClick={() => setShowDepositModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={awarding || !hasEnoughCoins || selectedMemberIds.length === 0}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-xl shadow-xs transition-colors"
+                  disabled={submittingDeposit || !depositMpesaCode.trim() || depositAmount <= 0}
+                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  {awarding ? 'Transferring...' : `Award ${totalCoinsNeeded} Coins`}
+                  {submittingDeposit ? 'Processing...' : 'Process Deposit Request'}
                 </button>
               </div>
             </form>

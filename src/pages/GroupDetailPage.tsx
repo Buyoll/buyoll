@@ -28,6 +28,7 @@ import {
   UserMinus,
   Lock,
 } from 'lucide-react';
+import { ChamaActivityFeed } from '../components/ChamaActivityFeed.tsx';
 
 interface GroupDetailPageProps {
   groupId: number;
@@ -100,6 +101,24 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [selectedMissedDays, setSelectedMissedDays] = useState<number[]>([]);
   const [arrearsPaymentCode, setArrearsPaymentCode] = useState('');
   const [submittingArrears, setSubmittingArrears] = useState(false);
+
+  // Invite-Only and Entry Request states
+  const [showInviteRequestModal, setShowInviteRequestModal] = useState(false);
+  const [desiredSlotForInvite, setDesiredSlotForInvite] = useState<number | null>(null);
+  const [inviteRequestNote, setInviteRequestNote] = useState('');
+  const [submittingInviteRequest, setSubmittingInviteRequest] = useState(false);
+
+  const [showModeratorInvitesModal, setShowModeratorInvitesModal] = useState(false);
+  const [decidingRequestId, setDecidingRequestId] = useState<string | null>(null);
+  const [manualInviteCodeInput, setManualInviteCodeInput] = useState('');
+  const [showManualCodeModal, setShowManualCodeModal] = useState(false);
+
+  // In-Group Award Coins Modal state
+  const [showAwardCoinsModal, setShowAwardCoinsModal] = useState(false);
+  const [selectedAwardRecipientId, setSelectedAwardRecipientId] = useState<number | null>(null);
+  const [coinsToAward, setCoinsToAward] = useState<number>(5);
+  const [coinAwardNote, setCoinAwardNote] = useState<string>('Applauding great Chama commitment & prompt payments! 🌟');
+  const [submittingCoinAward, setSubmittingCoinAward] = useState(false);
 
   useEffect(() => {
     loadGroup();
@@ -377,24 +396,55 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // Tip peer with coins
-  async function handleTipCoins(targetUserId: number) {
+  // Open in-group Award Coins modal
+  function handleOpenAwardCoins(targetUserId?: number) {
+    if (!currentUser) {
+      onNotify('info', 'Please sign in to award coins.');
+      onOpenAuth();
+      return;
+    }
+    if ((currentUser.coins || 0) < 1) {
+      onNotify('error', `Insufficient coins! Your wallet has ${currentUser.coins || 0} coins. Please deposit coins in your Wallet.`);
+      return;
+    }
+    if (targetUserId && targetUserId !== currentUser.id) {
+      setSelectedAwardRecipientId(targetUserId);
+    } else {
+      const firstOther = group?.slots.find(s => s.status === 'active' && s.userId && s.userId !== currentUser.id);
+      setSelectedAwardRecipientId(firstOther?.userId || null);
+    }
+    setShowAwardCoinsModal(true);
+  }
+
+  // Submit in-group Award Coins
+  async function handleConfirmAwardCoins(e: React.FormEvent) {
+    e.preventDefault();
     if (!currentUser || !group) return;
-    if ((currentUser.coins || 0) < 5) {
-      onNotify('error', 'You need at least 5 coins to applaud. Top up in your Wallet.');
+    if (!selectedAwardRecipientId) {
+      onNotify('error', 'Please select a member to award.');
+      return;
+    }
+    const numCoins = Math.max(1, Number(coinsToAward) || 5);
+    if ((currentUser.coins || 0) < numCoins) {
+      onNotify('error', `Insufficient coins! You have ${currentUser.coins || 0} coins in your wallet, but tried to award ${numCoins} coins. Please top up in your Wallet first.`);
       return;
     }
 
+    setSubmittingCoinAward(true);
     try {
-      const res = await api.sendGroupChat(group.id, {
-        kind: 'reward',
-        targetUserId,
-        coinAmount: 5,
+      const res = await api.awardGroupMemberCoins(group.id, {
+        targetUserId: selectedAwardRecipientId,
+        coinAmount: numCoins,
+        note: coinAwardNote.trim(),
       });
-      setGroup(res.group);
-      onNotify('success', res.message || 'Applauded with 5 coins!');
+      if (res.group) setGroup(res.group);
+      onNotify('success', res.message || `Awarded ${numCoins} coins! 🌟`);
+      setShowAwardCoinsModal(false);
+      loadGroup();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to send coins');
+      onNotify('error', err.message || 'Failed to award coins');
+    } finally {
+      setSubmittingCoinAward(false);
     }
   }
 
@@ -432,13 +482,30 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // PROMPT 3: 3-step slot picking flow
+  // Check if current user has an invite request or code
+  const myApprovedInvite = group?.inviteRequests?.find(
+    r => r.userId === currentUser?.id && r.status === 'approved'
+  );
+  const myPendingInvite = group?.inviteRequests?.find(
+    r => r.userId === currentUser?.id && r.status === 'pending'
+  );
+
+  // PROMPT 3: 3-step slot picking flow with Invite-Only Gate
   function handleDirectJoin(slot: GroupSlot) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to join this Chama slot.');
       onOpenAuth();
       return;
     }
+    if (!group) return;
+
+    // If group is invite-only and user doesn't have an approved invite, prompt to request invite
+    if (group.isInviteOnly && !myApprovedInvite) {
+      setDesiredSlotForInvite(slot.slotNumber);
+      setShowInviteRequestModal(true);
+      return;
+    }
+
     setSlotPickerTarget(slot);
     setSlotPickerStep(1);
   }
@@ -451,9 +518,11 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
     if (!slotPickerTarget || !group) return;
 
+    const codeToUse = myApprovedInvite?.issuedCode || manualInviteCodeInput.trim().toUpperCase() || slotPickerTarget.inviteCode || group.inviteCode;
+
     setSlotPickerSubmitting(true);
     try {
-      const res = await api.joinGroup(group.id, slotPickerTarget.inviteCode || group.inviteCode, slotPickerTarget.slotNumber);
+      const res = await api.joinGroup(group.id, codeToUse, slotPickerTarget.slotNumber);
       onNotify('success', res.message);
       setSlotPickerTarget(null);
       loadGroup();
@@ -461,6 +530,47 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       onNotify('error', err.message || 'Failed to claim slot');
     } finally {
       setSlotPickerSubmitting(false);
+    }
+  }
+
+  // Submit entry invite request
+  async function handleSubmitInviteRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentUser) {
+      onOpenAuth();
+      return;
+    }
+    if (!group) return;
+
+    setSubmittingInviteRequest(true);
+    try {
+      const res = await api.requestGroupInvite(group.id, {
+        desiredSlot: desiredSlotForInvite || undefined,
+        note: inviteRequestNote.trim(),
+      });
+      onNotify('success', res.message || 'Invite request submitted! Awaiting moderator approval.');
+      setShowInviteRequestModal(false);
+      setInviteRequestNote('');
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to submit invite request');
+    } finally {
+      setSubmittingInviteRequest(false);
+    }
+  }
+
+  // Moderator decides invite request (Approve & Issue Entry Code or Decline)
+  async function handleModeratorDecideInvite(requestId: string, action: 'approve' | 'decline') {
+    if (!group) return;
+    setDecidingRequestId(requestId);
+    try {
+      const res = await api.decideGroupInvite(group.id, { requestId, action });
+      onNotify('success', res.message || `Request ${action}d!`);
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to process invite request');
+    } finally {
+      setDecidingRequestId(null);
     }
   }
 
@@ -556,10 +666,23 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 {group.size}-Member Rotation · Every {group.cycleDays} Days
               </span>
               {isModerator && (
-                <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Shield className="w-3 h-3" />
-                  <span>You are a Moderator</span>
-                </span>
+                <>
+                  <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
+                    <span>You are a Moderator</span>
+                  </span>
+                  <button
+                    onClick={() => setShowModeratorInvitesModal(true)}
+                    className="text-xs bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>
+                      Invite Requests (
+                      {(group.inviteRequests || []).filter(r => r.status === 'pending').length}
+                      )
+                    </span>
+                  </button>
+                </>
               )}
             </div>
 
@@ -609,6 +732,103 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* INVITE-ONLY ADMISSION & ENTRY CODE STATUS BANNER */}
+      {!mySlot && (
+        <div className="mb-6">
+          {myApprovedInvite ? (
+            <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 font-black text-[10px] uppercase rounded-full">
+                      Entry Invite Approved
+                    </span>
+                    <span className="font-mono font-black text-emerald-900 text-xs">
+                      Code: {myApprovedInvite.issuedCode}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-extrabold text-emerald-950 mt-0.5">
+                    Your Admission Request Has Been Approved by the Moderator!
+                  </h4>
+                  <p className="text-xs text-emerald-800">
+                    You can now join Slot #{myApprovedInvite.desiredSlot || 'Any Open Slot'} in this Chama. Click on your slot below to activate your rotation!
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : myPendingInvite ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[10px] uppercase rounded-full">
+                      Pending Moderator Review
+                    </span>
+                    <span className="text-xs text-amber-800 font-semibold">
+                      Slot #{myPendingInvite.desiredSlot || 'Any'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-extrabold text-amber-950 mt-0.5">
+                    Your Entry Invite Request is Awaiting Approval
+                  </h4>
+                  <p className="text-xs text-amber-800">
+                    The group moderator will review your request and issue an entry code. You will receive a push notification alert once approved!
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[#0E5A3C] text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-[#0E5A3C] text-white font-black text-[10px] uppercase rounded-full">
+                      Invite-Only Admission
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      Store Owner / Moderator Controlled
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-extrabold text-slate-900 mt-0.5">
+                    Join This Chama by Moderator Invitation
+                  </h4>
+                  <p className="text-xs text-slate-600">
+                    This Chama requires an approved entry code to guarantee member payment commitment. Request an invite or enter your code to claim a slot.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setDesiredSlotForInvite(null);
+                    setShowInviteRequestModal(true);
+                  }}
+                  className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Request Entry Invite
+                </button>
+                <button
+                  onClick={() => setShowManualCodeModal(true)}
+                  className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Enter Invite Code
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* REAL-TIME GROUP NOTIFICATIONS FEED (Prompt 3) */}
       {group.notifications && group.notifications.length > 0 && (
@@ -2478,6 +2698,302 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 1. REQUEST ENTRY INVITE MODAL */}
+      {showInviteRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center font-bold">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">Request Entry Invite</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Moderator-controlled admission for {group.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInviteRequestModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitInviteRequest} className="mt-4 space-y-4">
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200/80 text-xs text-emerald-950 space-y-1">
+                <span className="font-bold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#0E5A3C]" /> Invite-Only Chama Protection
+                </span>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  To protect members from missed rotations, store owners & moderators approve applicants before issuing unique entry codes.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Preferred Slot Number
+                </label>
+                <select
+                  value={desiredSlotForInvite || ''}
+                  onChange={(e) => setDesiredSlotForInvite(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white font-semibold"
+                >
+                  <option value="">Any available slot (First available)</option>
+                  {group.slots.filter(s => s.status === 'open').map(s => (
+                    <option key={s.slotNumber} value={s.slotNumber}>
+                      Slot #{s.slotNumber} (Receives item on Day {s.slotNumber * Math.floor(group.cycleDays / group.size)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Applicant Information
+                </label>
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Name:</span>
+                    <span className="font-bold text-slate-800">{currentUser?.name || 'Guest'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Phone:</span>
+                    <span className="font-mono text-slate-800">{currentUser?.phone || 'Not provided'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Reward Points / Rating:</span>
+                    <span className="font-bold text-emerald-700">{currentUser?.points || 0} pts ({((currentUser as any)?.rating || 5.0).toFixed(1)} ★)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Note to Moderator / Store Owner (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={inviteRequestNote}
+                  onChange={(e) => setInviteRequestNote(e.target.value)}
+                  placeholder="e.g. I work locally and can commit to daily M-Pesa payments on time."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowInviteRequestModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingInviteRequest}
+                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                >
+                  {submittingInviteRequest ? 'Submitting...' : 'Send Invite Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. MODERATOR REVIEW INVITES MODAL */}
+      {showModeratorInvitesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">Chama Entry & Invite Requests</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Review and admit verified members into {group.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowModeratorInvitesModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto py-4 space-y-3 flex-1 pr-1">
+              {(!group.inviteRequests || group.inviteRequests.length === 0) ? (
+                <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <Shield className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-700">No Entry Requests Yet</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                    When prospective buyers request to join this Chama, their applications will appear here for your review and approval.
+                  </p>
+                </div>
+              ) : (
+                group.inviteRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-extrabold text-slate-900">{req.userName}</span>
+                        <span className="text-[11px] font-mono text-slate-500">({req.userPhone})</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          req.status === 'approved'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : req.status === 'declined'
+                            ? 'bg-slate-200 text-slate-700'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
+                        }`}>
+                          {req.status}
+                        </span>
+                        {req.desiredSlot ? (
+                          <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-1.5 py-0.5 rounded">
+                            Target Slot #{req.desiredSlot}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 font-medium px-1.5 py-0.5 rounded">
+                            Any Open Slot
+                          </span>
+                        )}
+                      </div>
+
+                      {req.note && (
+                        <p className="text-[11px] text-slate-600 italic bg-white/70 p-1.5 rounded border border-slate-200/60">
+                          "{req.note}"
+                        </p>
+                      )}
+
+                      <div className="text-[10px] text-slate-400">
+                        Requested: {new Date(req.createdAt).toLocaleString()}
+                        {req.issuedCode && (
+                          <span className="ml-2 font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Entry Code: {req.issuedCode}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {req.status === 'pending' ? (
+                        <>
+                          <button
+                            onClick={() => handleModeratorDecideInvite(req.id, 'approve')}
+                            disabled={decidingRequestId === req.id}
+                            className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50"
+                          >
+                            {decidingRequestId === req.id ? 'Processing...' : 'Approve & Issue Code'}
+                          </button>
+                          <button
+                            onClick={() => handleModeratorDecideInvite(req.id, 'decline')}
+                            disabled={decidingRequestId === req.id}
+                            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-lg text-xs disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                        </>
+                      ) : req.status === 'approved' && req.issuedCode ? (
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(req.issuedCode!);
+                            onNotify('success', `Copied invite code: ${req.issuedCode}`);
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-bold rounded-lg text-xs flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Copy Code
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                onClick={() => setShowModeratorInvitesModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. ENTER MANUAL INVITE CODE MODAL */}
+      {showManualCodeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-[#0E5A3C]" />
+                <h3 className="font-extrabold text-sm text-slate-900">Enter Chama Invite Code</h3>
+              </div>
+              <button
+                onClick={() => setShowManualCodeModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <p className="text-xs text-slate-600">
+                If the group moderator or store owner gave you an invite or admission code, enter it below to unlock slot selection.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Invite / Entry Code
+                </label>
+                <input
+                  type="text"
+                  value={manualInviteCodeInput}
+                  onChange={(e) => setManualInviteCodeInput(e.target.value.toUpperCase())}
+                  placeholder="e.g. INV-8921 or GRP-4820"
+                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowManualCodeModal(false)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const code = manualInviteCodeInput.trim().toUpperCase();
+                    if (!code) {
+                      onNotify('error', 'Please enter an invite code.');
+                      return;
+                    }
+                    setShowManualCodeModal(false);
+                    onNotify('success', `Invite code "${code}" applied. Select your slot below to join!`);
+                  }}
+                  className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
+                >
+                  Apply Code
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

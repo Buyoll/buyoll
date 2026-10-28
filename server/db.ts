@@ -17,6 +17,7 @@ import {
   CoinLedgerEntry,
   ChatModerationEvent,
   MpesaStatementRecord,
+  WalletDepositRequest,
 } from '../src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +37,7 @@ export interface DatabaseSchema {
   coinLedger: CoinLedgerEntry[];
   chatModerationLogs: ChatModerationEvent[];
   mpesaStatements: MpesaStatementRecord[];
+  walletDeposits: WalletDepositRequest[];
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -49,6 +51,7 @@ export interface DatabaseSchema {
     ledger: number;
     coinLedger: number;
     moderation: number;
+    walletDeposit?: number;
     audit: number;
   };
 }
@@ -678,6 +681,7 @@ function getInitialDatabase(): DatabaseSchema {
         channel: 'Paybill 522533',
       },
     ],
+    walletDeposits: [],
   };
 }
 
@@ -692,6 +696,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.helpChat) dbCache!.helpChat = [];
     if (!dbCache!.coinLedger) dbCache!.coinLedger = [];
     if (!dbCache!.chatModerationLogs) dbCache!.chatModerationLogs = [];
+    if (!dbCache!.walletDeposits) dbCache!.walletDeposits = [];
     if (!dbCache!.mpesaStatements) {
       dbCache!.mpesaStatements = [
         {

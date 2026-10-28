@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Product, ChamaGroup } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
+import { triggerVisualPushAlert } from '../utils/notifications.ts';
 import {
   Package,
   Plus,
@@ -103,6 +104,12 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         paymentMode: selectedPaymentMode,
       });
       onNotify('success', `Created ${selectedSpeedSize}-Member Speed Group!`);
+      triggerVisualPushAlert({
+        title: '🎉 New Chama Group Launched!',
+        body: `${(currentUser as any)?.businessName || currentUser?.name || 'A merchant'} launched "${selectedProductForGroup.title}" Chama (${selectedSpeedSize} members). Request entry now!`,
+        url: `/chama/${res.group.id}`,
+        tag: `new-group-${res.group.id}`,
+      });
       setIsSpeedGroupModalOpen(false);
       loadVendorData();
       onNavigate('group', res.group.id);

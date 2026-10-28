@@ -25,6 +25,12 @@ import {
   HandCoins,
 } from 'lucide-react';
 
+import {
+  registerServiceWorker,
+  checkAndTriggerPaymentDueAlerts,
+  triggerVisualPushAlert,
+} from './utils/notifications.ts';
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser());
   const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'lenders-dashboard'>('home');
@@ -42,16 +48,42 @@ export default function App() {
   } | null>(null);
 
   useEffect(() => {
-    // Check session on load
-    if (currentUser) {
-      api.getMe()
-        .then(res => setCurrentUser(res.user))
-        .catch(() => {
-          // If session expired or invalid, keep stored or clean up
-        });
+    // 1. Register Service Worker for Push Notifications
+    registerServiceWorker();
+
+    // 2. Listen for push notification click messages from service worker
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const swListener = (event: MessageEvent) => {
+        if (event.data?.type === 'NOTIFICATION_CLICKED' && event.data?.groupId) {
+          handleNavigate('group', Number(event.data.groupId));
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', swListener);
     }
 
-    // Capture referral code if opened via /join?ref=... or ?ref=...
+    // 3. Deep link routing for /chama/:id
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const chamaMatch = path.match(/\/chama\/(\d+)/);
+      if (chamaMatch && chamaMatch[1]) {
+        handleNavigate('group', Number(chamaMatch[1]));
+      }
+    }
+
+    // 4. Check session on load & trigger payment due checks
+    if (currentUser) {
+      api.getMe()
+        .then(res => {
+          setCurrentUser(res.user);
+          // Check payment due reminders
+          api.getGroups().then(grpRes => {
+            checkAndTriggerPaymentDueAlerts(res.user, grpRes.groups);
+          }).catch(() => {});
+        })
+        .catch(() => {});
+    }
+
+    // 5. Capture referral code if opened via /join?ref=... or ?ref=...
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const refParam = params.get('ref');

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { BuyollAIModal } from '../components/BuyollAIModal.tsx';
+import { triggerVisualPushAlert } from '../utils/notifications.ts';
 
 interface ProductDetailPageProps {
   productId: number;
@@ -210,6 +211,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       });
 
       onNotify('success', `Chama group created! Platform Till: 522533.`);
+      triggerVisualPushAlert({
+        title: '🎉 New Chama Group Launched!',
+        body: `${currentUser?.name || 'A merchant'} created a new ${product!.title} Chama (${selectedSpeed} members). Click to request entry!`,
+        url: `/chama/${res.group.id}`,
+        tag: `new-group-${res.group.id}`,
+      });
       onNavigate('group', res.group.id);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to start group.');

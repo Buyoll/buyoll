@@ -13,6 +13,8 @@ import {
   MemberStatement,
   HelpChatMessage,
   ProductAIInquiry,
+  WalletDepositRequest,
+  ChamaActivityItem,
 } from './types.ts';
 
 const USER_STORAGE_KEY = 'alibaird_current_user';
@@ -2360,6 +2362,66 @@ export const api = {
   async getCoinLedger(): Promise<{ ledger: any[] }> {
     return await fetchApi<{ ledger: any[] }>('/coins/ledger');
   },
+
+  // Service worker push & Chama Invite methods
+  async requestGroupInvite(groupId: number, data: { desiredSlot?: number; note?: string }): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/invite-request`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async decideGroupInvite(groupId: number, data: { requestId: string; action: 'approve' | 'decline' }): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/invite-decide`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getGroupInviteRequests(groupId: number): Promise<{ requests: any[] }> {
+    return await fetchApi<{ requests: any[] }>(`/groups/${groupId}/invite-requests`);
+  },
+
+  async getSystemNotifications(): Promise<{ notifications: any[] }> {
+    return await fetchApi<{ notifications: any[] }>('/notifications/system');
+  },
+
+  // Wallet M-Pesa Deposit Flow
+  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string }): Promise<any> {
+    return await fetchApi<any>('/wallet/deposit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getMyWalletDeposits(): Promise<{ deposits: WalletDepositRequest[] }> {
+    return await fetchApi<{ deposits: WalletDepositRequest[] }>('/wallet/deposits');
+  },
+
+  async getAdminWalletDeposits(): Promise<{ deposits: WalletDepositRequest[] }> {
+    return await fetchApi<{ deposits: WalletDepositRequest[] }>('/admin/wallet-deposits');
+  },
+
+  async decideWalletDeposit(id: string, data: { action: 'approve' | 'decline'; notes?: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/wallet-deposits/${id}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // In-Group Award Coins to Members
+  async awardGroupMemberCoins(groupId: number, data: { targetUserId: number; coinAmount: number; note?: string }): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/award-coins`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Group Activities Feed
+  async getGroupActivities(groupId: number): Promise<{ activities: ChamaActivityItem[] }> {
+    return await fetchApi<{ activities: ChamaActivityItem[] }>(`/groups/${groupId}/activities`);
+  },
 };
+
 
 

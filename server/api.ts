@@ -12,6 +12,10 @@ import {
   PeerLoanRequest,
   MemberStatement,
   HelpChatMessage,
+  GroupNotification,
+  GroupInviteRequest,
+  ChamaActivityItem,
+  WalletDepositRequest,
 } from '../src/types.js';
 
 export const apiRouter = Router();
@@ -988,14 +992,27 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     deliveredRounds: [],
     lenderId: null,
     lenderName: null,
-    notifications: [],
+    isInviteOnly: true,
+    inviteRequests: [],
+    notifications: [
+      {
+        id: `notif_new_grp_${db.nextIds.group}_${Date.now()}`,
+        groupId: db.nextIds.group,
+        groupName: groupName,
+        title: `🎉 New Chama Launched by ${user.shopName || user.name}!`,
+        message: `${user.shopName || user.name} just created "${groupName}" for "${product.title}" (${validSpeed.size} members @ KSh ${validSpeed.dailyAmount}/day). Click the link to check details & request an invite!`,
+        link: `/chama/${db.nextIds.group}`,
+        type: 'new_group_created',
+        timestamp: Date.now(),
+      },
+    ],
     chat: [
       {
         id: `chat_${Date.now()}`,
         senderId: user.id,
         senderName: user.name,
         kind: 'system',
-        text: `Chama group started! ${user.name} is Member #1 and moderator. Platform Till: 196853, Paybill: 522533 (Account: code4363). Group is active immediately.`,
+        text: `Chama group started! ${user.name} is Member #1 and moderator. Platform Till: 196853, Paybill: 522533 (Account: code4363). Group is active immediately. Entry is by invite only.`,
         timestamp: Date.now(),
       },
     ],
@@ -1042,12 +1059,31 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     });
   }
 
-  // Validate code if provided
+  // Validate invite code / Invite-only check
   const upperCode = (inviteCode || '').trim().toUpperCase();
-  if (upperCode) {
+  const approvedReq = (group.inviteRequests || []).find(
+    r => r.userId === user.id && r.status === 'approved'
+  );
+
+  if (group.isInviteOnly) {
+    const isCodeMatch =
+      upperCode &&
+      (group.inviteCode === upperCode ||
+        group.slots.some(s => s.inviteCode === upperCode) ||
+        (group.inviteRequests || []).some(
+          r => r.status === 'approved' && r.issuedCode?.toUpperCase() === upperCode
+        ));
+
+    if (!isCodeMatch && !approvedReq) {
+      return res.status(403).json({
+        error: 'This Chama is Invite-Only. Please click "Request Entry Invite" or enter an approved invite code from the moderator.',
+      });
+    }
+  } else if (upperCode) {
     const validCode =
       group.inviteCode === upperCode ||
-      group.slots.some(s => s.inviteCode === upperCode);
+      group.slots.some(s => s.inviteCode === upperCode) ||
+      (approvedReq && approvedReq.issuedCode?.toUpperCase() === upperCode);
     if (!validCode) {
       return res.status(400).json({ error: 'Invalid invite code for this Chama group.' });
     }
@@ -1245,6 +1281,181 @@ apiRouter.get('/groups/:id/notifications', async (req: Request, res: Response) =
 
   res.json({ notifications: group.notifications || [] });
 });
+
+// GET SYSTEM-WIDE BROADCAST NOTIFICATIONS (New group launches, invites, dues)
+apiRouter.get('/notifications/system', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  const db = await getDatabase();
+
+  const allNotifications: GroupNotification[] = [];
+  for (const g of db.groups) {
+    if (g.notifications) {
+      for (const n of g.notifications) {
+        if (!n.recipientUserId || (user && n.recipientUserId === user.id)) {
+          allNotifications.push(n);
+        }
+      }
+    }
+  }
+
+  allNotifications.sort((a, b) => b.timestamp - a.timestamp);
+  res.json({ notifications: allNotifications.slice(0, 30) });
+});
+
+// GET GROUP INVITE REQUESTS
+apiRouter.get('/groups/:id/invite-requests', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  res.json({ requests: group.inviteRequests || [] });
+});
+
+// USER SUBMITS INVITE REQUEST TO JOIN GROUP
+apiRouter.post('/groups/:id/invite-request', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { desiredSlot, note } = req.body;
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  if (group.slots.some(s => s.userId === user.id && s.status === 'active')) {
+    return res.status(400).json({ error: 'You are already an active member of this Chama group.' });
+  }
+
+  if (!group.inviteRequests) group.inviteRequests = [];
+  const existingPending = group.inviteRequests.find(r => r.userId === user.id && r.status === 'pending');
+  if (existingPending) {
+    return res.status(400).json({ error: 'You already have a pending invite request for this group. The moderator will review it shortly!' });
+  }
+
+  const newRequest: GroupInviteRequest = {
+    id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    groupId: group.id,
+    groupName: group.name,
+    userId: user.id,
+    userName: user.name,
+    userPhone: user.phone,
+    desiredSlot: desiredSlot ? Number(desiredSlot) : undefined,
+    note: (note || '').trim(),
+    status: 'pending',
+    createdAt: Date.now(),
+  };
+
+  group.inviteRequests.unshift(newRequest);
+
+  if (!group.notifications) group.notifications = [];
+  group.notifications.unshift({
+    id: `notif_req_${Date.now()}`,
+    groupId: group.id,
+    groupName: group.name,
+    title: `📩 New Invite Request from ${user.name}`,
+    message: `${user.name} (${user.phone}) requested an entry invite for Slot #${newRequest.desiredSlot || 'Any'}. Note: "${newRequest.note || 'Ready to contribute on time'}"`,
+    type: 'invite_requested',
+    timestamp: Date.now(),
+  });
+
+  group.chat.push({
+    id: `chat_${Date.now()}`,
+    senderId: 1,
+    senderName: 'System / Gatekeeper',
+    kind: 'system',
+    text: `🔔 Member ${user.name} requested an entry invite to join this Chama. Moderator can approve or decline in the Invite Requests panel.`,
+    timestamp: Date.now(),
+  });
+
+  logAudit(db, user.id, user.name, 'INVITE_REQUESTED', `Requested invite to join Chama #${group.id} (${group.name})`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    request: newRequest,
+    message: `Invite request submitted! The group moderator will review your request and issue an entry code.`,
+  });
+});
+
+// MODERATOR DECIDES INVITE REQUEST (APPROVE OR DECLINE)
+apiRouter.post('/groups/:id/invite-decide', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { requestId, action } = req.body;
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const isMod = group.adminId === user.id || (group.moderators || []).includes(user.id) || user.role === 'admin';
+  if (!isMod) {
+    return res.status(403).json({ error: 'Only the group moderator or store owner can decide invite requests.' });
+  }
+
+  const reqItem = (group.inviteRequests || []).find(r => r.id === requestId);
+  if (!reqItem) {
+    return res.status(404).json({ error: 'Invite request not found' });
+  }
+
+  if (action === 'approve') {
+    const issuedCode = 'INV-' + Math.floor(1000 + Math.random() * 9000);
+    reqItem.status = 'approved';
+    reqItem.issuedCode = issuedCode;
+    reqItem.decidedAt = Date.now();
+
+    if (!group.notifications) group.notifications = [];
+    group.notifications.unshift({
+      id: `notif_appr_${Date.now()}`,
+      groupId: group.id,
+      groupName: group.name,
+      recipientUserId: reqItem.userId,
+      title: `🎉 Invite Approved for ${group.name}!`,
+      message: `Moderator ${user.name} approved your entry! Your unique entry code is "${issuedCode}". Click here to join your slot now!`,
+      link: `/chama/${group.id}`,
+      type: 'invite_approved',
+      timestamp: Date.now(),
+    });
+
+    group.chat.push({
+      id: `chat_${Date.now()}`,
+      senderId: user.id,
+      senderName: user.name,
+      kind: 'system',
+      text: `✅ Moderator approved entry invite for ${reqItem.userName}. Entry code "${issuedCode}" issued.`,
+      timestamp: Date.now(),
+    });
+
+    logAudit(db, user.id, user.name, 'INVITE_APPROVED', `Approved invite for ${reqItem.userName} with code ${issuedCode}`);
+    await saveDatabase(db);
+
+    return res.json({
+      request: reqItem,
+      issuedCode,
+      message: `Approved ${reqItem.userName}! Entry code "${issuedCode}" has been sent to the member.`,
+    });
+  } else {
+    reqItem.status = 'declined';
+    reqItem.decidedAt = Date.now();
+
+    if (!group.notifications) group.notifications = [];
+    group.notifications.unshift({
+      id: `notif_decl_${Date.now()}`,
+      groupId: group.id,
+      groupName: group.name,
+      recipientUserId: reqItem.userId,
+      title: `Chama Invite Update: ${group.name}`,
+      message: `Your invite request for ${group.name} was not approved at this time.`,
+      link: `/chama/${group.id}`,
+      type: 'invite_declined',
+      timestamp: Date.now(),
+    });
+
+    await saveDatabase(db);
+    return res.json({
+      request: reqItem,
+      message: `Declined invite request for ${reqItem.userName}.`,
+    });
+  }
+});
+
 
 // MEMBER REQUESTS LOAN INSIDE GROUP (TRIGGERS LENDER ALERTS)
 apiRouter.post('/groups/:id/loan-request', async (req: Request, res: Response) => {
@@ -3243,6 +3454,363 @@ apiRouter.get('/coins/ledger', async (req: Request, res: Response) => {
   );
 
   res.json({ ledger: userLedger });
+});
+
+// -------------------------------------------------------------
+// CHAMA ACTIVITY FEED & IN-GROUP AWARD COINS
+// -------------------------------------------------------------
+apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const groupId = Number(req.params.id);
+  const { targetUserId, coinAmount, note } = req.body;
+  const numCoins = Math.max(1, Number(coinAmount) || 5);
+
+  if ((user.coins || 0) < numCoins) {
+    return res.status(400).json({
+      error: `Insufficient coins in your wallet! You have ${user.coins || 0} coins, but tried to award ${numCoins} coins. Please top up your coins in your Wallet first.`,
+    });
+  }
+
+  if (Number(targetUserId) === user.id) {
+    return res.status(400).json({ error: 'You cannot award coins to yourself.' });
+  }
+
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const targetUser = db.users.find(u => u.id === Number(targetUserId));
+  if (!targetUser) return res.status(404).json({ error: 'Recipient member not found' });
+
+  // Deduct from sender
+  user.coins = (user.coins || 0) - numCoins;
+  // Credit to recipient
+  targetUser.coins = (targetUser.coins || 0) + numCoins;
+
+  const now = Date.now();
+  if (!db.coinLedger) db.coinLedger = [];
+  db.coinLedger.unshift({
+    id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
+    type: 'transfer',
+    senderId: user.id,
+    senderName: user.name,
+    recipientId: targetUser.id,
+    recipientName: targetUser.name,
+    amount: numCoins,
+    reason: (note || `Applauded in Chama "${group.name}"`).trim(),
+    timestamp: now,
+  });
+
+  // Record in Chama activity feed
+  const activity: ChamaActivityItem = {
+    id: `act_${now}_${Math.random().toString(36).substring(2, 6)}`,
+    groupId: group.id,
+    type: 'coin_award',
+    title: 'Applaud Coins Awarded',
+    description: `${user.name} awarded ${numCoins} Applaud Coins to ${targetUser.name}! "${note || 'Well done & great Chama spirit!'}"`,
+    coins: numCoins,
+    actorId: user.id,
+    actorName: user.name,
+    actorAvatar: user.avatar,
+    targetUserId: targetUser.id,
+    targetUserName: targetUser.name,
+    timestamp: now,
+  };
+  if (!group.activities) group.activities = [];
+  group.activities.unshift(activity);
+
+  // Post to group chat
+  group.chat.push({
+    id: `chat_${now}`,
+    senderId: user.id,
+    senderName: user.name,
+    kind: 'reward',
+    text: `🌟 ${user.name} applauded ${targetUser.name} with ${numCoins} coins! "${note || 'Great Chama dedication!'}"`,
+    timestamp: now,
+  });
+
+  logAudit(db, user.id, user.name, 'GROUP_COINS_AWARDED', `Awarded ${numCoins} coins to ${targetUser.name} in Chama #${group.id}`);
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    remainingCoins: user.coins,
+    group,
+    activity,
+    message: `Successfully awarded ${numCoins} coins to ${targetUser.name}! 🌟`,
+  });
+});
+
+apiRouter.get('/groups/:id/activities', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  if (!group.activities || group.activities.length === 0) {
+    const derived: ChamaActivityItem[] = [];
+    const baseTime = group.createdAt || (Date.now() - 86400000 * 2);
+
+    derived.push({
+      id: `act_init_${group.id}`,
+      groupId: group.id,
+      type: 'status_update',
+      title: 'Chama Cycle Initialized',
+      description: `Chama launched with ${group.size} speed slots for "${group.productTitle}". Daily installment KSh ${group.dailyAmount.toLocaleString()}.`,
+      actorId: group.adminId,
+      actorName: 'Store Owner',
+      timestamp: baseTime,
+    });
+
+    for (const slot of group.slots) {
+      if (slot.status === 'active' && slot.userId) {
+        derived.push({
+          id: `act_join_${slot.slotNumber}_${group.id}`,
+          groupId: group.id,
+          type: 'member_joined',
+          title: `Slot #${slot.slotNumber} Claimed`,
+          description: `${slot.userName || 'Member'} joined Slot #${slot.slotNumber} (Receives delivery Day ${slot.slotNumber * Math.floor(group.cycleDays / group.size)}).`,
+          actorId: slot.userId,
+          actorName: slot.userName || 'Member',
+          targetSlotNumber: slot.slotNumber,
+          timestamp: slot.joinedAt || baseTime + slot.slotNumber * 3600000,
+        });
+
+        if ((slot.paidAmount || 0) > 0) {
+          derived.push({
+            id: `act_pay_${slot.slotNumber}_${group.id}`,
+            groupId: group.id,
+            type: 'contribution',
+            title: `Contribution Received · Slot #${slot.slotNumber}`,
+            description: `${slot.userName || 'Member'} paid KSh ${(slot.paidAmount || 0).toLocaleString()} towards item rotation.`,
+            amount: slot.paidAmount,
+            actorId: slot.userId,
+            actorName: slot.userName || 'Member',
+            targetSlotNumber: slot.slotNumber,
+            timestamp: slot.lastPaymentDate || Date.now() - 3600000,
+          });
+        }
+      }
+    }
+
+    const groupLoans = (db.peerLoans || []).filter(l => l.groupId === group.id);
+    for (const l of groupLoans) {
+      derived.push({
+        id: `act_loan_${l.id}`,
+        groupId: group.id,
+        type: 'loan_application',
+        title: `Emergency Loan Requested`,
+        description: `${l.borrowerName} requested KSh ${l.requestedAmount.toLocaleString()} installment advance for Slot #${l.slotNumber}.`,
+        amount: l.requestedAmount,
+        actorId: l.borrowerId,
+        actorName: l.borrowerName,
+        targetSlotNumber: l.slotNumber,
+        timestamp: l.createdAt,
+      });
+
+      if (l.status === 'funded') {
+        derived.push({
+          id: `act_loan_funded_${l.id}`,
+          groupId: group.id,
+          type: 'loan_funded',
+          title: `Peer Loan Funded & Wallet Credited`,
+          description: `Dedicated lender funded KSh ${l.requestedAmount.toLocaleString()} to ${l.borrowerName}'s wallet to clear Chama arrears.`,
+          amount: l.requestedAmount,
+          actorName: l.lenderName || '3rd-Party Lender',
+          targetSlotNumber: l.slotNumber,
+          timestamp: l.fundedAt || l.createdAt + 1800000,
+        });
+      }
+    }
+
+    derived.sort((a, b) => b.timestamp - a.timestamp);
+    group.activities = derived;
+    await saveDatabase(db);
+  }
+
+  res.json({ activities: group.activities || [] });
+});
+
+// -------------------------------------------------------------
+// WALLET M-PESA DEPOSIT FLOW & ADMIN APPROVAL
+// -------------------------------------------------------------
+apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { amount, mpesaCode, notes } = req.body;
+  const numAmount = Number(amount);
+  const trimmedCode = String(mpesaCode || '').trim().toUpperCase();
+
+  if (!trimmedCode) {
+    return res.status(400).json({ error: 'M-Pesa transaction code is required.' });
+  }
+
+  if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
+    return res.status(400).json({
+      error: 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).',
+    });
+  }
+
+  if (numAmount <= 0) {
+    return res.status(400).json({ error: 'Deposit amount must be greater than zero.' });
+  }
+
+  const db = await getDatabase();
+  if (!db.walletDeposits) db.walletDeposits = [];
+
+  // Check duplicate code in deposits
+  if (db.walletDeposits.some(d => d.mpesaCode === trimmedCode)) {
+    return res.status(400).json({ error: 'This M-Pesa transaction code has already been submitted for a wallet deposit.' });
+  }
+
+  const newDeposit: WalletDepositRequest = {
+    id: `dep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    userId: user.id,
+    userName: user.name,
+    userPhone: user.phone,
+    amount: numAmount,
+    mpesaCode: trimmedCode,
+    status: 'pending',
+    createdAt: Date.now(),
+    notes: (notes || '').trim(),
+  };
+
+  db.walletDeposits.unshift(newDeposit);
+
+  // Also record in db.payments as pending
+  const paymentRecord: PaymentRecord = {
+    id: db.nextIds.payment++,
+    type: 'wallet_deposit',
+    userId: user.id,
+    userName: user.name,
+    code: trimmedCode,
+    amount: numAmount,
+    status: 'pending',
+    createdAt: Date.now(),
+  };
+  db.payments.unshift(paymentRecord);
+
+  logAudit(db, user.id, user.name, 'WALLET_DEPOSIT_SUBMITTED', `Submitted wallet deposit of KSh ${numAmount} (Code: ${trimmedCode})`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    success: true,
+    deposit: newDeposit,
+    message: `Deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your wallet automatically.`,
+  });
+});
+
+apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const db = await getDatabase();
+  const userDeposits = (db.walletDeposits || []).filter(d => d.userId === user.id);
+  res.json({ deposits: userDeposits });
+});
+
+apiRouter.get('/admin/wallet-deposits', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const db = await getDatabase();
+  res.json({ deposits: db.walletDeposits || [] });
+});
+
+apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { action, notes } = req.body;
+  if (action !== 'approve' && action !== 'decline') {
+    return res.status(400).json({ error: 'Action must be "approve" or "decline".' });
+  }
+
+  const db = await getDatabase();
+  if (!db.walletDeposits) db.walletDeposits = [];
+
+  const deposit = db.walletDeposits.find(d => d.id === req.params.id);
+  if (!deposit) return res.status(404).json({ error: 'Deposit request not found' });
+
+  if (deposit.status !== 'pending') {
+    return res.status(400).json({ error: `This deposit request has already been ${deposit.status}.` });
+  }
+
+  const targetUser = db.users.find(u => u.id === deposit.userId);
+  if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+
+  const now = Date.now();
+  deposit.processedAt = now;
+  deposit.processedBy = user.name;
+  if (notes) deposit.notes = notes;
+
+  const payment = db.payments.find(p => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
+
+  if (action === 'approve') {
+    deposit.status = 'approved';
+    if (payment) {
+      payment.status = 'approved';
+      payment.approvedAt = now;
+    }
+
+    // Automatically credit user's wallet
+    targetUser.credit = (targetUser.credit || 0) + deposit.amount;
+
+    // Add to store credit ledger
+    const ledgerEntry = {
+      id: db.nextIds.ledger++,
+      userId: targetUser.id,
+      amount: deposit.amount,
+      balanceAfter: targetUser.credit,
+      type: 'refund_credit' as const,
+      referenceId: deposit.mpesaCode,
+      note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited by Admin`,
+      createdAt: now,
+    };
+    db.storeCreditLedger.unshift(ledgerEntry);
+
+    logAudit(
+      db,
+      user.id,
+      user.name,
+      'WALLET_DEPOSIT_APPROVED',
+      `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode}). New balance: KSh ${targetUser.credit}`
+    );
+    await saveDatabase(db);
+
+    res.json({
+      success: true,
+      deposit,
+      newBalance: targetUser.credit,
+      message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s wallet. New balance: KSh ${targetUser.credit.toLocaleString()}.`,
+    });
+  } else {
+    deposit.status = 'declined';
+    if (payment) {
+      payment.status = 'rejected';
+    }
+
+    logAudit(
+      db,
+      user.id,
+      user.name,
+      'WALLET_DEPOSIT_DECLINED',
+      `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode})`
+    );
+    await saveDatabase(db);
+
+    res.json({
+      success: true,
+      deposit,
+      message: `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetUser.name}.`,
+    });
+  }
 });
 
 

@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Buyoll - Social Fintech Chama Marketplace",
+  "short_name": "Buyoll",
+  "description": "Buyoll Social Fintech Chama Marketplace with savings, peer lending, and Lipa Mdogomdogo installments in Kenya.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#0E5A3C",
+  "icons": [
+    {
+      "src": "/buyoll_logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/buyoll_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -129,11 +129,27 @@ export interface GroupNotification {
   id: string;
   groupId: number;
   groupName: string;
-  recipientUserId?: number; // if null, broadcast to entire group
+  recipientUserId?: number; // if null, broadcast to entire group or system
   title: string;
   message: string;
-  type: 'payment_submitted' | 'payment_approved' | 'missed_payment' | 'loan_request' | 'system';
+  link?: string;
+  type: 'payment_submitted' | 'payment_approved' | 'missed_payment' | 'loan_request' | 'new_group_created' | 'invite_requested' | 'invite_approved' | 'invite_declined' | 'system';
   timestamp: number;
+}
+
+export interface GroupInviteRequest {
+  id: string;
+  groupId: number;
+  groupName: string;
+  userId: number;
+  userName: string;
+  userPhone: string;
+  desiredSlot?: number;
+  note?: string;
+  status: 'pending' | 'approved' | 'declined';
+  issuedCode?: string;
+  createdAt: number;
+  decidedAt?: number;
 }
 
 export interface HelpChatMessage {
@@ -196,6 +212,43 @@ export interface ChamaGroup {
   lenderId?: number | null;
   lenderName?: string | null;
   lenderJoinedAt?: number | null;
+  // Invite-only and Entry requests
+  isInviteOnly?: boolean;
+  inviteRequests?: GroupInviteRequest[];
+  // Chama activity feed
+  activities?: ChamaActivityItem[];
+}
+
+export interface ChamaActivityItem {
+  id: string;
+  groupId: number;
+  type: 'contribution' | 'loan_application' | 'loan_funded' | 'status_update' | 'coin_award' | 'member_joined';
+  title: string;
+  description: string;
+  amount?: number;
+  coins?: number;
+  mpesaCode?: string;
+  actorId?: number;
+  actorName: string;
+  actorAvatar?: string;
+  targetSlotNumber?: number;
+  targetUserId?: number;
+  targetUserName?: string;
+  timestamp: number;
+}
+
+export interface WalletDepositRequest {
+  id: string;
+  userId: number;
+  userName: string;
+  userPhone: string;
+  amount: number;
+  mpesaCode: string;
+  status: 'pending' | 'approved' | 'declined';
+  createdAt: number;
+  processedAt?: number;
+  processedBy?: string;
+  notes?: string;
 }
 
 export interface DefaultRecord {

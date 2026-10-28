@@ -1,7 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types.ts';
-import { resolveImageUrl } from '../api.ts';
-import { Share2, Menu, X, Copy, Check, MessageCircle } from 'lucide-react';
+import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Sparkles, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { api, resolveImageUrl } from '../api.ts';
+import {
+  getInAppNotifications,
+  markAllNotificationsAsRead,
+  clearInAppNotifications,
+  requestNotificationPermission,
+  getNotificationPermission,
+  InAppNotification,
+} from '../utils/notifications.ts';
 
 interface HeaderProps {
   currentUser: User | null;
@@ -34,10 +42,61 @@ export const Header: React.FC<HeaderProps> = ({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isNotifMenuOpen, setIsNotifMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
   const adminRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const loadNotifications = () => {
+    const localList = getInAppNotifications();
+    setNotifications(localList);
+    setNotifPermission(getNotificationPermission());
+
+    api.getSystemNotifications()
+      .then((res) => {
+        if (res?.notifications) {
+          const mapped: InAppNotification[] = res.notifications.map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            body: n.message,
+            url: n.link || `/chama/${n.groupId}`,
+            groupId: n.groupId,
+            type: n.type || 'system',
+            timestamp: n.timestamp,
+            isRead: false,
+          }));
+          setNotifications((prev) => {
+            const ids = new Set(prev.map((p) => p.id));
+            const newItems = mapped.filter((m) => !ids.has(m.id));
+            return [...prev, ...newItems].sort((a, b) => b.timestamp - a.timestamp);
+          });
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const handleNotifUpdate = () => {
+      setNotifications(getInAppNotifications());
+    };
+    window.addEventListener('buyoll_notifications_updated', handleNotifUpdate);
+    return () => window.removeEventListener('buyoll_notifications_updated', handleNotifUpdate);
+  }, []);
+
+  const handleEnablePush = async () => {
+    const granted = await requestNotificationPermission();
+    setNotifPermission(getNotificationPermission());
+    if (granted && onNotify) {
+      onNotify('success', 'Push notifications enabled! You will now receive visual alerts for Payment Due and Group Invites.');
+    }
+  };
+
+  const unreadNotifCount = notifications.filter((n) => !n.isRead).length;
 
   // Dark mode state with persistence & system preference detection
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -83,6 +142,9 @@ export const Header: React.FC<HeaderProps> = ({
       }
       if (userRef.current && !userRef.current.contains(event.target as Node)) {
         setIsUserMenuOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setIsNotifMenuOpen(false);
       }
       if (
         mobileMenuRef.current &&
@@ -455,8 +517,140 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </nav>
 
-            {/* Right section: Vertical Divider + User Profile / Sign In Button */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Right section: Notification Bell + Vertical Divider + User Profile / Sign In Button */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+              {/* Notification Bell Dropdown */}
+              <div className="relative" ref={notifRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNotifMenuOpen(!isNotifMenuOpen);
+                    if (!isNotifMenuOpen) {
+                      markAllNotificationsAsRead();
+                    }
+                  }}
+                  aria-label="Notifications"
+                  aria-expanded={isNotifMenuOpen}
+                  title="Chama Alerts & Push Notifications"
+                  className="relative flex items-center justify-center p-2 rounded-xl text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                      {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                    </span>
+                  )}
+                </button>
+
+                {isNotifMenuOpen && (
+                  <div className="absolute right-0 top-[calc(100%+8px)] w-80 sm:w-96 bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-2xl p-3 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-[#E5E7EB] dark:border-[#24312C] mb-2">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-[#0F5C3A] dark:text-[#4ADE9A]" />
+                        <h4 className="text-xs font-black text-[#111827] dark:text-[#F3F4F6] uppercase tracking-wider">
+                          Chama Alerts &amp; Invites
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {notifications.length > 0 && (
+                          <button
+                            onClick={() => {
+                              clearInAppNotifications();
+                              setNotifications([]);
+                            }}
+                            className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <span className="text-[10px] bg-[#E7F3EC] dark:bg-[#12372A] text-[#0F5C3A] dark:text-[#4ADE9A] font-bold px-2 py-0.5 rounded-full">
+                          {notifications.length} Total
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Enable Push Notifications Banner if not granted */}
+                    {notifPermission !== 'granted' && (
+                      <div className="mb-2 p-2.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2">
+                        <div className="text-[11px] text-emerald-950 dark:text-emerald-200">
+                          <p className="font-bold">Turn on Push Notifications</p>
+                          <p className="text-[10px] text-emerald-800 dark:text-emerald-300">Get alerts even when app is minimized</p>
+                        </div>
+                        <button
+                          onClick={handleEnablePush}
+                          className="px-2.5 py-1 bg-[#0F5C3A] hover:bg-[#0b4830] text-white text-[10px] font-bold rounded-lg shadow-xs shrink-0 cursor-pointer"
+                        >
+                          Enable
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Notifications list */}
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                        <Bell className="w-8 h-8 mx-auto mb-1.5 opacity-30" />
+                        <p>No new notifications</p>
+                        <p className="text-[10px] mt-0.5">You're all caught up with your Chamas!</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                        {notifications.map((notif) => (
+                          <div
+                            key={notif.id}
+                            onClick={() => {
+                              setIsNotifMenuOpen(false);
+                              if (notif.groupId) {
+                                onNavigate('group', notif.groupId);
+                              } else if (notif.url) {
+                                const match = notif.url.match(/\/chama\/(\d+)/);
+                                if (match) onNavigate('group', Number(match[1]));
+                                else if (notif.url.includes('wallet')) onNavigate('wallet');
+                              }
+                            }}
+                            className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all hover:scale-[1.01] ${
+                              notif.type === 'payment_due'
+                                ? 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40 text-amber-950 dark:text-amber-200'
+                                : notif.type === 'new_group_created'
+                                ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40 text-emerald-950 dark:text-emerald-200'
+                                : notif.type === 'invite_approved'
+                                ? 'bg-teal-50/80 dark:bg-teal-950/20 border-teal-200 dark:border-teal-900/40 text-teal-950 dark:text-teal-200'
+                                : 'bg-slate-50 dark:bg-[#1A2622] border-slate-200 dark:border-[#24312C] text-slate-900 dark:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="text-base shrink-0 mt-0.5">
+                                {notif.type === 'payment_due'
+                                  ? '⏰'
+                                  : notif.type === 'new_group_created'
+                                  ? '🎉'
+                                  : notif.type === 'invite_approved'
+                                  ? '✅'
+                                  : '🔔'}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <span className="font-extrabold block truncate leading-tight">
+                                  {notif.title}
+                                </span>
+                                <p className="text-[11px] opacity-90 line-clamp-2 mt-0.5">
+                                  {notif.body}
+                                </p>
+                                <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                                  <span>{new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  <span className="font-bold text-[#0F5C3A] dark:text-[#4ADE9A] flex items-center gap-0.5">
+                                    <span>Check details</span>
+                                    <ArrowRight className="w-3 h-3" />
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Vertical divider */}
               <span className="hidden md:block w-[1px] h-8 bg-[#E5E7EB] dark:bg-[#24312C] my-auto" aria-hidden="true" />
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent } from '../types.ts';
+import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent, WalletDepositRequest } from '../types.ts';
 import { api } from '../api.ts';
 import {
   Shield,
@@ -24,6 +24,7 @@ import {
   Sparkles,
   VolumeX,
   Trash2,
+  Wallet,
 } from 'lucide-react';
 
 interface AdminDashboardPageProps {
@@ -49,8 +50,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'payments' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit'>('payments');
+  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit'>('payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
+
+  // Wallet deposits data
+  const [walletDeposits, setWalletDeposits] = useState<WalletDepositRequest[]>([]);
 
   // Wallets data
   const [walletsData, setWalletsData] = useState<{
@@ -107,21 +111,37 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   async function loadAllAdminData() {
     setLoading(true);
     try {
-      const [overviewRes, walletsRes, usersRes, chatLogsRes] = await Promise.all([
+      const [overviewRes, walletsRes, usersRes, chatLogsRes, depositsRes] = await Promise.all([
         api.getAdminOverview(),
         api.getAdminWallets().catch(() => null),
         api.getAdminUsers().catch(() => ({ users: [] })),
         api.getAdminChatLogs().catch(() => ({ moderationEvents: [], recentChats: [] })),
+        api.getAdminWalletDeposits().catch(() => ({ deposits: [] })),
       ]);
 
       setData(overviewRes);
       if (walletsRes) setWalletsData(walletsRes);
       if (usersRes?.users) setUsersList(usersRes.users);
       if (chatLogsRes) setChatLogs(chatLogsRes);
+      if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load administration data');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Handle Wallet Deposit Decision (Approve & Credit Wallet or Decline)
+  async function handleDepositDecision(depositId: string, action: 'approve' | 'decline') {
+    setProcessingId(depositId);
+    try {
+      const res = await api.decideWalletDeposit(depositId, { action });
+      onNotify('success', res.message || `Deposit request ${action}d!`);
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to process deposit request');
+    } finally {
+      setProcessingId(null);
     }
   }
 
@@ -321,6 +341,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         >
           <CreditCard className="w-4 h-4" />
           <span>Payment Queue ({data.pendingPayments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('deposits')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
+            activeTab === 'deposits' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          <span>Wallet Deposits ({walletDeposits.filter(d => d.status === 'pending').length})</span>
         </button>
 
         <button
@@ -533,6 +563,133 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: WALLET DEPOSITS APPROVAL QUEUE */}
+      {activeTab === 'deposits' && (
+        <div className="space-y-6">
+          <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                <Wallet className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wider">
+                  Member Wallet M-Pesa Deposits Verification Queue
+                </h3>
+                <p className="text-xs text-emerald-900 mt-0.5">
+                  Members deposit funds via Platform Till <b>196853</b> or Paybill <b>522533</b>. Approving automatically credits the user's Store Credit wallet balance in real-time.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-bold shrink-0">
+              <span className="px-2.5 py-1 bg-white border border-emerald-200 rounded-lg text-emerald-800">
+                {walletDeposits.filter(d => d.status === 'pending').length} Pending Deposits
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            {walletDeposits.length === 0 ? (
+              <div className="py-16 text-center text-slate-400">
+                <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-400 mb-2 opacity-80" />
+                <p className="text-xs font-bold text-slate-600">No wallet deposits recorded yet</p>
+                <p className="text-[11px] text-slate-400 mt-1">When members submit deposit requests from their Wallet, they will appear here for one-click approval.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Member / User</th>
+                      <th className="py-3 px-4">Deposit Amount</th>
+                      <th className="py-3 px-4">M-Pesa Code</th>
+                      <th className="py-3 px-4">Submitted Date</th>
+                      <th className="py-3 px-4">Member Note</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-6 text-right">Escrow Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {walletDeposits.map((dep) => (
+                      <tr key={dep.id} className="hover:bg-slate-50/70">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900">{dep.userName}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{dep.userPhone}</div>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <span className="font-mono font-black text-emerald-800 text-sm">
+                            KSh {dep.amount.toLocaleString()}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-1 bg-slate-100 text-slate-800 font-mono font-bold text-xs rounded-md uppercase border border-slate-200">
+                            {dep.mpesaCode}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-4 text-[11px] text-slate-500">
+                          {new Date(dep.createdAt).toLocaleDateString()}{' '}
+                          <span className="text-slate-400">
+                            {new Date(dep.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
+                          {dep.notes || <span className="text-slate-400 italic">None</span>}
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            dep.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : dep.status === 'declined'
+                              ? 'bg-red-100 text-red-800 border border-red-200'
+                              : 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
+                          }`}>
+                            {dep.status}
+                          </span>
+                          {dep.processedBy && (
+                            <div className="text-[9px] text-slate-400 mt-0.5">by {dep.processedBy}</div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-6 text-right">
+                          {dep.status === 'pending' ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleDepositDecision(dep.id, 'approve')}
+                                disabled={processingId === dep.id}
+                                className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50 cursor-pointer"
+                              >
+                                {processingId === dep.id ? 'Crediting...' : 'Approve & Credit'}
+                              </button>
+                              <button
+                                onClick={() => handleDepositDecision(dep.id, 'decline')}
+                                disabled={processingId === dep.id}
+                                className="px-2.5 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-semibold rounded-lg text-xs disabled:opacity-50 cursor-pointer"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          ) : dep.status === 'approved' ? (
+                            <span className="text-xs text-emerald-700 font-bold flex items-center justify-end gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Credited to Wallet
+                            </span>
+                          ) : (
+                            <span className="text-xs text-red-600 font-medium">Declined</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
