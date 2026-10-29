@@ -1,0 +1,261 @@
+IMPLEMENT THIS
+The “Enable” function on the app is static, make sure you make it dynamic.
+On the feature section hide this-
+Merchant Placement: KSh 500 / featured image
+2.5s Auto-Roll Active
+On feature section change this 1 / 7, instead let it be 1 / 100,000+
+On newly posted announcement hide this-2.5s interval
+On the footer, change this Trender to Trendier
+Add a summary view to the 'Chama Activity' feed in the GroupDetailPage that highlights total member contributions vs. individual goals to improve financial transparency.
+Gemini 3.8 Flash
+Ran for 11s
+error
+Quota limits exceeded
+ROLE & SCOPE
+You are working inside the EXISTING Buyoll codebase. This is an implementation task, NOT a new app. Do not create a demo app, do not use mock auth or mock data, do not rewrite the project from scratch, and do not delete any existing feature, table, route, admin account, permission, or data. Make targeted changes that preserve existing design, spacing, colors, responsiveness and behavior unless told otherwise.
+STEP 0: AUDIT BEFORE BUILDING (mandatory)
+Before changing code, inspect the project and output a short status report for every section below: "Already implemented / Partially implemented / Missing", with file paths. Then implement everything that is partial or missing. At the end, give a final verification report with evidence (file paths, endpoints, policies/rules, and test results). Do not claim anything is done unless you verified it in code.
+=====================================================
+SECTION 1: ADMIN SEPARATION & SECURITY
+1.1 Header cleanup (desktop AND mobile)
+Remove the Admin button and shield icon entirely. Do not replace it with any other admin icon, label or link.
+Admin must not appear in public nav, mobile nav, public dropdowns, or customer dashboard navigation.
+Preserve: Buyoll logo, Announcements, My Chamas, Wallet, Help & FAQ, Dark Mode, Share, Notifications, Sign In / Join. Keep existing design, spacing, responsiveness and functionality.
+1.2 Routes
+/admin/login: dedicated administrator login. Not linked anywhere publicly.
+/admin/dashboard: the administration dashboard.
+Admin login must use the application's EXISTING authentication system and then verify the user's assigned administrative role/permissions. No hardcoded admin account, no public secret, no frontend-only checks.
+After successful admin authentication, redirect to /admin/dashboard.
+1.3 Server-side authorization (every admin page, action and API endpoint)
+Unauthenticated visitor -> redirected to the appropriate login page (APIs return 401).
+Authenticated non-admin -> access-denied response (403 / access-denied page).
+Only users with explicitly authorized admin roles may access admin functions.
+The URL alone must never grant access. Hiding the button is NOT security.
+Enforce at the backend AND database level (e.g., RLS/security rules/role checks on admin tables and operations).
+Existing authorized admins must still log in and manage the platform. Preserve all admin dashboards, tables, permissions and data.
+=====================================================
+SECTION 2: WALLET & FINANCIAL INTEGRITY (verify each, fix if missing)
+Every user has their own wallet tied to their account (create automatically on registration; backfill existing users).
+Users can never view or modify another user's wallet (backend + database rules, not just UI).
+Balances come from the database, never hardcoded frontend values.
+Deposits, withdrawals, transfers, refunds and all supported transactions are validated by the backend (amount > 0, sufficient balance, ownership, idempotency, no client-trusted balances). Use atomic transactions.
+Admin financial actions require explicit authorization and write an audit trail (who, what, when, before/after values, reason).
+No sensitive financial information is exposed to logged-out visitors.
+Protect admin data and operations at the backend and database levels.
+Preserve existing admin functionality and data.
+=====================================================
+SECTION 3: SEARCH HISTORY & SHARE APP
+useSearchHistory hook: per-user storage under buyoll_search_history_<userId> (_guest for guests), case-insensitive dedupe, max 8 items, newest first.
+Homepage search chips: one-click replay, individual "x" delete, "Clear all".
+Share (header nav item): use navigator.share with referral link /join?ref=<userId or phone>; clipboard fallback with toast; dedicated WhatsApp share dialog. Capture incoming ref parameter and pass it into user registration.
+=====================================================
+SECTION 4: MEMBER & CHAMA GROUP FLOW
+3-step slot picker: (1) select slot number, (2) review delivery schedule & daily obligations, (3) confirm & activate.
+Day-by-day contribution tracker on slot cards with status: ✓ Paid, ⏳ Pending, ✗ Missed, ○ Upcoming.
+Arrears clearing: "Pay for Missed Days" modal with multi-day checkbox selection, total calculation, and M-Pesa code validation (8-12 alphanumeric characters).
+Chama broadcast feed: in-group banner showing real-time payment submissions, approvals and loan requests.
+NEW: "Chama Activity" feed component on GroupDetailPage: chronological log of member contributions, loan applications and status updates (data from the database, real-time where supported).
+=====================================================
+SECTION 5: MERCHANT (BUYOLL DIRECT) FLOW
+3-step merchant subscription: Starter KSh 1,500, Pro KSh 3,500, Enterprise KSh 7,000; payable via Till 196853 or Paybill 522533.
+Verification gate: only verified merchants with active subscriptions can create products or launch groups (enforced server-side).
+10-speed option engine: 1-10 member groups, auto-computed daily targets, collection routing Option A (Merchant Direct Till) vs Option B (Buyoll Platform Escrow Till).
+=====================================================
+SECTION 6: LENDER (GRACE) PEER-FUNDING FLOW
+Show borrower phone contact for off-platform negotiation.
+Atomic loan funding in ONE transaction: deduct principal from lender; credit 97% to borrower's non-withdrawable slot-payment wallet; credit 3% commission to Buyoll Escrow wallet; write 3 synchronized ledger entries. Roll back fully on any failure.
+Risk disclaimer about peer-to-peer external repayment liability.
+=====================================================
+SECTION 7: ADMIN CONTROL CENTER & ESCROW CONSOLE
+Automated statement-matching queue: side-by-side member submissions vs M-Pesa Till records with badges perfect_match, amount_mismatch, unmatched_code, duplicate_detected.
+User & merchant management: verification workflow with audit notes and badges, merit points award modal, instant suspend/reinstate toggle.
+Chat moderation console: inspect chama group chats; warn, mute (isMuted: true), remove messages, ban users.
+Wallet oversight: system-wide aggregates of circulating store credit, applaud coins, reward points; one-click download of buyoll_wallets_export.csv.
+All of the above admin-only, server-enforced, audit-logged.
+=====================================================
+SECTION 8: COINS & APPLAUD SYSTEM (CHANGES)
+8.1 MOVE "Award Coins to Members" OUT of the Wallet section and INTO Groups:
+Remove it from the wallet UI.
+On GroupDetailPage, every member's card gets an "Award Coins" button visible to other members (not on the user's own card; self-gifting is blocked).
+Clicking opens an award flow where the awarding member picks the recipient(s) (multi-select with "Select All" toggle is allowed) and amount.
+Backend validation: awarder must be a member of the group, must have sufficient coin balance, balance may never go negative, recipients must be group members. Atomic debit/credit with ledger entries for both sides.
+Keep platform rewards (send applaud coins to the Buyoll community pool) and the itemized coin ledger (incoming awards, outgoing awards, platform contributions, till deposits).
+8.2 Coin deposit packages: 50, 100, 250, 500, 1000, 2000 coins with Till 196853 / Paybill 522533 and M-Pesa code registration.
+=====================================================
+SECTION 9: WALLET DEPOSIT WITH ADMIN APPROVAL
+Each wallet has a Deposit icon/button.
+On click, show the platform Paybill/Till details.
+After paying, the user enters amount paid + M-Pesa payment code, then clicks "Process". This creates a PENDING deposit request (validate code format, reject duplicate codes, rate-limit).
+Admin sees pending deposits and Approves or Declines (admin-only, server-enforced, audit-logged).
+On approval: automatically credit that specific user's wallet in an atomic transaction, increase the balance, write a ledger entry, and notify the user. On decline: record the reason and notify the user. A request can only be processed once.
+=====================================================
+SECTION 10: NOTIFICATIONS & PUSH
+10.1 Service-worker push notifications (Web Push) that show visual alerts for "Payment Due" and "New Group Invite" even when the app is minimized/closed. Include permission prompt flow, subscription storage per user, and graceful fallback if unsupported/denied.
+10.2 New group notification:
+When any merchant/store owner creates a group, notify relevant users (in-app + push): "[Group name] has been created. Tap to view."
+The notification contains a deep link that opens the group's page directly (handle logged-out users by redirecting to login, then back to the group).
+Users CANNOT join freely. They can only join by invitation: they tap "Request Invite"; the group's moderator reviews requests and approves (issuing an entry code) or declines. Entry code is required to join, validated server-side.
+=====================================================
+SECTION 11: UI CHANGES TO MAKE
+The "Enable" function/toggle(s) in the app are currently static. Make them dynamic: persist state per user in the database (or the existing settings store), load it on start, update it on toggle, and reflect it in the UI immediately. Find all Enable toggles and fix them.
+Features section: hide "Merchant Placement: KSh 500 / featured image" and "2.5s Auto-Roll Active".
+Features section counter: change "1 / 7" to "1 / 100,000+".
+Newly posted announcements: hide the "2.5s interval" label.
+Footer: change "Trender" to "Trendier".
+=====================================================
+FINAL VERIFICATION CHECKLIST (report pass/fail with evidence)
+Ordinary visitors see no Admin button (desktop + mobile).
+Customers entering /admin/dashboard by URL are denied.
+Unauthenticated requests to admin APIs are rejected (401).
+Authenticated non-admins are denied (403).
+Authorized admins can still use all admin functions.
+Header is responsive on desktop and mobile.
+All existing public navigation links work.
+Wallet isolation: user A cannot read or modify user B's wallet (test it).
+Deposits require admin approval; approval credits the correct wallet exactly once.
+Award Coins appears only on group member cards, enforces sufficient balance, and blocks self-awards.
+Push notification fires for Payment Due and New Group Invite; group-created link deep-links correctly; join requires moderator-issued entry code.
+All Section 11 UI changes applied.
+Run the build and existing tests, fix any errors, and list every file you changed.
+Gemini 3.8 Flash
+Ran for 0s
+error
+Quota limits exceeded
+ROLE & SCOPE
+You are working inside the EXISTING Buyoll codebase. This is an implementation task, NOT a new app. Do not create a demo app, do not use mock auth or mock data, do not rewrite the project from scratch, and do not delete any existing feature, table, route, admin account, permission, or data. Make targeted changes that preserve existing design, spacing, colors, responsiveness and behavior unless told otherwise.
+STEP 0: AUDIT BEFORE BUILDING (mandatory)
+Before changing code, inspect the project and output a short status report for every section below: "Already implemented / Partially implemented / Missing", with file paths. Then implement everything that is partial or missing. At the end, give a final verification report with evidence (file paths, endpoints, policies/rules, and test results). Do not claim anything is done unless you verified it in code.
+SECTION 1: ADMIN SEPARATION & SECURITY
+1.1 Header cleanup (desktop AND mobile)
+Remove the Admin button and shield icon entirely. Do not replace it with any other admin icon, label or link.
+Admin must not appear in public nav, mobile nav, public dropdowns, or customer dashboard navigation.
+Preserve: Buyoll logo, Announcements, My Chamas, Wallet, Help & FAQ, Dark Mode, Share, Notifications, Sign In / Join. Keep existing design, spacing, responsiveness and functionality.
+1.2 Routes
+/admin/login: dedicated administrator login. Not linked anywhere publicly.
+/admin/dashboard: the administration dashboard.
+Admin login must use the application's EXISTING authentication system and then verify the user's assigned administrative role/permissions. No hardcoded admin account, no public secret, no frontend-only checks.
+After successful admin authentication, redirect to /admin/dashboard.
+1.3 Server-side authorization (every admin page, action and API endpoint)
+Unauthenticated visitor -> redirected to the appropriate login page (APIs return 401).
+Authenticated non-admin -> access-denied response (403 / access-denied page).
+Only users with explicitly authorized admin roles may access admin functions.
+The URL alone must never grant access. Hiding the button is NOT security.
+Enforce at the backend AND database level (e.g., RLS/security rules/role checks on admin tables and operations).
+Existing authorized admins must still log in and manage the platform. Preserve all admin dashboards, tables, permissions and data.
+SECTION 2: WALLET & FINANCIAL INTEGRITY (verify each, fix if missing)
+Every user has their own wallet tied to their account (create automatically on registration; backfill existing users).
+Users can never view or modify another user's wallet (backend + database rules, not just UI).
+Balances come from the database, never hardcoded frontend values.
+Deposits, withdrawals, transfers, refunds and all supported transactions are validated by the backend (amount > 0, sufficient balance, ownership, idempotency, no client-trusted balances). Use atomic transactions.
+Admin financial actions require explicit authorization and write an audit trail (who, what, when, before/after values, reason).
+No sensitive financial information is exposed to logged-out visitors.
+Protect admin data and operations at the backend and database levels.
+Preserve existing admin functionality and data.
+SECTION 3: SEARCH HISTORY & SHARE APP
+useSearchHistory hook: per-user storage under buyoll_search_history_<userId> (_guest for guests), case-insensitive dedupe, max 8 items, newest first.
+Homepage search chips: one-click replay, individual "x" delete, "Clear all".
+Share (header nav item): use navigator.share with referral link /join?ref=<userId or phone>; clipboard fallback with toast; dedicated WhatsApp share dialog. Capture incoming ref parameter and pass it into user registration.
+SECTION 4: MEMBER & CHAMA GROUP FLOW
+3-step slot picker: (1) select slot number, (2) review delivery schedule & daily obligations, (3) confirm & activate.
+Day-by-day contribution tracker on slot cards with status: ✓ Paid, ⏳ Pending, ✗ Missed, ○ Upcoming.
+Arrears clearing: "Pay for Missed Days" modal with multi-day checkbox selection, total calculation, and M-Pesa code validation (8-12 alphanumeric characters).
+Chama broadcast feed: in-group banner showing real-time payment submissions, approvals and loan requests.
+NEW: "Chama Activity" feed component on GroupDetailPage: chronological log of member contributions, loan applications and status updates (data from the database, real-time where supported).
+SECTION 5: MERCHANT (BUYOLL DIRECT) FLOW
+3-step merchant subscription: Starter KSh 1,500, Pro KSh 3,500, Enterprise KSh 7,000; payable via Till 196853 or Paybill 522533.
+Verification gate: only verified merchants with active subscriptions can create products or launch groups (enforced server-side).
+10-speed option engine: 1-10 member groups, auto-computed daily targets, collection routing Option A (Merchant Direct Till) vs Option B (Buyoll Platform Escrow Till).
+SECTION 6: LENDER (GRACE) PEER-FUNDING FLOW
+Show borrower phone contact for off-platform negotiation.
+Atomic loan funding in ONE transaction: deduct principal from lender; credit 97% to borrower's non-withdrawable slot-payment wallet; credit 3% commission to Buyoll Escrow wallet; write 3 synchronized ledger entries. Roll back fully on any failure.
+Risk disclaimer about peer-to-peer external repayment liability.
+SECTION 7: ADMIN CONTROL CENTER & ESCROW CONSOLE
+Automated statement-matching queue: side-by-side member submissions vs M-Pesa Till records with badges perfect_match, amount_mismatch, unmatched_code, duplicate_detected.
+User & merchant management: verification workflow with audit notes and badges, merit points award modal, instant suspend/reinstate toggle.
+Chat moderation console: inspect chama group chats; warn, mute (isMuted: true), remove messages, ban users.
+Wallet oversight: system-wide aggregates of circulating store credit, applaud coins, reward points; one-click download of buyoll_wallets_export.csv.
+All of the above admin-only, server-enforced, audit-logged.
+SECTION 8: COINS & APPLAUD SYSTEM (CHANGES)
+8.1 MOVE "Award Coins to Members" OUT of the Wallet section and INTO Groups:
+Remove it from the wallet UI.
+On GroupDetailPage, every member's card gets an "Award Coins" button visible to other members (not on the user's own card; self-gifting is blocked).
+Clicking opens an award flow where the awarding member picks the recipient(s) (multi-select with "Select All" toggle is allowed) and amount.
+Backend validation: awarder must be a member of the group, must have sufficient coin balance, balance may never go negative, recipients must be group members. Atomic debit/credit with ledger entries for both sides.
+Keep platform rewards (send applaud coins to the Buyoll community pool) and the itemized coin ledger (incoming awards, outgoing awards, platform contributions, till deposits).
+8.2 Coin deposit packages: 50, 100, 250, 500, 1000, 2000 coins with Till 196853 / Paybill 522533 and M-Pesa code registration.
+SECTION 9: WALLET DEPOSIT WITH ADMIN APPROVAL
+Each wallet has a Deposit icon/button.
+On click, show the platform Paybill/Till details.
+After paying, the user enters amount paid + M-Pesa payment code, then clicks "Process". This creates a PENDING deposit request (validate code format, reject duplicate codes, rate-limit).
+Admin sees pending deposits and Approves or Declines (admin-only, server-enforced, audit-logged).
+On approval: automatically credit that specific user's wallet in an atomic transaction, increase the balance, write a ledger entry, and notify the user. On decline: record the reason and notify the user. A request can only be processed once.
+SECTION 10: NOTIFICATIONS & PUSH
+10.1 Service-worker push notifications (Web Push) that show visual alerts for "Payment Due" and "New Group Invite" even when the app is minimized/closed. Include permission prompt flow, subscription storage per user, and graceful fallback if unsupported/denied.
+10.2 New group notification:
+When any merchant/store owner creates a group, notify relevant users (in-app + push): "[Group name] has been created. Tap to view."
+The notification contains a deep link that opens the group's page directly (handle logged-out users by redirecting to login, then back to the group).
+Users CANNOT join freely. They can only join by invitation: they tap "Request Invite"; the group's moderator reviews requests and approves (issuing an entry code) or declines. Entry code is required to join, validated server-side.
+SECTION 11: UI CHANGES TO MAKE
+The "Enable" function/toggle(s) in the app are currently static. Make them dynamic: persist state per user in the database (or the existing settings store), load it on start, update it on toggle, and reflect it in the UI immediately. Find all Enable toggles and fix them.
+Features section: hide "Merchant Placement: KSh 500 / featured image" and "2.5s Auto-Roll Active".
+Features section counter: change "1 / 7" to "1 / 100,000+".
+Newly posted announcements: hide the "2.5s interval" label.
+Footer: change "Trender" to "Trendier".
+FINAL VERIFICATION CHECKLIST (report pass/fail with evidence)
+Ordinary visitors see no Admin button (desktop + mobile).
+Customers entering /admin/dashboard by URL are denied.
+Unauthenticated requests to admin APIs are rejected (401).
+Authenticated non-admins are denied (403).
+Authorized admins can still use all admin functions.
+Header is responsive on desktop and mobile.
+All existing public navigation links work.
+Wallet isolation: user A cannot read or modify user B's wallet (test it).
+Deposits require admin approval; approval credits the correct wallet exactly once.
+Award Coins appears only on group member cards, enforces sufficient balance, and blocks self-awards.
+Push notification fires for Payment Due and New Group Invite; group-created link deep-links correctly; join requires moderator-issued entry code.
+All Section 11 UI changes applied.
+Run the build and existing tests, fix any errors, and list every file you changed.
+Prompt
+Role: You are the logic engine for Buyoll, a group savings and rotating payout platform (chama-style). Each group has a fixed number of members, and each member holds a payout slot (1 = first to receive, last number = last to receive). Implement the rules below.
+Member statuses and priority levels
+Priority levels (for members in good standing):
+Best: consistently pays early, before the due date (threshold configurable).
+Better: pays on the due date.
+Good: pays within the grace period, or has recently recovered from being a slow payer.
+Problem statuses:
+Slow Payer: pays after the grace period, or misses payments repeatedly (threshold: X late or missed payments, configurable). Slow payers rank below all priority levels.
+Dormant: has had no contribution or activity for Y consecutive days (configurable).
+Queue order: Best, then Better, then Good, then the Slow Payer block at the end.
+Dormant member warning (moderator action)
+When a member is flagged Dormant, the group moderator is notified automatically.
+The moderator issues a formal warning to the member through the platform.
+The warning is logged with date, reason and moderator name.
+The member gets a deadline to resume payments (configurable). If they resume in time, the dormant flag is removed.
+Automatic slot reordering (system action)
+The system checks payment performance at the end of each payment day, not each cycle.
+A slow payer’s slot is moved automatically by the system to the last position in the queue. No moderator approval is needed.
+Every member behind them moves forward one position. Members move forward according to priority: Best members first, then Better, then Good.
+Slot changes are also affected by priority. If a member’s priority level rises or falls (for example, Good to Better, or Best to Good), the system automatically adjusts their slot relative to members on other levels.
+Within the same priority level, members keep their existing relative order.
+This only applies to members who have not yet received their payout. A member who has already been paid keeps their position.
+Example: in a group of 10, if Member 1 is slow, Member 1 moves to slot 10, and Members 2 to 10 move up to slots 1 to 9.
+If two or more members are slow, they go to the end in the order they became slow, with the earlier offender placed ahead of the later one. Together they form the “slow payer block” at the end of the queue.
+Restoring a slot (system action)
+A member who clears all arrears and pays on time for Z consecutive cycles (configurable) is automatically reclassified from Slow Payer to Good.
+On reclassification, the system automatically moves that member forward into the first slot held by the slow payers (the front of the slow payer block).
+The slow payers in that block each move back one position as a result.
+This is the standard chama rule: good payment behavior earns a better slot, and the slot a recovered member takes is one that was held by slow payers.
+The member can then rise to Better or Best through consistent payment behavior (see Section 3, point 4).
+This applies only to members who have not yet received their payout.
+No moderator approval is required. The system does it automatically.
+Loan suggestion for dormant members
+When a member is flagged Dormant, the platform automatically sends them a message suggesting they request a loan from a lender to catch up on contributions.
+The message includes a button or link to the loan request page.
+The platform does not approve the loan itself. The lender decides.
+Notifications and transparency
+Moderator warnings: only the moderator issues warnings to members (for example, for dormancy or repeated late payment). Each warning includes the reason.
+System slot change notices: slot changes are done automatically by the system, not by the moderator. Whenever the system moves a member (to the last slot, up a slot, or because of a priority change), it sends that member, and the affected members, a notice with the reason, the old slot, the new slot, the priority level and the effective date.
+All members can see the updated slot order and each member’s priority level at any time.
+The moderator has an audit log of every status change, warning, priority change and slot reorder. Slot reorders are marked as “system-generated”.
+Goal
+Motivate members to pay on time by rewarding good payers with earlier payouts through the Good, Better and Best levels, and discouraging late or dormant behavior, while keeping the process automatic, fair and transparent.

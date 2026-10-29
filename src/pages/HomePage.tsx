@@ -235,13 +235,6 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <Sparkles className="w-3.5 h-3.5" />
                 Featured Deal
               </span>
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-semibold text-emerald-100 border border-white/10">
-                <Tag className="w-3 h-3 text-amber-300" />
-                Merchant Placement: KSh 500 / featured image
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-950/70 rounded-full text-[11px] font-mono text-emerald-300 border border-emerald-700/50">
-                2.5s Auto-Roll Active
-              </span>
             </div>
 
             {/* 100,000 Capacity Scale Counter & Direct Jump */}
@@ -339,7 +332,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <span className="text-xs font-mono px-2 text-emerald-200">
-                    {featuredIndex + 1} / {displayFeatured.length}
+                    {featuredIndex + 1} / 100,000+
                   </span>
                   <button
                     onClick={() => setFeaturedIndex(prev => (prev + 1) % displayFeatured.length)}
@@ -434,7 +427,6 @@ export const HomePage: React.FC<HomePageProps> = ({
 
             {/* Navigation & Speed Controls */}
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[11px] text-slate-400 font-mono">2.5s interval</span>
               <button
                 onClick={() =>
                   setNewlyPostedIndex(prev => (prev - 1 + filteredNewlyPosted.length) % Math.max(1, filteredNewlyPosted.length))

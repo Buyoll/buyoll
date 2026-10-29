@@ -24,7 +24,7 @@ export const Footer: React.FC<FooterProps> = ({
       desc: 'A crowdfunding, YouTube-like website.',
     },
     {
-      name: 'Trender',
+      name: 'Trendier',
       tag: 'Microblogging & P2P Gaming',
       desc: 'A microblogging and peer-to-peer gaming platform.',
     },

@@ -16,6 +16,8 @@ export interface User {
   email?: string;
   password?: string;
   role: UserRole;
+  avatar?: string;
+  avatarUrl?: string;
   shopName?: string;
   shopDescription?: string;
   verified?: boolean;
@@ -40,8 +42,17 @@ export interface User {
   nonWithdrawableBalance?: number; // in KSh
   coins: number;
   points: number;
+  preferences?: UserPreferences;
   lastActive: number;
   createdAt: number;
+}
+
+export interface UserPreferences {
+  pushNotificationsEnabled?: boolean;
+  smsAlertsEnabled?: boolean;
+  instantPayReminderEnabled?: boolean;
+  autoRollAnnouncementsEnabled?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 export interface SpeedOption {
@@ -113,6 +124,20 @@ export interface GroupSlot {
   lastPaymentDate?: number;
   joinedAt?: number;
   isDefaulter?: boolean;
+  // Chama Priority and Payout Logic Engine
+  priorityLevel?: 'Best' | 'Better' | 'Good';
+  memberStatus?: 'good_standing' | 'slow_payer' | 'dormant';
+  slowPayerSince?: number;
+  consecutiveOnTimeCycles?: number;
+  dormantSince?: number;
+  dormantWarning?: {
+    date: number;
+    reason: string;
+    moderatorName: string;
+    deadline: number;
+    active: boolean;
+  };
+  paidOut?: boolean;
 }
 
 export interface GroupChatMessage {
@@ -217,6 +242,20 @@ export interface ChamaGroup {
   inviteRequests?: GroupInviteRequest[];
   // Chama activity feed
   activities?: ChamaActivityItem[];
+  // Slot reordering and status audit logs (system-generated & moderator warnings)
+  slotAuditLogs?: Array<{
+    id: string;
+    timestamp: number;
+    type: 'system_slot_reorder' | 'moderator_warning' | 'priority_change' | 'status_change';
+    description: string;
+    actorName: string;
+    isSystemGenerated?: boolean;
+    details?: any;
+    previousSlot?: number;
+    newSlot?: number;
+    slotNumber?: number;
+    reason?: string;
+  }>;
 }
 
 export interface ChamaActivityItem {
@@ -300,7 +339,7 @@ export interface MpesaStatementRecord {
 
 export interface PaymentRecord {
   id: number;
-  type: 'group_installment' | 'listing_fee' | 'coin_purchase' | 'loan_fee' | 'merchant_subscription';
+  type: 'group_installment' | 'listing_fee' | 'coin_purchase' | 'loan_fee' | 'merchant_subscription' | 'wallet_deposit';
   userId: number;
   userName: string;
   code: string; // M-Pesa transaction reference
@@ -373,15 +412,19 @@ export interface PeerLoanRequest {
   requesterId: number;
   requesterName: string;
   requesterPhone?: string;
+  borrowerId?: number;
+  borrowerName?: string;
   productTitle?: string;
   productImage?: string;
   amount: number;
+  requestedAmount?: number;
   approvedAmount?: number;
   purpose: string;
   status: 'open' | 'fee_pending' | 'fee_verified' | 'funded' | 'cancelled';
   createdAt: number;
   fundedByUserId?: number;
   fundedByUserName?: string;
+  lenderName?: string;
   fundedAt?: number;
   platformFeePercent: number; // 3% of amount
   platformFeeAmount: number; // 3% of amount

@@ -38,6 +38,53 @@ async function getAuthenticatedUser(req: Request): Promise<User | null> {
   return db.users.find(u => u.id === userId) || null;
 }
 
+// Section 1.3: Server-side authorization helper (401 unauthenticated, 403 non-admin)
+async function requireAdminUser(req: Request, res: Response): Promise<{ user: User; db: any } | null> {
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    res.status(401).json({ error: 'Authentication required. Please sign in to access administration functions.' });
+    return null;
+  }
+  if (user.role !== 'admin') {
+    res.status(403).json({ error: 'Access denied. Administrative role required.' });
+    return null;
+  }
+  const db = await getDatabase();
+  return { user, db };
+}
+
+// -------------------------------------------------------------
+// USER PREFERENCES (Dynamic Enable Toggles Persisted to Database)
+// -------------------------------------------------------------
+apiRouter.get('/user/preferences', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  res.json({ preferences: user.preferences || {} });
+});
+
+apiRouter.post('/user/preferences', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { preferences } = req.body;
+  if (!preferences || typeof preferences !== 'object') {
+    return res.status(400).json({ error: 'Valid preferences object required' });
+  }
+
+  const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id);
+  if (dbUser) {
+    dbUser.preferences = {
+      ...(dbUser.preferences || {}),
+      ...preferences,
+    };
+    user.preferences = dbUser.preferences;
+    await saveDatabase(db);
+    return res.json({ success: true, preferences: dbUser.preferences });
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
 // -------------------------------------------------------------
 // AUTH ROUTES
 // -------------------------------------------------------------
@@ -2242,12 +2289,9 @@ apiRouter.post('/groups/:id/loans/:loanId/submit-fee', async (req: Request, res:
 
 // ADMIN APPROVES 3% LOAN COMMISSION FEE
 apiRouter.post('/admin/loan-fees/:loanId/approve', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const db = await getDatabase();
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db, user } = auth;
   const loan = (db.peerLoans || []).find(l => l.id === Number(req.params.loanId));
   if (!loan) return res.status(404).json({ error: 'Loan request not found' });
 
@@ -2779,12 +2823,10 @@ apiRouter.post('/wallet/redeem-points', async (req: Request, res: Response) => {
 // ADMIN PANEL ENDPOINTS
 // -------------------------------------------------------------
 apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
 
-  const db = await getDatabase();
   res.json({
     pendingPayments: db.payments.filter(p => p.status === 'pending'),
     allPayments: db.payments,
@@ -2798,12 +2840,10 @@ apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
 
-  const db = await getDatabase();
   const paymentsWithMatching = db.payments.map(p => {
     const matched = (db.mpesaStatements || []).find(
       s => s.code.toUpperCase() === p.code.toUpperCase()
@@ -2831,13 +2871,11 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
 });
 
 apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { decision, reason } = req.body; // 'approve' | 'reject'
-  const db = await getDatabase();
   const payment = db.payments.find(p => p.id === Number(req.params.id));
 
   if (!payment) return res.status(404).json({ error: 'Payment not found' });
@@ -2987,13 +3025,11 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
 });
 
 apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { status, adminNote } = req.body;
-  const db = await getDatabase();
   const refund = db.refundRequests.find(r => r.id === Number(req.params.id));
 
   if (!refund) return res.status(404).json({ error: 'Refund request not found' });
@@ -3016,22 +3052,18 @@ apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) 
 // ADMIN USER MANAGEMENT & BADGING
 // -------------------------------------------------------------
 apiRouter.get('/admin/users', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  const db = await getDatabase();
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
   res.json({ users: db.users });
 });
 
 apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { verified, notes } = req.body;
-  const db = await getDatabase();
   const merchant = db.users.find(u => u.id === Number(req.params.id) && u.role === 'merchant');
 
   if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
@@ -3054,13 +3086,11 @@ apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response
 });
 
 apiRouter.post('/admin/users/:id/verify', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { verified, notes } = req.body;
-  const db = await getDatabase();
   const target = db.users.find(u => u.id === Number(req.params.id));
 
   if (!target) return res.status(404).json({ error: 'User not found' });
@@ -3082,13 +3112,11 @@ apiRouter.post('/admin/users/:id/verify', async (req: Request, res: Response) =>
 });
 
 apiRouter.post('/admin/users/:id/suspend', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { isSuspended, reason } = req.body;
-  const db = await getDatabase();
   const target = db.users.find(u => u.id === Number(req.params.id));
 
   if (!target) return res.status(404).json({ error: 'User not found' });
@@ -3103,16 +3131,14 @@ apiRouter.post('/admin/users/:id/suspend', async (req: Request, res: Response) =
 });
 
 apiRouter.post('/admin/users/:id/award-points', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { points, reason } = req.body;
   const numPoints = Number(points);
   if (!numPoints) return res.status(400).json({ error: 'Valid points amount required' });
 
-  const db = await getDatabase();
   const target = db.users.find(u => u.id === Number(req.params.id));
   if (!target) return res.status(404).json({ error: 'User not found' });
 
@@ -3127,12 +3153,10 @@ apiRouter.post('/admin/users/:id/award-points', async (req: Request, res: Respon
 // ADMIN WALLETS OVERSIGHT & CSV EXPORT
 // -------------------------------------------------------------
 apiRouter.get('/admin/wallets', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
 
-  const db = await getDatabase();
   const totalCredit = db.users.reduce((acc, u) => acc + (u.credit || 0), 0);
   const totalCoins = db.users.reduce((acc, u) => acc + (u.coins || 0), 0);
   const totalPoints = db.users.reduce((acc, u) => acc + (u.points || 0), 0);
@@ -3156,12 +3180,10 @@ apiRouter.get('/admin/wallets', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/admin/wallets/export-csv', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
 
-  const db = await getDatabase();
   const headers = ['User ID', 'Name', 'Phone', 'Role', 'Credit Balance (KSh)', 'Coins', 'Points', 'Verified', 'Suspended'];
   const rows = db.users.map(u => [
     u.id,
@@ -3185,12 +3207,10 @@ apiRouter.get('/admin/wallets/export-csv', async (req: Request, res: Response) =
 // ADMIN CHAT MODERATION
 // -------------------------------------------------------------
 apiRouter.get('/admin/chat-logs', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
 
-  const db = await getDatabase();
   const allGroupChats = db.groups.flatMap(g =>
     (g.chat || []).map(c => ({
       ...c,
@@ -3216,13 +3236,11 @@ apiRouter.get('/admin/chat-logs', async (req: Request, res: Response) => {
 });
 
 apiRouter.post('/admin/chat/moderate', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { action, targetUserId, groupId, messageId, reason } = req.body;
-  const db = await getDatabase();
   const target = db.users.find(u => u.id === Number(targetUserId));
 
   if (!target) return res.status(404).json({ error: 'Target user not found' });
@@ -3464,62 +3482,94 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
   const groupId = Number(req.params.id);
-  const { targetUserId, coinAmount, note } = req.body;
-  const numCoins = Math.max(1, Number(coinAmount) || 5);
-
-  if ((user.coins || 0) < numCoins) {
-    return res.status(400).json({
-      error: `Insufficient coins in your wallet! You have ${user.coins || 0} coins, but tried to award ${numCoins} coins. Please top up your coins in your Wallet first.`,
-    });
-  }
-
-  if (Number(targetUserId) === user.id) {
-    return res.status(400).json({ error: 'You cannot award coins to yourself.' });
-  }
+  const { targetUserId, targetUserIds, coinAmount, note } = req.body;
 
   const db = await getDatabase();
   const group = db.groups.find(g => g.id === groupId);
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  const targetUser = db.users.find(u => u.id === Number(targetUserId));
-  if (!targetUser) return res.status(404).json({ error: 'Recipient member not found' });
+  // Section 8.1 Backend validation: awarder must be a member of the group (or admin)
+  const isAwarderInGroup = group.slots.some(s => s.userId === user.id && s.status === 'active') || user.role === 'admin';
+  if (!isAwarderInGroup) {
+    return res.status(403).json({ error: 'You must be an active member of this Chama group to award coins.' });
+  }
 
-  // Deduct from sender
-  user.coins = (user.coins || 0) - numCoins;
-  // Credit to recipient
-  targetUser.coins = (targetUser.coins || 0) + numCoins;
+  const recipientIds: number[] = Array.isArray(targetUserIds) && targetUserIds.length > 0
+    ? targetUserIds.map(Number)
+    : targetUserId ? [Number(targetUserId)] : [];
 
+  if (recipientIds.length === 0) {
+    return res.status(400).json({ error: 'Please select at least one member to award coins to.' });
+  }
+
+  // Section 8.1: Block self-awards
+  if (recipientIds.includes(user.id)) {
+    return res.status(400).json({ error: 'Self-gifting is blocked. You cannot award coins to yourself.' });
+  }
+
+  // Section 8.1: Recipients must be group members
+  for (const rid of recipientIds) {
+    const isMember = group.slots.some(s => s.userId === rid && s.status === 'active');
+    if (!isMember) {
+      return res.status(400).json({ error: `Member #${rid} is not an active slot holder in this Chama group.` });
+    }
+  }
+
+  const coinsPerPerson = Math.max(1, Number(coinAmount) || 5);
+  const totalCoinsNeeded = coinsPerPerson * recipientIds.length;
+
+  // Section 8.1: Must have sufficient coin balance, balance may never go negative
+  const currentCoins = user.coins || 0;
+  if (currentCoins < totalCoinsNeeded) {
+    return res.status(400).json({
+      error: `Insufficient coins in your wallet! You have ${currentCoins} coins, but tried to award ${totalCoinsNeeded} coins (${coinsPerPerson} × ${recipientIds.length} members). Please deposit coins in your Wallet first.`,
+    });
+  }
+
+  // Atomic debit from awarder
+  user.coins = currentCoins - totalCoinsNeeded;
   const now = Date.now();
   if (!db.coinLedger) db.coinLedger = [];
-  db.coinLedger.unshift({
-    id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
-    type: 'transfer',
-    senderId: user.id,
-    senderName: user.name,
-    recipientId: targetUser.id,
-    recipientName: targetUser.name,
-    amount: numCoins,
-    reason: (note || `Applauded in Chama "${group.name}"`).trim(),
-    timestamp: now,
-  });
-
-  // Record in Chama activity feed
-  const activity: ChamaActivityItem = {
-    id: `act_${now}_${Math.random().toString(36).substring(2, 6)}`,
-    groupId: group.id,
-    type: 'coin_award',
-    title: 'Applaud Coins Awarded',
-    description: `${user.name} awarded ${numCoins} Applaud Coins to ${targetUser.name}! "${note || 'Well done & great Chama spirit!'}"`,
-    coins: numCoins,
-    actorId: user.id,
-    actorName: user.name,
-    actorAvatar: user.avatar,
-    targetUserId: targetUser.id,
-    targetUserName: targetUser.name,
-    timestamp: now,
-  };
   if (!group.activities) group.activities = [];
-  group.activities.unshift(activity);
+
+  const recipientNames: string[] = [];
+
+  // Atomic credit to each recipient with synchronized ledger entries
+  for (const rid of recipientIds) {
+    const recipient = db.users.find(u => u.id === rid);
+    if (recipient) {
+      recipient.coins = (recipient.coins || 0) + coinsPerPerson;
+      recipientNames.push(recipient.name);
+
+      db.coinLedger.unshift({
+        id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        type: 'transfer',
+        senderId: user.id,
+        senderName: user.name,
+        recipientId: recipient.id,
+        recipientName: recipient.name,
+        amount: coinsPerPerson,
+        reason: (note || `Applauded in Chama "${group.name}"`).trim(),
+        timestamp: now,
+      });
+
+      // Record in Chama activity feed
+      group.activities.unshift({
+        id: `act_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        groupId: group.id,
+        type: 'coin_award',
+        title: 'Applaud Coins Awarded',
+        description: `${user.name} awarded ${coinsPerPerson} Applaud Coins to ${recipient.name}! "${note || 'Well done & great Chama spirit!'}"`,
+        coins: coinsPerPerson,
+        actorId: user.id,
+        actorName: user.name,
+        actorAvatar: user.avatar,
+        targetUserId: recipient.id,
+        targetUserName: recipient.name,
+        timestamp: now,
+      });
+    }
+  }
 
   // Post to group chat
   group.chat.push({
@@ -3527,19 +3577,285 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
     senderId: user.id,
     senderName: user.name,
     kind: 'reward',
-    text: `🌟 ${user.name} applauded ${targetUser.name} with ${numCoins} coins! "${note || 'Great Chama dedication!'}"`,
+    text: `🌟 ${user.name} applauded ${recipientNames.join(', ')} with ${coinsPerPerson} coins each! "${note || 'Great Chama dedication!'}"`,
     timestamp: now,
   });
 
-  logAudit(db, user.id, user.name, 'GROUP_COINS_AWARDED', `Awarded ${numCoins} coins to ${targetUser.name} in Chama #${group.id}`);
+  logAudit(db, user.id, user.name, 'GROUP_COINS_AWARDED', `Awarded ${totalCoinsNeeded} coins to ${recipientNames.join(', ')} in Chama #${group.id}`);
   await saveDatabase(db);
 
   res.json({
     success: true,
     remainingCoins: user.coins,
     group,
-    activity,
-    message: `Successfully awarded ${numCoins} coins to ${targetUser.name}! 🌟`,
+    message: `Successfully awarded ${coinsPerPerson} coins to ${recipientNames.join(', ')}! 🌟`,
+  });
+});
+
+// -------------------------------------------------------------
+// CHAMA ROTATING PAYOUT & STATUS ENGINE ENDPOINTS
+// -------------------------------------------------------------
+
+// Moderator Issues Formal Warning to a Dormant Member
+apiRouter.post('/groups/:id/warn-dormant', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const groupId = Number(req.params.id);
+  const { slotNumber, targetUserId, reason, deadlineDays } = req.body;
+
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  // Only group moderator / store owner / system admin can issue warnings
+  const isModerator = group.adminId === user.id || user.role === 'admin' || user.role === 'merchant';
+  if (!isModerator) {
+    return res.status(403).json({ error: 'Only the group moderator or store owner can issue formal member warnings.' });
+  }
+
+  const slot = group.slots.find(s => s.slotNumber === Number(slotNumber) && s.userId === Number(targetUserId));
+  if (!slot || !slot.userId) {
+    return res.status(404).json({ error: 'Target member slot not found in this group.' });
+  }
+
+  const targetUser = db.users.find(u => u.id === slot.userId);
+  const now = Date.now();
+  const daysLimit = Math.max(1, Number(deadlineDays) || 3);
+  const deadlineDate = now + daysLimit * 86400000;
+  const warningReason = (reason || 'No contributions or activity recorded for consecutive days. Arrears clearing required.').trim();
+
+  // 1. Set warning on slot
+  slot.memberStatus = 'dormant';
+  slot.dormantWarning = {
+    date: now,
+    reason: warningReason,
+    moderatorName: user.name,
+    deadline: deadlineDate,
+    active: true,
+  };
+
+  // 2. Audit log on group
+  if (!group.slotAuditLogs) group.slotAuditLogs = [];
+  const auditEntry = {
+    id: `warn_${now}_${slot.slotNumber}`,
+    timestamp: now,
+    type: 'moderator_warning' as const,
+    description: `Moderator ${user.name} issued formal warning to ${slot.userName || targetUser?.name || 'Member'}: "${warningReason}". Deadline to resume: ${new Date(deadlineDate).toLocaleDateString()}.`,
+    actorName: user.name,
+    isSystemGenerated: false,
+    details: {
+      slotNumber: slot.slotNumber,
+      targetUserId: slot.userId,
+      reason: warningReason,
+      deadline: deadlineDate,
+    },
+  };
+  group.slotAuditLogs.unshift(auditEntry);
+
+  // 3. Automated Loan Suggestion Notification & Link to Dormant Member
+  if (!group.notifications) group.notifications = [];
+  const loanSuggestion = {
+    id: `loan_sugg_${now}_${slot.slotNumber}`,
+    groupId: group.id,
+    groupName: group.name,
+    recipientUserId: slot.userId,
+    title: '⚠️ Formal Warning & Peer Loan Suggestion',
+    message: `Moderator ${user.name} has flagged your Slot #${slot.slotNumber} as Dormant. Deadline to resume: ${new Date(deadlineDate).toLocaleDateString()}. You can catch up on arrears by requesting an emergency installment loan from our verified 3rd-party lenders!`,
+    link: `/lenders-dashboard`,
+    type: 'system' as const,
+    timestamp: now,
+  };
+  group.notifications.unshift(loanSuggestion);
+
+  // 4. Post warning and loan suggestion message in group chat
+  group.chat.push({
+    id: `chat_${now}_warn`,
+    senderId: user.id,
+    senderName: `${user.name} (Moderator)`,
+    kind: 'system',
+    text: `⚠️ FORMAL NOTICE: Member ${slot.userName || 'Slot holder'} was issued a formal warning for dormancy. Reason: ${warningReason}. Deadline: ${new Date(deadlineDate).toLocaleDateString()}. Tap Lenders Desk to request peer funding if in financial hardship.`,
+    timestamp: now,
+  });
+
+  logAudit(db, user.id, user.name, 'DORMANT_WARNING_ISSUED', `Issued dormant warning to ${slot.userName} in Chama #${group.id}. Reason: ${warningReason}`);
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    group,
+    slot,
+    message: `Formal warning issued to ${slot.userName || 'Member'}. Automated loan suggestion message dispatched!`,
+  });
+});
+
+// Run Chama Slot Reordering & Priority Evaluation (Daily or Payment-Day Check)
+apiRouter.post('/groups/:id/reorder-check', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const groupId = Number(req.params.id);
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const now = Date.now();
+  const logs: any[] = [];
+  const currentRound = group.currentRound || 1;
+
+  // 1. Evaluate Member Priority and Problem Statuses
+  for (const slot of group.slots) {
+    if (!slot.userId || slot.status !== 'active') continue;
+
+    const paidAmt = slot.paidAmount || 0;
+    const targetAmt = slot.targetAmount || (group.dailyAmount * (group.cycleDays / group.size));
+    const isPaidOut = Boolean(slot.paidOut || (slot.slotNumber < currentRound && group.deliveredRounds?.some(d => d.recipientSlot === slot.slotNumber)));
+    slot.paidOut = isPaidOut;
+
+    const daysPending = (slot.pendingDays || []).length;
+    const daysPaid = (slot.paidDays || []).length;
+    const lastActiveTime = slot.lastPaymentDate || slot.joinedAt || group.createdAt || now;
+    const daysSinceLastPayment = Math.floor((now - lastActiveTime) / 86400000);
+
+    // Problem statuses
+    if (daysSinceLastPayment >= 3 && paidAmt < targetAmt) {
+      if (slot.memberStatus !== 'dormant') {
+        slot.memberStatus = 'dormant';
+        slot.dormantSince = slot.dormantSince || now;
+        logs.push({
+          id: `status_${now}_${slot.slotNumber}`,
+          timestamp: now,
+          type: 'status_change',
+          description: `Member ${slot.userName || `Slot #${slot.slotNumber}`} was flagged Dormant (${daysSinceLastPayment} days inactive).`,
+          actorName: 'System Engine',
+          isSystemGenerated: true,
+        });
+      }
+    } else if (daysPending > 0 || (daysSinceLastPayment >= 1 && paidAmt < targetAmt)) {
+      if (slot.memberStatus !== 'slow_payer') {
+        slot.memberStatus = 'slow_payer';
+        slot.slowPayerSince = slot.slowPayerSince || now;
+        slot.consecutiveOnTimeCycles = 0;
+        logs.push({
+          id: `status_${now}_${slot.slotNumber}`,
+          timestamp: now,
+          type: 'status_change',
+          description: `Member ${slot.userName || `Slot #${slot.slotNumber}`} was reclassified as Slow Payer (overdue contribution).`,
+          actorName: 'System Engine',
+          isSystemGenerated: true,
+        });
+      }
+    } else {
+      // Good Standing
+      if (slot.memberStatus === 'slow_payer' || slot.memberStatus === 'dormant') {
+        // Restoring a slot: member cleared all arrears and paid on time
+        slot.memberStatus = 'good_standing';
+        slot.priorityLevel = 'Good';
+        slot.consecutiveOnTimeCycles = (slot.consecutiveOnTimeCycles || 0) + 1;
+        slot.slowPayerSince = undefined;
+        slot.dormantSince = undefined;
+        logs.push({
+          id: `status_${now}_${slot.slotNumber}`,
+          timestamp: now,
+          type: 'status_change',
+          description: `Member ${slot.userName || `Slot #${slot.slotNumber}`} cleared arrears and was restored to Good standing!`,
+          actorName: 'System Engine',
+          isSystemGenerated: true,
+        });
+      } else {
+        slot.memberStatus = 'good_standing';
+        if (daysPaid > (currentRound * 2)) {
+          slot.priorityLevel = 'Best';
+        } else if (daysPaid >= currentRound) {
+          slot.priorityLevel = slot.priorityLevel === 'Best' ? 'Best' : 'Better';
+        } else {
+          slot.priorityLevel = 'Good';
+        }
+      }
+    }
+  }
+
+  // 2. Automatic daily slot reordering
+  const paidOutSlots = group.slots.filter(s => s.paidOut || (s.slotNumber < currentRound && group.deliveredRounds?.some(d => d.recipientSlot === s.slotNumber)));
+  const unpaidSlots = group.slots.filter(s => !paidOutSlots.some(p => p.slotNumber === s.slotNumber));
+
+  if (unpaidSlots.length > 1) {
+    const originalUnpaidOrder = [...unpaidSlots];
+
+    const getPriorityWeight = (s: GroupSlot) => {
+      if (s.memberStatus === 'slow_payer' || s.memberStatus === 'dormant') return 4;
+      if (s.priorityLevel === 'Best') return 1;
+      if (s.priorityLevel === 'Better') return 2;
+      return 3;
+    };
+
+    unpaidSlots.sort((a, b) => {
+      const weightA = getPriorityWeight(a);
+      const weightB = getPriorityWeight(b);
+      if (weightA !== weightB) return weightA - weightB;
+      if (weightA === 4) {
+        const timeA = a.slowPayerSince || a.dormantSince || now;
+        const timeB = b.slowPayerSince || b.dormantSince || now;
+        if (timeA !== timeB) return timeA - timeB;
+      }
+      return a.slotNumber - b.slotNumber;
+    });
+
+    const availableNumbers = originalUnpaidOrder.map(s => s.slotNumber).sort((a, b) => a - b);
+
+    for (let i = 0; i < unpaidSlots.length; i++) {
+      const slot = unpaidSlots[i];
+      const targetSlotNumber = availableNumbers[i];
+      if (slot.slotNumber !== targetSlotNumber) {
+        const oldNum = slot.slotNumber;
+        slot.slotNumber = targetSlotNumber;
+
+        const notice = {
+          id: `reorder_${now}_${slot.slotNumber}`,
+          timestamp: now,
+          type: 'system_slot_reorder' as const,
+          description: `System reordered Slot #${oldNum} -> Slot #${targetSlotNumber} for ${slot.userName || 'Member'} (${slot.priorityLevel || 'Good'} standing, ${slot.memberStatus || 'good_standing'}).`,
+          actorName: 'System Engine',
+          isSystemGenerated: true,
+          details: {
+            oldSlot: oldNum,
+            newSlot: targetSlotNumber,
+            priorityLevel: slot.priorityLevel || 'Good',
+            status: slot.memberStatus,
+            effectiveDate: now,
+          },
+        };
+        logs.push(notice);
+
+        if (!group.notifications) group.notifications = [];
+        group.notifications.unshift({
+          id: `notif_${now}_reorder_${slot.slotNumber}`,
+          groupId: group.id,
+          groupName: group.name,
+          recipientUserId: slot.userId || undefined,
+          title: 'Payout Slot Reordered (System Action)',
+          message: `Your Chama payout slot has been updated from Slot #${oldNum} to Slot #${targetSlotNumber} based on payment performance (${slot.priorityLevel || 'Good'} standing).`,
+          type: 'system',
+          timestamp: now,
+        });
+      }
+    }
+  }
+
+  group.slots.sort((a, b) => a.slotNumber - b.slotNumber);
+
+  if (logs.length > 0) {
+    if (!group.slotAuditLogs) group.slotAuditLogs = [];
+    group.slotAuditLogs.unshift(...logs);
+  }
+
+  await saveDatabase(db);
+  res.json({
+    success: true,
+    group,
+    actionsCount: logs.length,
+    logs,
+    message: logs.length > 0 ? `System evaluated members and applied ${logs.length} slot/status updates.` : 'All member slots verified up to date.',
   });
 });
 
@@ -3596,15 +3912,18 @@ apiRouter.get('/groups/:id/activities', async (req: Request, res: Response) => {
 
     const groupLoans = (db.peerLoans || []).filter(l => l.groupId === group.id);
     for (const l of groupLoans) {
+      const bName = l.borrowerName || l.requesterName || 'Member';
+      const rAmount = l.requestedAmount || l.amount || 0;
+      const bId = l.borrowerId || l.requesterId;
       derived.push({
         id: `act_loan_${l.id}`,
         groupId: group.id,
         type: 'loan_application',
         title: `Emergency Loan Requested`,
-        description: `${l.borrowerName} requested KSh ${l.requestedAmount.toLocaleString()} installment advance for Slot #${l.slotNumber}.`,
-        amount: l.requestedAmount,
-        actorId: l.borrowerId,
-        actorName: l.borrowerName,
+        description: `${bName} requested KSh ${rAmount.toLocaleString()} installment advance for Slot #${l.slotNumber}.`,
+        amount: rAmount,
+        actorId: bId,
+        actorName: bName,
         targetSlotNumber: l.slotNumber,
         timestamp: l.createdAt,
       });
@@ -3615,9 +3934,9 @@ apiRouter.get('/groups/:id/activities', async (req: Request, res: Response) => {
           groupId: group.id,
           type: 'loan_funded',
           title: `Peer Loan Funded & Wallet Credited`,
-          description: `Dedicated lender funded KSh ${l.requestedAmount.toLocaleString()} to ${l.borrowerName}'s wallet to clear Chama arrears.`,
-          amount: l.requestedAmount,
-          actorName: l.lenderName || '3rd-Party Lender',
+          description: `Dedicated lender funded KSh ${rAmount.toLocaleString()} to ${bName}'s wallet to clear Chama arrears.`,
+          amount: rAmount,
+          actorName: l.lenderName || l.fundedByUserName || '3rd-Party Lender',
           targetSlotNumber: l.slotNumber,
           timestamp: l.fundedAt || l.createdAt + 1800000,
         });
@@ -3712,27 +4031,22 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/admin/wallet-deposits', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const db = await getDatabase();
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
   res.json({ deposits: db.walletDeposits || [] });
 });
 
 apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
 
   const { action, notes } = req.body;
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'Action must be "approve" or "decline".' });
   }
 
-  const db = await getDatabase();
   if (!db.walletDeposits) db.walletDeposits = [];
 
   const deposit = db.walletDeposits.find(d => d.id === req.params.id);

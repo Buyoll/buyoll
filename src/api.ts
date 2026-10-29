@@ -2410,7 +2410,7 @@ export const api = {
   },
 
   // In-Group Award Coins to Members
-  async awardGroupMemberCoins(groupId: number, data: { targetUserId: number; coinAmount: number; note?: string }): Promise<any> {
+  async awardGroupMemberCoins(groupId: number, data: { targetUserId?: number; targetUserIds?: number[]; coinAmount: number; note?: string }): Promise<any> {
     return await fetchApi<any>(`/groups/${groupId}/award-coins`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -2420,6 +2420,33 @@ export const api = {
   // Group Activities Feed
   async getGroupActivities(groupId: number): Promise<{ activities: ChamaActivityItem[] }> {
     return await fetchApi<{ activities: ChamaActivityItem[] }>(`/groups/${groupId}/activities`);
+  },
+
+  // User Preferences (Dynamic Enable Toggles)
+  async getUserPreferences(): Promise<{ preferences: Record<string, any> }> {
+    return await fetchApi<{ preferences: Record<string, any> }>('/user/preferences');
+  },
+
+  async updateUserPreferences(preferences: Record<string, any>): Promise<{ success: boolean; preferences: Record<string, any> }> {
+    return await fetchApi<{ success: boolean; preferences: Record<string, any> }>('/user/preferences', {
+      method: 'POST',
+      body: JSON.stringify({ preferences }),
+    });
+  },
+
+  // Moderator Dormant Warning
+  async warnDormantMember(groupId: number, data: { slotNumber: number; targetUserId: number; reason?: string; deadlineDays?: number }): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/warn-dormant`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Trigger Chama Slot Reorder & Priority Check
+  async checkReorderGroup(groupId: number): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/reorder-check`, {
+      method: 'POST',
+    });
   },
 };
 

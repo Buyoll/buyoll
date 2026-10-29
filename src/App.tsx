@@ -9,6 +9,7 @@ import { MyChamasPage } from './pages/MyChamasPage.tsx';
 import { WalletPage } from './pages/WalletPage.tsx';
 import { VendorDashboardPage } from './pages/VendorDashboardPage.tsx';
 import { AdminDashboardPage } from './pages/AdminDashboardPage.tsx';
+import { AdminLoginPage } from './pages/AdminLoginPage.tsx';
 import { LendersDashboardPage } from './pages/LendersDashboardPage.tsx';
 import { AuthModal } from './pages/AuthModal.tsx';
 import { Footer } from './components/Footer.tsx';
@@ -33,7 +34,7 @@ import {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser());
-  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'lenders-dashboard'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-login' | 'lenders-dashboard'>('home');
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -61,12 +62,22 @@ export default function App() {
       navigator.serviceWorker.addEventListener('message', swListener);
     }
 
-    // 3. Deep link routing for /chama/:id
+    // 3. Dedicated URL routing for /admin/login, /admin/dashboard, and /chama/:id
     if (typeof window !== 'undefined') {
       const path = window.location.pathname;
-      const chamaMatch = path.match(/\/chama\/(\d+)/);
-      if (chamaMatch && chamaMatch[1]) {
-        handleNavigate('group', Number(chamaMatch[1]));
+      if (path === '/admin/login') {
+        handleNavigate('admin-login');
+      } else if (path === '/admin/dashboard' || path === '/admin') {
+        if (!currentUser || currentUser.role !== 'admin') {
+          handleNavigate('admin-login');
+        } else {
+          handleNavigate('admin-dashboard');
+        }
+      } else {
+        const chamaMatch = path.match(/\/chama\/(\d+)/);
+        if (chamaMatch && chamaMatch[1]) {
+          handleNavigate('group', Number(chamaMatch[1]));
+        }
       }
     }
 
@@ -238,6 +249,17 @@ export default function App() {
           />
         )}
 
+        {currentView === 'admin-login' && (
+          <AdminLoginPage
+            onSuccess={(user) => {
+              setCurrentUser(user);
+              handleNavigate('admin-dashboard');
+            }}
+            onNavigate={handleNavigate}
+            onNotify={handleNotify}
+          />
+        )}
+
         {currentView === 'admin-dashboard' && (
           <AdminDashboardPage
             currentUser={currentUser}
@@ -308,18 +330,6 @@ export default function App() {
           >
             <Store className="w-5 h-5 mb-0.5" />
             <span>Shop</span>
-          </button>
-        )}
-
-        {currentUser?.role === 'admin' && (
-          <button
-            onClick={() => handleNavigate('admin-dashboard')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-              currentView === 'admin-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
-            <Shield className="w-5 h-5 mb-0.5" />
-            <span>Admin</span>
           </button>
         )}
       </nav>

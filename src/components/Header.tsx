@@ -88,11 +88,39 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('buyoll_notifications_updated', handleNotifUpdate);
   }, []);
 
-  const handleEnablePush = async () => {
-    const granted = await requestNotificationPermission();
-    setNotifPermission(getNotificationPermission());
-    if (granted && onNotify) {
-      onNotify('success', 'Push notifications enabled! You will now receive visual alerts for Payment Due and Group Invites.');
+  // Dynamic push notifications preference persisted to database per user
+  const [pushEnabledInDb, setPushEnabledInDb] = useState<boolean>(() => {
+    return Boolean(currentUser?.preferences?.pushNotificationsEnabled);
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      api.getUserPreferences().then((res) => {
+        if (res?.preferences?.pushNotificationsEnabled !== undefined) {
+          setPushEnabledInDb(Boolean(res.preferences.pushNotificationsEnabled));
+        }
+      }).catch(() => {});
+    }
+  }, [currentUser]);
+
+  const handleTogglePushNotifications = async () => {
+    const nextState = !pushEnabledInDb;
+    let granted = notifPermission === 'granted';
+    if (nextState && !granted) {
+      granted = await requestNotificationPermission();
+      setNotifPermission(getNotificationPermission());
+    }
+
+    setPushEnabledInDb(nextState);
+    if (currentUser) {
+      try {
+        await api.updateUserPreferences({ pushNotificationsEnabled: nextState });
+      } catch (e) {
+        console.warn('Failed to persist push notification preference to DB:', e);
+      }
+    }
+    if (onNotify) {
+      onNotify('success', nextState ? 'Push alerts enabled & saved to your account!' : 'Push alerts disabled.');
     }
   };
 
@@ -365,85 +393,6 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="leading-tight text-center">Wallet</span>
               </button>
 
-              {/* Admin Menu Dropdown */}
-              <div className="relative" ref={adminRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsAdminMenuOpen(!isAdminMenuOpen)}
-                  aria-expanded={isAdminMenuOpen}
-                  aria-haspopup="true"
-                  className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                    currentView === 'admin-dashboard' || currentView === 'lenders-dashboard'
-                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                  }`}
-                >
-                  <svg
-                    className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
-                  </svg>
-                  <span className="leading-tight text-center">Admin</span>
-                </button>
-
-                {isAdminMenuOpen && (
-                  <div className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+8px)] min-w-[220px] bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.14)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.7)] z-50 animate-in fade-in zoom-in-95 duration-150">
-                    <button
-                      onClick={() => {
-                        setIsAdminMenuOpen(false);
-                        if (!currentUser || currentUser.role !== 'admin') {
-                          onOpenAuth('admin');
-                        } else {
-                          onNavigate('admin-dashboard');
-                        }
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors flex items-center justify-between"
-                    >
-                      <span>Admin Console</span>
-                      {currentUser?.role === 'admin' ? (
-                        <span className="text-[10px] bg-[#E7F3EC] dark:bg-[#12372A] text-[#0F5C3A] dark:text-[#4ADE9A] font-bold px-1.5 py-0.5 rounded">
-                          Full Access
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                          Login
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsAdminMenuOpen(false);
-                        onNavigate('lenders-dashboard');
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors flex items-center justify-between"
-                    >
-                      <span>Lenders Desk</span>
-                      <span className="text-[10px] bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold px-1.5 py-0.5 rounded">
-                        3% Rate
-                      </span>
-                    </button>
-                    {currentUser?.role === 'merchant' && (
-                      <button
-                        onClick={() => {
-                          setIsAdminMenuOpen(false);
-                          onNavigate('vendor-dashboard');
-                        }}
-                        className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
-                      >
-                        <span>Merchant Dashboard</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
               {/* Help & FAQ */}
               <button
                 onClick={() => onOpenHelp?.('faq')}
@@ -569,21 +518,26 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </div>
 
-                    {/* Enable Push Notifications Banner if not granted */}
-                    {notifPermission !== 'granted' && (
-                      <div className="mb-2 p-2.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2">
-                        <div className="text-[11px] text-emerald-950 dark:text-emerald-200">
-                          <p className="font-bold">Turn on Push Notifications</p>
-                          <p className="text-[10px] text-emerald-800 dark:text-emerald-300">Get alerts even when app is minimized</p>
-                        </div>
-                        <button
-                          onClick={handleEnablePush}
-                          className="px-2.5 py-1 bg-[#0F5C3A] hover:bg-[#0b4830] text-white text-[10px] font-bold rounded-lg shadow-xs shrink-0 cursor-pointer"
-                        >
-                          Enable
-                        </button>
+                    {/* Dynamic Push Notifications Banner */}
+                    <div className="mb-2 p-2.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-emerald-950 dark:text-emerald-200">
+                        <p className="font-bold flex items-center gap-1.5">
+                          <span>Push Notifications</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${pushEnabledInDb ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
+                            {pushEnabledInDb ? 'Active' : 'Off'}
+                          </span>
+                        </p>
+                        <p className="text-[10px] text-emerald-800 dark:text-emerald-300">Get alerts even when app is minimized</p>
                       </div>
-                    )}
+                      <button
+                        onClick={handleTogglePushNotifications}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg shadow-xs shrink-0 cursor-pointer transition-colors ${
+                          pushEnabledInDb ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'bg-[#0F5C3A] hover:bg-[#0b4830] text-white'
+                        }`}
+                      >
+                        {pushEnabledInDb ? 'Enabled (✓)' : 'Enable'}
+                      </button>
+                    </div>
 
                     {/* Notifications list */}
                     {notifications.length === 0 ? (
@@ -870,27 +824,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Wallet</span>
               </button>
 
-              {/* Admin Console */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  if (!currentUser || currentUser.role !== 'admin') {
-                    onOpenAuth('admin');
-                  } else {
-                    onNavigate('admin-dashboard');
-                  }
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'admin-dashboard'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
-                </svg>
-                <span>Admin Console</span>
-              </button>
+
 
               {/* Lenders Desk */}
               <button

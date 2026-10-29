@@ -113,12 +113,21 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [manualInviteCodeInput, setManualInviteCodeInput] = useState('');
   const [showManualCodeModal, setShowManualCodeModal] = useState(false);
 
-  // In-Group Award Coins Modal state
+  // In-Group Award Coins Modal state (Section 8.1)
   const [showAwardCoinsModal, setShowAwardCoinsModal] = useState(false);
-  const [selectedAwardRecipientId, setSelectedAwardRecipientId] = useState<number | null>(null);
+  const [selectedAwardRecipientIds, setSelectedAwardRecipientIds] = useState<number[]>([]);
   const [coinsToAward, setCoinsToAward] = useState<number>(5);
   const [coinAwardNote, setCoinAwardNote] = useState<string>('Applauding great Chama commitment & prompt payments! 🌟');
   const [submittingCoinAward, setSubmittingCoinAward] = useState(false);
+
+  // Moderator Dormant Warning Modal state (Chama Status Engine)
+  const [showDormantWarningModal, setShowDormantWarningModal] = useState(false);
+  const [dormantTargetSlot, setDormantTargetSlot] = useState<GroupSlot | null>(null);
+  const [dormantWarningReason, setDormantWarningReason] = useState('No contribution or activity recorded for consecutive days. Arrears clearing required.');
+  const [dormantWarningDeadlineDays, setDormantWarningDeadlineDays] = useState<number>(3);
+  const [dormantSuggestLoan, setDormantSuggestLoan] = useState<boolean>(true);
+  const [submittingDormantWarning, setSubmittingDormantWarning] = useState(false);
+  const [checkingSlotReorder, setCheckingSlotReorder] = useState(false);
 
   useEffect(() => {
     loadGroup();
@@ -396,7 +405,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // Open in-group Award Coins modal
+  // Open in-group Award Coins modal (Section 8.1)
   function handleOpenAwardCoins(targetUserId?: number) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to award coins.');
@@ -408,10 +417,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       return;
     }
     if (targetUserId && targetUserId !== currentUser.id) {
-      setSelectedAwardRecipientId(targetUserId);
+      setSelectedAwardRecipientIds([targetUserId]);
     } else {
-      const firstOther = group?.slots.find(s => s.status === 'active' && s.userId && s.userId !== currentUser.id);
-      setSelectedAwardRecipientId(firstOther?.userId || null);
+      const otherActive = group?.slots.filter(s => s.status === 'active' && s.userId && s.userId !== currentUser.id) || [];
+      setSelectedAwardRecipientIds(otherActive.map(s => s.userId!).slice(0, 1));
     }
     setShowAwardCoinsModal(true);
   }
@@ -420,31 +429,70 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   async function handleConfirmAwardCoins(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUser || !group) return;
-    if (!selectedAwardRecipientId) {
-      onNotify('error', 'Please select a member to award.');
+    if (selectedAwardRecipientIds.length === 0) {
+      onNotify('error', 'Please select at least one member to award.');
       return;
     }
     const numCoins = Math.max(1, Number(coinsToAward) || 5);
-    if ((currentUser.coins || 0) < numCoins) {
-      onNotify('error', `Insufficient coins! You have ${currentUser.coins || 0} coins in your wallet, but tried to award ${numCoins} coins. Please top up in your Wallet first.`);
+    const totalCoins = numCoins * selectedAwardRecipientIds.length;
+    if ((currentUser.coins || 0) < totalCoins) {
+      onNotify('error', `Insufficient coins! You have ${currentUser.coins || 0} coins in your wallet, but tried to award ${totalCoins} coins. Please top up in your Wallet first.`);
       return;
     }
 
     setSubmittingCoinAward(true);
     try {
       const res = await api.awardGroupMemberCoins(group.id, {
-        targetUserId: selectedAwardRecipientId,
+        targetUserIds: selectedAwardRecipientIds,
         coinAmount: numCoins,
         note: coinAwardNote.trim(),
       });
       if (res.group) setGroup(res.group);
-      onNotify('success', res.message || `Awarded ${numCoins} coins! 🌟`);
+      onNotify('success', res.message || `Awarded ${numCoins} coins each! 🌟`);
       setShowAwardCoinsModal(false);
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to award coins');
     } finally {
       setSubmittingCoinAward(false);
+    }
+  }
+
+  // Issue Formal Dormant Warning (Chama Status Engine)
+  async function handleIssueDormantWarning(e: React.FormEvent) {
+    e.preventDefault();
+    if (!group || !dormantTargetSlot || !dormantTargetSlot.userId) return;
+    setSubmittingDormantWarning(true);
+    try {
+      const res = await api.warnDormantMember(group.id, {
+        slotNumber: dormantTargetSlot.slotNumber,
+        targetUserId: dormantTargetSlot.userId,
+        reason: dormantWarningReason.trim(),
+        deadlineDays: dormantWarningDeadlineDays,
+      });
+      onNotify('success', res.message || 'Formal warning issued and automated loan suggestion sent!');
+      setShowDormantWarningModal(false);
+      setDormantTargetSlot(null);
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to issue warning');
+    } finally {
+      setSubmittingDormantWarning(false);
+    }
+  }
+
+  // Trigger Daily Performance Check & Automatic Slot Reordering
+  async function handleCheckReorder() {
+    if (!group) return;
+    setCheckingSlotReorder(true);
+    try {
+      const res = await api.checkReorderGroup(group.id);
+      onNotify('success', res.message || 'Slot orders and priorities updated successfully!');
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to reorder slots');
+    } finally {
+      setCheckingSlotReorder(false);
     }
   }
 
@@ -1015,6 +1063,45 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               </span>
             </div>
 
+            {/* Slots Rotating Payout Queue Order Bar */}
+            <div className="mb-4 p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-amber-50/50 border border-emerald-200/80 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px] flex-wrap">
+                  <span>Queue Priority:</span>
+                  <span className="text-emerald-700 font-extrabold bg-emerald-100/70 px-1.5 py-0.5 rounded">★ Best (Early)</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="text-blue-700 font-extrabold bg-blue-100/70 px-1.5 py-0.5 rounded">Better (On-Time)</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="text-slate-600 font-extrabold bg-slate-100 px-1.5 py-0.5 rounded">Good</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="text-amber-800 font-extrabold bg-amber-100/80 px-1.5 py-0.5 rounded">⚠️ Slow Payer Block</span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Consecutive on-time contributions advance payout queue priority. Slow/dormant members move to back of queue until arrears are cleared.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {currentUser && (
+                  <button
+                    onClick={() => handleOpenAwardCoins()}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Award Coins</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleCheckReorder}
+                  disabled={checkingSlotReorder}
+                  title="Run daily performance audit and reorder queue"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${checkingSlotReorder ? 'animate-spin' : ''}`} />
+                  <span>{checkingSlotReorder ? 'Auditing...' : 'Audit & Reorder'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Slots List */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {group.slots.map((slot) => {
@@ -1078,6 +1165,32 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                 Vacated
                               </span>
                             )}
+                            {isActive && slot.paidOut && (
+                              <span className="text-[9px] bg-purple-100 text-purple-900 font-bold px-1.5 py-0.2 rounded border border-purple-200">
+                                ✓ Paid Out
+                              </span>
+                            )}
+                            {isActive && slot.memberStatus === 'dormant' ? (
+                              <span className="text-[9px] bg-red-100 text-red-900 font-bold px-1.5 py-0.2 rounded border border-red-300 animate-pulse">
+                                🛑 Dormant (3+ d)
+                              </span>
+                            ) : isActive && slot.memberStatus === 'slow_payer' ? (
+                              <span className="text-[9px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded border border-amber-300">
+                                ⚠️ Slow Payer
+                              </span>
+                            ) : isActive && slot.priorityLevel === 'Best' ? (
+                              <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded border border-emerald-300">
+                                ★ Best
+                              </span>
+                            ) : isActive && slot.priorityLevel === 'Better' ? (
+                              <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded border border-blue-300">
+                                Better
+                              </span>
+                            ) : isActive && slot.priorityLevel === 'Good' ? (
+                              <span className="text-[9px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded border border-slate-200">
+                                Good
+                              </span>
+                            ) : null}
                           </div>
 
                           {/* Circular Avatar Container (Section 14) */}
@@ -1203,7 +1316,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                           setSelectedMissedDays(missedDaysForSlot);
                                           setShowArrearsModal(true);
                                         }}
-                                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-xs shrink-0"
+                                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-xs shrink-0 cursor-pointer"
                                       >
                                         Pay Missed Days
                                       </button>
@@ -1213,6 +1326,33 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               );
                             })()}
                           </div>
+
+                          {/* Dormant Member Inactivity Notice & Automated Loan Suggestion */}
+                          {slot.dormantWarning && slot.dormantWarning.active && (
+                            <div className="mt-2.5 p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-950">
+                              <div className="flex items-center gap-1.5 font-bold text-red-800 text-[11px] mb-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                                <span>Dormant Inactivity Warning · Deadline: {new Date(slot.dormantWarning.deadline).toLocaleDateString()}</span>
+                              </div>
+                              <p className="text-[11px] text-red-700 leading-snug">{slot.dormantWarning.reason}</p>
+                              {isMe && (
+                                <div className="mt-2 pt-2 border-t border-red-200/60 flex items-center justify-between gap-2">
+                                  <span className="text-[10px] text-red-800 font-semibold">Need liquidity for this cycle?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const remaining = Math.max(0, (slot.targetAmount || group.productPrice) - (slot.paidAmount || 0));
+                                      setLoanRequestAmount(Math.min(remaining, group.dailyAmount * 2));
+                                      setShowLoanModal(true);
+                                    }}
+                                    className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-xs cursor-pointer"
+                                  >
+                                    Apply for Member Loan
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1229,23 +1369,39 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                             <button
                               onClick={() => handleOpenStatement({ id: slot.userId!, name: slot.userName || 'Member' })}
                               title="View Customer Statement & Ledger"
-                              className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded transition-colors"
+                              className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded transition-colors cursor-pointer"
                             >
                               <FileText className="w-2.5 h-2.5 text-[#0E5A3C]" />
                               <span>Statement</span>
                             </button>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            {/* Applaud / Reward coin button */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* Award Coins to Member mechanism on his card (Section 8.1 & Prompt 5) */}
                             {currentUser && slot.userId !== currentUser.id && (
                               <button
-                                onClick={() => handleTipCoins(slot.userId!)}
-                                title="Applaud with 5 coins"
-                                className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-semibold rounded transition-colors"
+                                onClick={() => handleOpenAwardCoins(slot.userId ?? undefined)}
+                                title={`Award Coins to ${slot.userName || 'Member'}`}
+                                className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                <Coins className="w-3 h-3" />
-                                <span>+5</span>
+                                <Coins className="w-3 h-3 text-amber-600" />
+                                <span>Award Coins</span>
+                              </button>
+                            )}
+
+                            {/* Moderator Warning Button for Slow/Dormant Members */}
+                            {isModerator && slot.userId !== currentUser?.id && (
+                              <button
+                                onClick={() => {
+                                  setDormantTargetSlot(slot);
+                                  setDormantWarningReason('Unpaid daily Chama contributions exceeding 3 consecutive cycles');
+                                  setShowDormantWarningModal(true);
+                                }}
+                                title="Issue Dormant / Missed Payment Warning"
+                                className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold rounded transition-colors cursor-pointer"
+                              >
+                                <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                <span>Warn</span>
                               </button>
                             )}
 
@@ -1257,9 +1413,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                   setRemoveReason('Non-participation in mandatory daily Chama payment');
                                 }}
                                 title="Remove Member for non-payment (Refunds balance to wallet & vacates slot)"
-                                className="flex items-center gap-1 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-bold rounded transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-[10px] font-bold rounded transition-colors cursor-pointer"
                               >
-                                <Trash2 className="w-3 h-3 text-red-600" />
+                                <Trash2 className="w-2.5 h-2.5 text-red-600" />
                                 <span>Remove</span>
                               </button>
                             )}
@@ -1272,7 +1428,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                   setActionType('default');
                                 }}
                                 title="Moderator Options"
-                                className="px-2 py-1 text-[11px] text-slate-500 hover:text-red-600 hover:bg-slate-100 rounded"
+                                className="px-2 py-1 text-[10px] text-slate-500 hover:text-red-600 hover:bg-slate-100 rounded cursor-pointer"
                               >
                                 Manage
                               </button>
@@ -1720,6 +1876,59 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CHAMA ACTIVITY FEED & FINANCIAL TRANSPARENCY SUMMARY VIEW */}
+      <div className="mt-8 mb-8">
+        <ChamaActivityFeed
+          groupId={group.id}
+          group={group}
+          currentUser={currentUser}
+          onNavigate={onNavigate}
+        />
+      </div>
+
+      {/* SYSTEM-GENERATED SLOT REORDER AUDIT LOG */}
+      {group.slotAuditLogs && group.slotAuditLogs.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-8 shadow-xs">
+          <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-[#0E5A3C]" />
+              <h3 className="text-sm font-bold text-slate-900">
+                System Slot Reorder Audit Log
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono bg-emerald-50 text-[#0E5A3C] px-2 py-0.5 rounded font-bold border border-emerald-200">
+              System-Generated
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Real-time record of automatic slot reordering, priority advancements, slow-payer queue shifts, and arrears restorations.
+          </p>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {group.slotAuditLogs.map((log) => (
+              <div
+                key={log.id}
+                className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+              >
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-extrabold text-slate-900">
+                      Slot #{log.previousSlot} → #{log.newSlot}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      Member #{log.slotNumber}
+                    </span>
+                  </div>
+                  <p className="text-slate-600 text-[11px]">{log.reason}</p>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                  {new Date(log.timestamp).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* RECOMMENDED FROM OTHER SHOPS & MERCHANTS (At least 5 recommendations) */}
       <section className="border-t border-slate-200 pt-10 mt-6 mb-8">
@@ -2991,6 +3200,295 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
                 >
                   Apply Code
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. AWARD COINS TO GROUP MEMBERS MODAL (Section 8.1 & Prompt 5) */}
+      {showAwardCoinsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-500" />
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">Award Coins to Chama Members</h3>
+                  <span className="text-[11px] text-slate-500">Applaud active contributors in this group</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAwardCoinsModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Wallet Balance Info */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-semibold text-amber-950">Your Wallet Coin Balance:</span>
+                </div>
+                <span className="text-sm font-extrabold text-amber-900 font-mono">
+                  {currentUser?.coins || 0} Coins
+                </span>
+              </div>
+
+              {/* Recipient Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Select Member(s) to Award:
+                  </label>
+                  {(() => {
+                    const activeOtherMembers = group.slots
+                      .filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id)
+                      .map(s => s.userId!);
+                    const allSelected = activeOtherMembers.length > 0 &&
+                      activeOtherMembers.every(id => selectedAwardRecipientIds.includes(id));
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (allSelected) {
+                            setSelectedAwardRecipientIds([]);
+                          } else {
+                            setSelectedAwardRecipientIds(activeOtherMembers);
+                          }
+                        }}
+                        className="text-[11px] font-bold text-[#0E5A3C] hover:underline cursor-pointer"
+                      >
+                        {allSelected ? 'Deselect All' : `Select All (${activeOtherMembers.length})`}
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                <div className="max-h-36 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-2 bg-slate-50/50">
+                  {group.slots
+                    .filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id)
+                    .map(slot => {
+                      const isSelected = selectedAwardRecipientIds.includes(slot.userId!);
+                      return (
+                        <label
+                          key={slot.slotNumber}
+                          className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            isSelected
+                              ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedAwardRecipientIds(prev => [...prev, slot.userId!]);
+                                } else {
+                                  setSelectedAwardRecipientIds(prev => prev.filter(id => id !== slot.userId));
+                                }
+                              }}
+                              className="rounded text-amber-600 focus:ring-amber-500"
+                            />
+                            <span className="font-bold">Slot #{slot.slotNumber}: {slot.userName || 'Member'}</span>
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {slot.priorityLevel ? `★ ${slot.priorityLevel.toUpperCase()}` : 'ACTIVE'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Amount per recipient */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Coins per Recipient:
+                </label>
+                <div className="grid grid-cols-5 gap-2 mb-2">
+                  {[5, 10, 25, 50, 100].map(amt => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setCoinsToAward(amt)}
+                      className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                        coinsToAward === amt
+                          ? 'bg-[#0E5A3C] text-white border-[#0E5A3C]'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {amt}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  value={coinsToAward}
+                  onChange={(e) => setCoinsToAward(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  placeholder="Custom amount"
+                />
+              </div>
+
+              {/* Message */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Appreciation Message / Reason:
+                </label>
+                <input
+                  type="text"
+                  value={coinAwardNote}
+                  onChange={(e) => setCoinAwardNote(e.target.value)}
+                  placeholder="e.g. Great consistency in daily Chama contributions!"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
+              </div>
+
+              {/* Total Calculation & Validation */}
+              {(() => {
+                const totalCoinsNeeded = selectedAwardRecipientIds.length * coinsToAward;
+                const hasEnough = (currentUser?.coins || 0) >= totalCoinsNeeded;
+
+                return (
+                  <div>
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between">
+                      <span className="text-slate-600 font-medium">
+                        Total Coins to Deduct ({selectedAwardRecipientIds.length} recipient{selectedAwardRecipientIds.length !== 1 ? 's' : ''} × {coinsToAward}):
+                      </span>
+                      <span className={`font-mono font-bold text-sm ${hasEnough ? 'text-slate-900' : 'text-red-600'}`}>
+                        {totalCoinsNeeded} Coins
+                      </span>
+                    </div>
+
+                    {!hasEnough && (
+                      <p className="text-[11px] text-red-600 font-semibold mt-1">
+                        ⚠️ Insufficient coin balance. Top up coins in your wallet or reduce the amount/recipients.
+                      </p>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowAwardCoinsModal(false)}
+                        className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submittingCoinAward || !hasEnough || selectedAwardRecipientIds.length === 0}
+                        onClick={handleConfirmAwardCoins}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>{submittingCoinAward ? 'Awarding Coins...' : `Award ${totalCoinsNeeded} Coins`}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. DORMANT / MISSED PAYMENT WARNING MODAL */}
+      {showDormantWarningModal && dormantTargetSlot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  Issue Dormant / Inactivity Warning
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowDormantWarningModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                <div className="font-bold text-slate-900">
+                  Target Member: {dormantTargetSlot.userName || 'Member'} (Slot #{dormantTargetSlot.slotNumber})
+                </div>
+                <div className="text-slate-500 text-[11px]">
+                  Priority: <b className="uppercase">{dormantTargetSlot.priorityLevel || 'good'}</b> · Status: <b className="uppercase">{dormantTargetSlot.memberStatus || 'slow_payer'}</b>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Reason for Warning:
+                </label>
+                <textarea
+                  rows={2}
+                  value={dormantWarningReason}
+                  onChange={(e) => setDormantWarningReason(e.target.value)}
+                  placeholder="e.g. Unpaid daily Chama contributions exceeding 3 consecutive cycles"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Resolution Grace Period (Days):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="14"
+                  value={dormantWarningDeadlineDays}
+                  onChange={(e) => setDormantWarningDeadlineDays(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                />
+              </div>
+
+              {/* Automated Emergency Loan Suggestion Checkbox */}
+              <label className="flex items-start gap-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dormantSuggestLoan}
+                  onChange={(e) => setDormantSuggestLoan(e.target.checked)}
+                  className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-indigo-950 block">Send Automated Loan Suggestion</span>
+                  <span className="text-[11px] text-indigo-800">
+                    Dispatches a notification to this member with a direct deep-link to request a loan at Lenders Desk to prevent slot default.
+                  </span>
+                </div>
+              </label>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDormantWarningModal(false)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={submittingDormantWarning}
+                  onClick={handleIssueDormantWarning}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-200 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>{submittingDormantWarning ? 'Issuing Warning...' : 'Dispatch Warning'}</span>
                 </button>
               </div>
             </div>
