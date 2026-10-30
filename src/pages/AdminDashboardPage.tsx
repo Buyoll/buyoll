@@ -119,11 +119,47 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         api.getAdminWalletDeposits().catch(() => ({ deposits: [] })),
       ]);
 
-      setData(overviewRes);
-      if (walletsRes) setWalletsData(walletsRes);
-      if (usersRes?.users) setUsersList(usersRes.users);
-      if (chatLogsRes) setChatLogs(chatLogsRes);
-      if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
+      if (overviewRes) {
+        setData({
+          pendingPayments: overviewRes.pendingPayments || [],
+          allPayments: overviewRes.allPayments || [],
+          refundRequests: overviewRes.refundRequests || [],
+          merchants: overviewRes.merchants || [],
+          allUsers: overviewRes.allUsers || [],
+          auditLogs: overviewRes.auditLogs || [],
+          groups: overviewRes.groups || [],
+          products: overviewRes.products || [],
+        });
+      }
+      if (walletsRes) {
+        setWalletsData({
+          summary: {
+            totalCredit: walletsRes.summary?.totalCredit || 0,
+            totalCoins: walletsRes.summary?.totalCoins || 0,
+            totalPoints: walletsRes.summary?.totalPoints || 0,
+            totalUsers: walletsRes.summary?.totalUsers || walletsRes.summary?.userCount || 0,
+          },
+          wallets: walletsRes.wallets || [],
+        });
+      }
+      if (usersRes?.users) setUsersList(usersRes.users || []);
+      if (chatLogsRes) {
+        const recent = chatLogsRes.recentChats || (chatLogsRes.logs || []).map((l: any) => ({
+          groupId: l.groupId || 1,
+          groupName: l.groupName || 'Chama Group',
+          messageId: l.id || `msg_${l.timestamp}`,
+          senderId: l.senderId || 0,
+          senderName: l.senderName || 'Member',
+          text: l.text || '',
+          timestamp: l.timestamp || Date.now(),
+          isFlagged: l.isFlagged,
+        })) || [];
+        setChatLogs({
+          moderationEvents: chatLogsRes.moderationEvents || chatLogsRes.moderationActions || [],
+          recentChats: recent,
+        });
+      }
+      if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits || []);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load administration data');
     } finally {
@@ -282,10 +318,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   }
 
   // Filtered users
-  const filteredUsers = (usersList.length > 0 ? usersList : data.allUsers).filter(u => {
+  const filteredUsers = (usersList.length > 0 ? usersList : (data?.allUsers || [])).filter(u => {
     const matchesSearch =
-      u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.phone.includes(userSearch) ||
+      (u.name || '').toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.phone || '').includes(userSearch) ||
       (u.email && u.email.toLowerCase().includes(userSearch.toLowerCase())) ||
       (u.shopName && u.shopName.toLowerCase().includes(userSearch.toLowerCase()));
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
@@ -294,9 +330,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
   // Filtered wallets
   const filteredWallets = (walletsData?.wallets || []).filter(w =>
-    w.name.toLowerCase().includes(walletSearch.toLowerCase()) ||
-    w.phone.includes(walletSearch) ||
-    w.role.toLowerCase().includes(walletSearch.toLowerCase())
+    (w.name || '').toLowerCase().includes(walletSearch.toLowerCase()) ||
+    (w.phone || '').includes(walletSearch) ||
+    (w.role || '').toLowerCase().includes(walletSearch.toLowerCase())
   );
 
   return (
@@ -340,7 +376,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>Payment Queue ({data.pendingPayments.length})</span>
+          <span>Payment Queue ({(data?.pendingPayments || []).length})</span>
         </button>
 
         <button
@@ -350,7 +386,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           }`}
         >
           <Wallet className="w-4 h-4" />
-          <span>Wallet Deposits ({walletDeposits.filter(d => d.status === 'pending').length})</span>
+          <span>Wallet Deposits ({(walletDeposits || []).filter(d => d.status === 'pending').length})</span>
         </button>
 
         <button
@@ -380,7 +416,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           }`}
         >
           <MessageSquare className="w-4 h-4" />
-          <span>Chat Moderation ({chatLogs.recentChats.length})</span>
+          <span>Chat Moderation ({(chatLogs?.recentChats || []).length})</span>
         </button>
 
         <button
@@ -390,7 +426,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           }`}
         >
           <RotateCcw className="w-4 h-4" />
-          <span>Refund Requests ({data.refundRequests.length})</span>
+          <span>Refund Requests ({(data?.refundRequests || []).length})</span>
         </button>
 
         <button
@@ -424,13 +460,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             </div>
             <div className="flex items-center gap-2 text-xs font-bold shrink-0">
               <span className="px-2 py-1 bg-white border border-emerald-200 rounded-lg text-emerald-800">
-                {data.pendingPayments.length} Pending
+                {(data?.pendingPayments || []).length} Pending
               </span>
             </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-            {data.pendingPayments.length === 0 ? (
+            {(data?.pendingPayments || []).length === 0 ? (
               <div className="py-16 text-center text-slate-400">
                 <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-400 mb-2 opacity-80" />
                 <p className="text-xs font-bold text-slate-600">All submissions are fully reconciled!</p>
@@ -450,7 +486,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.pendingPayments.map((p) => {
+                    {(data?.pendingPayments || []).map((p) => {
                       const match = (p as any).statementMatch;
                       const hasDuplicate = match?.duplicateDetected;
                       const isMatched = match?.matched;
@@ -708,7 +744,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Total Credit in Circulation
               </span>
               <div className="text-2xl font-black text-slate-900 tabular-nums">
-                KSh {walletsData?.summary.totalCredit.toLocaleString() || '0'}
+                KSh {walletsData?.summary?.totalCredit?.toLocaleString() || '0'}
               </div>
               <p className="text-[11px] text-slate-500 mt-1">Platform shopping & locked Chama balances</p>
             </div>
@@ -718,7 +754,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Total Community Coins
               </span>
               <div className="text-2xl font-black text-amber-600 tabular-nums">
-                {walletsData?.summary.totalCoins.toLocaleString() || '0'}{' '}
+                {walletsData?.summary?.totalCoins?.toLocaleString() || '0'}{' '}
                 <span className="text-xs font-bold text-slate-400">coins</span>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">Applaud & motivate currency held</p>
@@ -729,7 +765,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Reward Points Awarded
               </span>
               <div className="text-2xl font-black text-indigo-600 tabular-nums">
-                {walletsData?.summary.totalPoints.toLocaleString() || '0'}{' '}
+                {walletsData?.summary?.totalPoints?.toLocaleString() || '0'}{' '}
                 <span className="text-xs font-bold text-slate-400">pts</span>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">Merit points for reliable repayment</p>
@@ -740,7 +776,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Registered Member Accounts
               </span>
               <div className="text-2xl font-black text-slate-900 tabular-nums">
-                {walletsData?.summary.totalUsers || filteredUsers.length}
+                {walletsData?.summary?.totalUsers || (filteredUsers || []).length}
               </div>
               <p className="text-[11px] text-slate-500 mt-1">Buyers, merchants, lenders, admins</p>
             </div>
@@ -1000,16 +1036,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900">Recent Group Chat Messages</h3>
-              <span className="text-xs text-slate-500">{chatLogs.recentChats.length} recent messages</span>
+              <span className="text-xs text-slate-500">{(chatLogs?.recentChats || []).length} recent messages</span>
             </div>
 
-            {chatLogs.recentChats.length === 0 ? (
+            {(chatLogs?.recentChats || []).length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs">
                 No active chat messages logged yet.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {chatLogs.recentChats.map((msg) => (
+                {(chatLogs?.recentChats || []).map((msg) => (
                   <div key={msg.messageId} className="p-4 hover:bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
@@ -1075,10 +1111,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Verified claims from members whose slots were vacated.
               </p>
             </div>
-            <span className="text-xs text-slate-500">{data.refundRequests.length} requests</span>
+            <span className="text-xs text-slate-500">{(data?.refundRequests || []).length} requests</span>
           </div>
 
-          {data.refundRequests.length === 0 ? (
+          {(data?.refundRequests || []).length === 0 ? (
             <p className="text-xs text-slate-400 py-12 text-center">No refund requests submitted yet.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -1095,7 +1131,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.refundRequests.map((r) => (
+                  {(data?.refundRequests || []).map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50/70">
                       <td className="py-3 px-4 font-mono">#{r.id}</td>
                       <td className="py-3 px-4 font-semibold text-slate-900">{r.userName}</td>
@@ -1161,7 +1197,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             System Security & Group Activity Audit Trail
           </h2>
           <div className="space-y-2 text-xs">
-            {data.auditLogs.map((log) => (
+            {(data?.auditLogs || []).map((log) => (
               <div key={log.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-start gap-3">
                 <span className="font-mono text-[10px] text-slate-400 shrink-0 mt-0.5">
                   {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

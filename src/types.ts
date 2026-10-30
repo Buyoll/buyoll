@@ -138,6 +138,8 @@ export interface GroupSlot {
     active: boolean;
   };
   paidOut?: boolean;
+  deliveryDay?: number;
+  progressPercent?: number;
 }
 
 export interface GroupChatMessage {
@@ -420,6 +422,8 @@ export interface PeerLoanRequest {
   requestedAmount?: number;
   approvedAmount?: number;
   purpose: string;
+  repaymentPeriod?: string;
+  repaymentDays?: number;
   status: 'open' | 'fee_pending' | 'fee_verified' | 'funded' | 'cancelled';
   createdAt: number;
   fundedByUserId?: number;

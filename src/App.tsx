@@ -62,12 +62,16 @@ export default function App() {
       navigator.serviceWorker.addEventListener('message', swListener);
     }
 
-    // 3. Dedicated URL routing for /admin/login, /admin/dashboard, and /chama/:id
-    if (typeof window !== 'undefined') {
+    // 3. Dedicated URL & Hash routing for /admin/login, #admin, /admin/dashboard, and /chama/:id
+    const syncRouteFromUrl = () => {
+      if (typeof window === 'undefined') return;
       const path = window.location.pathname;
-      if (path === '/admin/login') {
+      const hash = window.location.hash.toLowerCase();
+      const search = new URLSearchParams(window.location.search);
+
+      if (path === '/admin/login' || hash === '#admin' || hash === '#admin-login' || search.get('admin') === 'login') {
         handleNavigate('admin-login');
-      } else if (path === '/admin/dashboard' || path === '/admin') {
+      } else if (path === '/admin/dashboard' || path === '/admin' || hash === '#admin-dashboard' || search.get('admin') === 'dashboard') {
         if (!currentUser || currentUser.role !== 'admin') {
           handleNavigate('admin-login');
         } else {
@@ -79,7 +83,11 @@ export default function App() {
           handleNavigate('group', Number(chamaMatch[1]));
         }
       }
-    }
+    };
+
+    syncRouteFromUrl();
+    window.addEventListener('popstate', syncRouteFromUrl);
+    window.addEventListener('hashchange', syncRouteFromUrl);
 
     // 4. Check session on load & trigger payment due checks
     if (currentUser) {
@@ -106,6 +114,11 @@ export default function App() {
         }
       }
     }
+
+    return () => {
+      window.removeEventListener('popstate', syncRouteFromUrl);
+      window.removeEventListener('hashchange', syncRouteFromUrl);
+    };
   }, []);
 
   function handleNotify(type: 'success' | 'error' | 'info', message: string) {

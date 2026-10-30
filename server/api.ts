@@ -2174,7 +2174,7 @@ apiRouter.post('/groups/:id/loans/request', async (req: Request, res: Response) 
     return res.status(400).json({ error: 'You must have an active slot in this Chama to request a peer loan.' });
   }
 
-  const { amount, purpose } = req.body;
+  const { amount, purpose, repaymentPeriod, repaymentDays } = req.body;
   const numAmount = Number(amount);
   if (numAmount <= 0) {
     return res.status(400).json({ error: 'Loan amount must be greater than zero.' });
@@ -2189,6 +2189,8 @@ apiRouter.post('/groups/:id/loans/request', async (req: Request, res: Response) 
 
   // Rectified 3% platform commission
   const platformFee = Math.max(1, Math.round(numAmount * 0.03));
+  const periodText = (repaymentPeriod || 'Within 7 Days').trim();
+  const periodDays = Number(repaymentDays) || 7;
 
   const newLoan: PeerLoanRequest = {
     id: db.nextIds.peerLoan++,
@@ -2202,7 +2204,9 @@ apiRouter.post('/groups/:id/loans/request', async (req: Request, res: Response) 
     productImage: group.productImage,
     amount: numAmount,
     approvedAmount: numAmount,
-    purpose: purpose?.trim() || `Installment support for Slot #${slot.slotNumber} (${group.productTitle})`,
+    purpose: purpose?.trim() || `To pay for an arrears (clear missed Chama days)`,
+    repaymentPeriod: periodText,
+    repaymentDays: periodDays,
     status: 'open',
     createdAt: Date.now(),
     platformFeePercent: 3,
@@ -2219,7 +2223,7 @@ apiRouter.post('/groups/:id/loans/request', async (req: Request, res: Response) 
     senderId: user.id,
     senderName: user.name,
     kind: 'system',
-    text: `📢 PEER LOAN REQUEST: ${user.name} (Member #${slot.slotNumber}) requested a P2P loan of KSh ${numAmount.toLocaleString()}. 3rd-party lenders: review request and enter approved loan amount. 3% platform commission (KSh ${platformFee}) applies. All repayments and terms are settled manually outside Buyoll.`,
+    text: `📢 PEER LOAN REQUEST: ${user.name} (Member #${slot.slotNumber}) requested KSh ${numAmount.toLocaleString()} from Lenders. Reason: "${newLoan.purpose}" · Repayment Period: ${periodText}. 3rd-party lenders: review request to fund member wallet. 3% platform commission (KSh ${platformFee}) applies.`,
     timestamp: Date.now(),
   });
 
@@ -2228,7 +2232,7 @@ apiRouter.post('/groups/:id/loans/request', async (req: Request, res: Response) 
     user.id,
     user.name,
     'PEER_LOAN_REQUESTED',
-    `Requested P2P loan of KSh ${numAmount} for Chama #${group.id} Slot #${slot.slotNumber}. 3% commission: KSh ${platformFee}`
+    `Requested P2P loan of KSh ${numAmount} (${periodText}) for Chama #${group.id} Slot #${slot.slotNumber}. Reason: "${newLoan.purpose}". 3% commission: KSh ${platformFee}`
   );
 
   await saveDatabase(db);
@@ -2828,14 +2832,14 @@ apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
   const { db } = auth;
 
   res.json({
-    pendingPayments: db.payments.filter(p => p.status === 'pending'),
-    allPayments: db.payments,
-    refundRequests: db.refundRequests,
-    merchants: db.users.filter(u => u.role === 'merchant'),
-    allUsers: db.users,
-    auditLogs: db.auditLogs.slice(0, 50),
-    groups: db.groups,
-    products: db.products,
+    pendingPayments: (db.payments || []).filter(p => p.status === 'pending'),
+    allPayments: db.payments || [],
+    refundRequests: db.refundRequests || [],
+    merchants: (db.users || []).filter(u => u.role === 'merchant'),
+    allUsers: db.users || [],
+    auditLogs: (db.auditLogs || []).slice(0, 50),
+    groups: db.groups || [],
+    products: db.products || [],
   });
 });
 
@@ -3162,7 +3166,7 @@ apiRouter.get('/admin/wallets', async (req: Request, res: Response) => {
   const totalPoints = db.users.reduce((acc, u) => acc + (u.points || 0), 0);
 
   res.json({
-    summary: { totalCredit, totalCoins, totalPoints, userCount: db.users.length },
+    summary: { totalCredit, totalCoins, totalPoints, userCount: db.users.length, totalUsers: db.users.length },
     wallets: db.users.map(u => ({
       id: u.id,
       name: u.name,
@@ -3229,8 +3233,21 @@ apiRouter.get('/admin/chat-logs', async (req: Request, res: Response) => {
 
   const allLogs = [...allGroupChats, ...helpChats].sort((a, b) => b.timestamp - a.timestamp);
 
+  const recentChats = allGroupChats.slice(0, 100).map(c => ({
+    groupId: c.groupId,
+    groupName: c.groupName,
+    messageId: c.id,
+    senderId: c.senderId,
+    senderName: c.senderName,
+    text: c.text,
+    timestamp: c.timestamp,
+    isFlagged: (c as any).isFlagged || false,
+  }));
+
   res.json({
     logs: allLogs.slice(0, 200),
+    recentChats,
+    moderationEvents: db.chatModerationLogs || [],
     moderationActions: db.chatModerationLogs || [],
   });
 });
@@ -3507,11 +3524,12 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
     return res.status(400).json({ error: 'Self-gifting is blocked. You cannot award coins to yourself.' });
   }
 
-  // Section 8.1: Recipients must be group members
+  // Recipients must be active group members OR the Global Admin Platform Wallet
   for (const rid of recipientIds) {
     const isMember = group.slots.some(s => s.userId === rid && s.status === 'active');
-    if (!isMember) {
-      return res.status(400).json({ error: `Member #${rid} is not an active slot holder in this Chama group.` });
+    const isAdminWallet = db.users.some(u => u.id === rid && u.role === 'admin');
+    if (!isMember && !isAdminWallet) {
+      return res.status(400).json({ error: `Recipient #${rid} is neither an active slot holder in this Chama nor the Buyoll Admin Platform Wallet.` });
     }
   }
 
@@ -3522,7 +3540,7 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
   const currentCoins = user.coins || 0;
   if (currentCoins < totalCoinsNeeded) {
     return res.status(400).json({
-      error: `Insufficient coins in your wallet! You have ${currentCoins} coins, but tried to award ${totalCoinsNeeded} coins (${coinsPerPerson} × ${recipientIds.length} members). Please deposit coins in your Wallet first.`,
+      error: `Insufficient coins in your wallet! You have ${currentCoins} coins, but tried to award ${totalCoinsNeeded} coins (${coinsPerPerson} × ${recipientIds.length} recipient${recipientIds.length !== 1 ? 's' : ''}). Please deposit coins in your Wallet first.`,
     });
   }
 
@@ -3539,17 +3557,19 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
     const recipient = db.users.find(u => u.id === rid);
     if (recipient) {
       recipient.coins = (recipient.coins || 0) + coinsPerPerson;
-      recipientNames.push(recipient.name);
+      const isAdmin = recipient.role === 'admin';
+      const displayName = isAdmin ? 'Buyoll Admin Platform Wallet' : recipient.name;
+      recipientNames.push(displayName);
 
       db.coinLedger.unshift({
         id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
-        type: 'transfer',
+        type: isAdmin ? 'platform_reward' : 'transfer',
         senderId: user.id,
         senderName: user.name,
         recipientId: recipient.id,
-        recipientName: recipient.name,
+        recipientName: displayName,
         amount: coinsPerPerson,
-        reason: (note || `Applauded in Chama "${group.name}"`).trim(),
+        reason: (note || (isAdmin ? 'Platform appreciation reward' : `Applauded in Chama "${group.name}"`)).trim(),
         timestamp: now,
       });
 
@@ -3558,14 +3578,14 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
         id: `act_${now}_${Math.random().toString(36).substring(2, 6)}`,
         groupId: group.id,
         type: 'coin_award',
-        title: 'Applaud Coins Awarded',
-        description: `${user.name} awarded ${coinsPerPerson} Applaud Coins to ${recipient.name}! "${note || 'Well done & great Chama spirit!'}"`,
+        title: isAdmin ? 'Admin Platform Wallet Rewarded' : 'Applaud Coins Awarded',
+        description: `${user.name} awarded ${coinsPerPerson} Applaud Coins to ${displayName}! "${note || (isAdmin ? 'Thank you Buyoll Platform!' : 'Well done & great Chama spirit!')}"`,
         coins: coinsPerPerson,
         actorId: user.id,
         actorName: user.name,
         actorAvatar: user.avatar,
         targetUserId: recipient.id,
-        targetUserName: recipient.name,
+        targetUserName: displayName,
         timestamp: now,
       });
     }
@@ -3577,7 +3597,7 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
     senderId: user.id,
     senderName: user.name,
     kind: 'reward',
-    text: `🌟 ${user.name} applauded ${recipientNames.join(', ')} with ${coinsPerPerson} coins each! "${note || 'Great Chama dedication!'}"`,
+    text: `🌟 ${user.name} awarded ${coinsPerPerson} coins to ${recipientNames.join(', ')}! "${note || 'Great Chama dedication!'}"`,
     timestamp: now,
   });
 
@@ -3590,6 +3610,65 @@ apiRouter.post('/groups/:id/award-coins', async (req: Request, res: Response) =>
     group,
     message: `Successfully awarded ${coinsPerPerson} coins to ${recipientNames.join(', ')}! 🌟`,
   });
+});
+
+// EXPORT GROUP MEMBERS CSV (Admin Only)
+apiRouter.get('/groups/:id/members/export-csv', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
+
+  const groupId = Number(req.params.id);
+  const group = db.groups.find(g => g.id === groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  const headers = [
+    'Slot Number',
+    'Member Name',
+    'Phone',
+    'Role',
+    'Status',
+    'Priority Level',
+    'Problem Status',
+    'Cycle Delivery Day',
+    'Target Obligation (KSh)',
+    'Amount Paid (KSh)',
+    'Remaining Arrears (KSh)',
+    'Paid Days Count',
+    'Joined Date',
+    'Last Payment Date',
+  ];
+
+  const rows = group.slots.map(s => {
+    const user = s.userId ? db.users.find(u => u.id === s.userId) : null;
+    const targetAmt = s.targetAmount || group.productPrice;
+    const paidAmt = s.paidAmount || 0;
+    const arrears = Math.max(0, targetAmt - paidAmt);
+    const deliveryDay = s.slotNumber * group.cycleDays;
+    const isMod = s.userId && group.moderators?.includes(s.userId);
+
+    return [
+      s.slotNumber,
+      `"${s.userName || (s.status === 'active' ? 'Active Member' : s.status === 'replacement_eligible' ? 'Vacated Slot' : 'Open Slot')}"`,
+      `"${user?.phone || 'N/A'}"`,
+      `"${isMod ? 'Moderator' : 'Member'}"`,
+      `"${s.status}"`,
+      `"${s.priorityLevel || 'Good'}"`,
+      `"${s.memberStatus || 'good_standing'}"`,
+      deliveryDay,
+      targetAmt,
+      paidAmt,
+      arrears,
+      (s.paidDays || []).length,
+      s.joinedAt ? new Date(s.joinedAt).toISOString() : 'N/A',
+      s.lastPaymentDate ? new Date(s.lastPaymentDate).toISOString() : 'N/A',
+    ].join(',');
+  });
+
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="chama_${group.id}_members.csv"`);
+  res.send(csvContent);
 });
 
 // -------------------------------------------------------------

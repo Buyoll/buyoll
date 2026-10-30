@@ -27,6 +27,7 @@ import {
   Trash2,
   UserMinus,
   Lock,
+  Download,
 } from 'lucide-react';
 import { ChamaActivityFeed } from '../components/ChamaActivityFeed.tsx';
 
@@ -70,8 +71,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   // Peer-to-Peer Loan state
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [loanRequestAmount, setLoanRequestAmount] = useState<number>(0);
-  const [loanRequestPurpose, setLoanRequestPurpose] = useState('');
+  const [loanRequestPurpose, setLoanRequestPurpose] = useState('To pay for an arrears (clear missed Chama days)');
+  const [loanRepaymentPeriod, setLoanRepaymentPeriod] = useState<string>('Within 7 Days (Emergency Arrears Catch-up)');
   const [submittingLoanRequest, setSubmittingLoanRequest] = useState(false);
+  const [exportingMembers, setExportingMembers] = useState(false);
 
   const [selectedLoanToFund, setSelectedLoanToFund] = useState<PeerLoanRequest | null>(null);
   const [lenderAgreedTerms, setLenderAgreedTerms] = useState(false);
@@ -204,17 +207,41 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       const res = await api.requestPeerLoan(group.id, {
         amount: Number(loanRequestAmount),
-        purpose: loanRequestPurpose.trim() || `Chama Slot #${mySlot.slotNumber} installment support`,
+        purpose: loanRequestPurpose.trim() || 'To pay for an arrears (clear missed Chama days)',
+        repaymentPeriod: loanRepaymentPeriod,
       });
       onNotify('success', res.message);
       setShowLoanModal(false);
       setLoanRequestAmount(0);
-      setLoanRequestPurpose('');
+      setLoanRequestPurpose('To pay for an arrears (clear missed Chama days)');
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to submit loan request');
     } finally {
       setSubmittingLoanRequest(false);
+    }
+  }
+
+  // Export Group Members to CSV (for Administrators)
+  async function handleExportMembers() {
+    if (!group) return;
+    setExportingMembers(true);
+    try {
+      const csvData = await api.exportGroupMembersCsv(group.id);
+      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `chama_${group.id}_members_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      onNotify('success', `Exported all members of ${group.name} to CSV successfully.`);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to export members list.');
+    } finally {
+      setExportingMembers(false);
     }
   }
 
@@ -2197,96 +2224,212 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
       {/* MODAL 1: REQUEST PEER LOAN (Member Option) */}
       {showLoanModal && mySlot && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative my-auto">
             <button
               onClick={() => setShowLoanModal(false)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#0E5A3C] flex items-center justify-center">
-                <HandCoins className="w-4 h-4" />
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#0E5A3C] flex items-center justify-center">
+                <HandCoins className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">
-                Request P2P Installment Loan
-              </h3>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Request P2P Installment Loan
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Apply for funding from third-party lenders in this Chama group
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Post an optional loan request to this Chama group. 3rd-party lenders will see your request in the chat and loan board and can fund your wallet directly.
-            </p>
 
-            <form onSubmit={handleRequestPeerLoan} className="space-y-4">
-              <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
+            <form onSubmit={handleRequestPeerLoan} className="space-y-4 mt-4">
+              {/* Member Slot Status Summary */}
+              <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1.5 border border-slate-200">
                 <div className="flex justify-between">
                   <span className="text-slate-600">Your Chama Slot:</span>
-                  <span className="font-bold text-slate-900">Member #{mySlot.slotNumber}</span>
+                  <span className="font-bold text-slate-900">Slot #{mySlot.slotNumber} ({mySlot.userName})</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-slate-600">Daily Contribution Rate:</span>
+                  <span className="font-mono font-bold text-[#0E5A3C]">KSh {group.dailyAmount.toLocaleString()} / day</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-200 pt-1.5">
                   <span className="text-slate-600">Remaining Obligation:</span>
-                  <span className="font-bold text-slate-900">
+                  <span className="font-mono font-bold text-slate-900">
                     KSh {Math.max(0, (mySlot.targetAmount || group.productPrice) - (mySlot.paidAmount || 0)).toLocaleString()}
                   </span>
                 </div>
               </div>
 
+              {/* Loan Amount Needed with Quick Chips */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Loan Amount Needed (KSh) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="50"
-                  required
-                  value={loanRequestAmount || ''}
-                  onChange={(e) => setLoanRequestAmount(Number(e.target.value))}
-                  placeholder="e.g. 5000"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-800">
+                    Loan Amount Needed (KSh) <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-medium">Quick Presets:</span>
+                </div>
+
+                {/* Quick Chips */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setLoanRequestAmount(group.dailyAmount)}
+                    className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    1 Day (KSh {group.dailyAmount.toLocaleString()})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoanRequestAmount(group.dailyAmount * 3)}
+                    className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    3 Days (KSh {(group.dailyAmount * 3).toLocaleString()})
+                  </button>
+                  {mySlot.targetAmount && mySlot.targetAmount > (mySlot.paidAmount || 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setLoanRequestAmount(Math.max(0, mySlot.targetAmount - (mySlot.paidAmount || 0)))}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] rounded-lg border border-emerald-200 transition-colors"
+                    >
+                      Full Obligation (KSh {Math.max(0, mySlot.targetAmount - (mySlot.paidAmount || 0)).toLocaleString()})
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">KSh</span>
+                  <input
+                    type="number"
+                    min="50"
+                    required
+                    value={loanRequestAmount || ''}
+                    onChange={(e) => setLoanRequestAmount(Number(e.target.value))}
+                    placeholder="e.g. 1500"
+                    className="w-full pl-11 pr-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  />
+                </div>
+
                 {loanRequestAmount > 0 && (
-                  <div className="text-[11px] text-slate-500 mt-1 flex justify-between">
-                    <span>3% Platform Commission Fee:</span>
-                    <b className="text-[#FF6A00]">
-                      KSh {Math.max(1, Math.round(loanRequestAmount * 0.03)).toLocaleString()}
-                    </b>
+                  <div className="mt-1.5 p-2.5 bg-emerald-50/70 border border-emerald-200/60 rounded-lg text-xs space-y-1">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Lender Upfront Facilitation Fee (3%):</span>
+                      <span className="font-bold text-[#FF6A00]">
+                        KSh {Math.max(1, Math.round(loanRequestAmount * 0.03)).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-bold text-[#0E5A3C]">
+                      <span>Direct Credited to Your Wallet:</span>
+                      <span>KSh {loanRequestAmount.toLocaleString()} (Non-withdrawable)</span>
+                    </div>
                   </div>
                 )}
               </div>
 
+              {/* Repayment Period Selector */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Reason / Purpose Note
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Repayment Period <span className="text-red-500">*</span>
                 </label>
+                <select
+                  value={loanRepaymentPeriod}
+                  onChange={(e) => setLoanRepaymentPeriod(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white font-semibold"
+                >
+                  <option value="Within 7 Days (Emergency Arrears Catch-up)">Within 7 Days (Emergency Arrears Catch-up)</option>
+                  <option value="Within 14 Days (Standard Grace Period)">Within 14 Days (Standard Grace Period)</option>
+                  <option value="Within 30 Days (1 Month Installment)">Within 30 Days (1 Month Installment)</option>
+                  <option value={`1 Chama Cycle (${group.cycleDays} Days)`}>1 Chama Cycle ({group.cycleDays} Days)</option>
+                  <option value="Custom Negotiation with Lender">Custom Negotiation with Lender</option>
+                </select>
+              </div>
+
+              {/* Reason for Request with Arrears Priority */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-800">
+                    Reason for Request <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">Click to autofill</span>
+                </div>
+
+                {/* Preset chips - Arrears is primary */}
+                <div className="flex flex-col gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setLoanRequestPurpose('To pay for an arrears (clear missed Chama days)')}
+                    className={`text-left p-2 rounded-lg border text-xs transition-colors flex items-center justify-between ${
+                      loanRequestPurpose === 'To pay for an arrears (clear missed Chama days)'
+                        ? 'bg-amber-50 border-amber-300 text-amber-950 font-bold'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 font-medium'
+                    }`}
+                  >
+                    <span>🎯 To pay for an arrears (clear missed Chama days)</span>
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded uppercase">Recommended</span>
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setLoanRequestPurpose('Cover upcoming Chama cycle installment payment')}
+                      className={`text-left p-1.5 rounded-lg border text-[11px] truncate transition-colors ${
+                        loanRequestPurpose === 'Cover upcoming Chama cycle installment payment'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Upcoming cycle payment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoanRequestPurpose('Emergency temporary cashflow shortfall')}
+                      className={`text-left p-1.5 rounded-lg border text-[11px] truncate transition-colors ${
+                        loanRequestPurpose === 'Emergency temporary cashflow shortfall'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Temporary cashflow gap
+                    </button>
+                  </div>
+                </div>
+
                 <input
                   type="text"
+                  required
                   value={loanRequestPurpose}
                   onChange={(e) => setLoanRequestPurpose(e.target.value)}
-                  placeholder="e.g. Cover upcoming 10-day cycle installment"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  placeholder="e.g. To pay for an arrears (clear missed Chama days)"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
                 />
               </div>
 
-              <div className="p-3 bg-amber-50 text-amber-900 rounded-xl text-[11px] leading-relaxed space-y-1">
+              {/* Regulatory & Peer Terms Notice */}
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] leading-relaxed space-y-1 text-amber-950">
                 <div>⚖️ <b>Notice:</b> Interest rates, repayment schedule, and loan agreements are negotiated and settled manually outside the Buyoll platform.</div>
-                <div>Lender pays an upfront <b>3% platform facilitation fee</b> to Platform Till: <b>196853</b> or Paybill: <b>522533</b> (Acc: <b>4363</b>). Loan proceeds deposited in member wallet are non-withdrawable.</div>
+                <div>Lender pays an upfront <b>3% platform facilitation fee</b> to Platform Till: <b>196853</b> or Paybill: <b>522533</b> (Acc: <b>4363</b>). Loan proceeds credited to your wallet are locked for Chama contributions and product purchases only.</div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowLoanModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingLoanRequest || loanRequestAmount <= 0}
-                  className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  {submittingLoanRequest ? 'Posting Request...' : 'Post Loan Request to Group'}
+                  <HandCoins className="w-3.5 h-3.5" />
+                  <span>{submittingLoanRequest ? 'Posting Request...' : 'Post Loan Request to Lenders'}</span>
                 </button>
               </div>
             </form>
@@ -3209,22 +3352,36 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
       {/* 4. AWARD COINS TO GROUP MEMBERS MODAL (Section 8.1 & Prompt 5) */}
       {showAwardCoinsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-500" />
                 <div>
-                  <h3 className="font-extrabold text-sm text-slate-900">Award Coins to Chama Members</h3>
-                  <span className="text-[11px] text-slate-500">Applaud active contributors in this group</span>
+                  <h3 className="font-extrabold text-sm text-slate-900">Award Coins to Members & Admin</h3>
+                  <span className="text-[11px] text-slate-500">Applaud active Chama contributors or award platform directly</span>
                 </div>
               </div>
-              <button
-                onClick={() => setShowAwardCoinsModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {currentUser?.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={handleExportMembers}
+                    disabled={exportingMembers}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] border border-emerald-300 rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                    title="Export CSV list of all group members and contribution status"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{exportingMembers ? 'Exporting...' : 'Export Members'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowAwardCoinsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 space-y-4">
@@ -3246,11 +3403,18 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     Select Member(s) to Award:
                   </label>
                   {(() => {
+                    // Strictly occupied active slots only (no empty or unassigned slots)
                     const activeOtherMembers = group.slots
                       .filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id)
                       .map(s => s.userId!);
-                    const allSelected = activeOtherMembers.length > 0 &&
-                      activeOtherMembers.every(id => selectedAwardRecipientIds.includes(id));
+
+                    // Include Admin wallet (id: 1) if current user is not admin
+                    const allRecipientCandidates = currentUser?.id !== 1
+                      ? [1, ...activeOtherMembers]
+                      : activeOtherMembers;
+
+                    const allSelected = allRecipientCandidates.length > 0 &&
+                      allRecipientCandidates.every(id => selectedAwardRecipientIds.includes(id));
 
                     return (
                       <button
@@ -3259,32 +3423,75 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                           if (allSelected) {
                             setSelectedAwardRecipientIds([]);
                           } else {
-                            setSelectedAwardRecipientIds(activeOtherMembers);
+                            setSelectedAwardRecipientIds(allRecipientCandidates);
                           }
                         }}
                         className="text-[11px] font-bold text-[#0E5A3C] hover:underline cursor-pointer"
                       >
-                        {allSelected ? 'Deselect All' : `Select All (${activeOtherMembers.length})`}
+                        {allSelected ? 'Deselect All' : `Select All (${allRecipientCandidates.length})`}
                       </button>
                     );
                   })()}
                 </div>
 
-                <div className="max-h-36 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-2 bg-slate-50/50">
+                <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-2 bg-slate-50/50">
+                  {/* GLOBAL OPTION: Buyoll Platform Admin Wallet (Global Wide) */}
+                  {currentUser?.id !== 1 && (
+                    <label
+                      className={`flex items-center justify-between p-2.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                        selectedAwardRecipientIds.includes(1)
+                          ? 'bg-amber-50/90 border-amber-400 text-amber-950 shadow-xs'
+                          : 'bg-white border-amber-200 text-slate-800 hover:bg-amber-50/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedAwardRecipientIds.includes(1)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAwardRecipientIds(prev => [...prev, 1]);
+                            } else {
+                              setSelectedAwardRecipientIds(prev => prev.filter(id => id !== 1));
+                            }
+                          }}
+                          className="rounded text-amber-600 focus:ring-amber-500"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <span>🏛️ Buyoll Platform Admin Wallet</span>
+                            <span className="text-[10px] font-mono bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">
+                              GLOBAL WIDE
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            Award platform infrastructure & escrow maintenance directly
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                        ADMIN
+                      </span>
+                    </label>
+                  )}
+
+                  {/* ACTIVE GROUP MEMBERS ONLY (Strictly filter out empty/open slots) */}
                   {group.slots
                     .filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id)
                     .map(slot => {
                       const isSelected = selectedAwardRecipientIds.includes(slot.userId!);
+                      const paidProgress = slot.progressPercent || Math.round(((slot.paidAmount || 0) / (slot.targetAmount || group.productPrice || 1)) * 100);
+
                       return (
                         <label
                           key={slot.slotNumber}
                           className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
                             isSelected
-                              ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                              ? 'bg-amber-50/80 border-amber-300 text-amber-950 shadow-xs'
                               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -3297,14 +3504,28 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               }}
                               className="rounded text-amber-600 focus:ring-amber-500"
                             />
-                            <span className="font-bold">Slot #{slot.slotNumber}: {slot.userName || 'Member'}</span>
+                            <div className="min-w-0">
+                              <span className="font-bold text-slate-900 block truncate">
+                                Slot #{slot.slotNumber}: {slot.userName || 'Member'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                Paid: KSh {(slot.paidAmount || 0).toLocaleString()} ({paidProgress}%) · Delivery Day {slot.deliveryDay || (slot.slotNumber * Math.floor(group.cycleDays / (group.size || 1)))}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400">
+                          <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
                             {slot.priorityLevel ? `★ ${slot.priorityLevel.toUpperCase()}` : 'ACTIVE'}
                           </span>
                         </label>
                       );
                     })}
+
+                  {/* Empty fallback if no other members have joined yet */}
+                  {group.slots.filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id).length === 0 && currentUser?.id === 1 && (
+                    <div className="text-center py-4 text-xs text-slate-400 italic">
+                      No other active members in this Chama yet.
+                    </div>
+                  )}
                 </div>
               </div>
 

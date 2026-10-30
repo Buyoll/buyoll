@@ -1686,7 +1686,10 @@ export const api = {
     }
   },
 
-  async requestPeerLoan(groupId: number, data: { amount: number; purpose?: string }): Promise<{ loan: PeerLoanRequest; message: string }> {
+  async requestPeerLoan(
+    groupId: number,
+    data: { amount: number; purpose?: string; repaymentPeriod?: string; repaymentDays?: number }
+  ): Promise<{ loan: PeerLoanRequest; message: string }> {
     try {
       return await fetchApi<any>(`/groups/${groupId}/loans/request`, {
         method: 'POST',
@@ -1704,6 +1707,7 @@ export const api = {
       if (!slot) throw new Error('Active slot not found in this group');
 
       const fee = Math.max(1, Math.round(data.amount * 0.03));
+      const period = data.repaymentPeriod || 'Within 7 Days';
       const newLoan: PeerLoanRequest = {
         id: db.nextIds.peerLoan++,
         groupId: grp.id,
@@ -1716,7 +1720,9 @@ export const api = {
         productImage: grp.productImage,
         amount: data.amount,
         approvedAmount: data.amount,
-        purpose: data.purpose || `Installment support for Slot #${slot.slotNumber}`,
+        purpose: data.purpose || `To pay for an arrears (clear missed Chama days)`,
+        repaymentPeriod: period,
+        repaymentDays: data.repaymentDays || 7,
         status: 'open',
         createdAt: Date.now(),
         platformFeePercent: 3,
@@ -1733,12 +1739,64 @@ export const api = {
         senderId: user.id,
         senderName: user.name,
         kind: 'system',
-        text: `📢 PEER LOAN REQUEST: ${user.name} (Member #${slot.slotNumber}) requested a P2P loan of KSh ${data.amount.toLocaleString()}. 3rd-party lenders: review and enter approved amount. 3% platform commission (KSh ${fee}) applies. Loan agreements and repayments are settled manually outside Buyoll.`,
+        text: `📢 PEER LOAN REQUEST: ${user.name} (Member #${slot.slotNumber}) requested KSh ${data.amount.toLocaleString()} from Lenders. Reason: "${newLoan.purpose}" · Repayment: ${period}. 3rd-party lenders: review and fund member wallet. 3% platform commission (KSh ${fee}) applies.`,
         timestamp: Date.now(),
       });
 
       saveClientDb(db);
       return { loan: newLoan, message: 'Peer loan request posted to Chama chat and loan board.' };
+    }
+  },
+
+  async exportGroupMembersCsv(groupId: number): Promise<string> {
+    try {
+      const user = getStoredUser();
+      const headers: Record<string, string> = {};
+      if (user) headers['x-user-id'] = String(user.id);
+      const res = await fetch(`/api/groups/${groupId}/members/export-csv`, { headers });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.text();
+    } catch {
+      const db = getClientDb();
+      const group = db.groups.find(g => g.id === Number(groupId));
+      if (!group) throw new Error('Group not found');
+      const headers = [
+        'Slot Number',
+        'Member Name',
+        'Phone',
+        'Role',
+        'Status',
+        'Priority Level',
+        'Problem Status',
+        'Cycle Delivery Day',
+        'Target Obligation (KSh)',
+        'Amount Paid (KSh)',
+        'Remaining Arrears (KSh)',
+        'Paid Days Count',
+        'Joined Date',
+      ];
+      const rows = group.slots.map(s => {
+        const u = s.userId ? db.users.find(usr => usr.id === s.userId) : null;
+        const targetAmt = s.targetAmount || group.productPrice;
+        const paidAmt = s.paidAmount || 0;
+        const arrears = Math.max(0, targetAmt - paidAmt);
+        return [
+          s.slotNumber,
+          `"${s.userName || (s.status === 'active' ? 'Member' : 'Open Slot')}"`,
+          `"${u?.phone || 'N/A'}"`,
+          `"${s.userId && group.moderators?.includes(s.userId) ? 'Moderator' : 'Member'}"`,
+          `"${s.status}"`,
+          `"${s.priorityLevel || 'Good'}"`,
+          `"${s.memberStatus || 'good_standing'}"`,
+          s.slotNumber * group.cycleDays,
+          targetAmt,
+          paidAmt,
+          arrears,
+          (s.paidDays || []).length,
+          s.joinedAt ? new Date(s.joinedAt).toLocaleDateString() : 'N/A',
+        ].join(',');
+      });
+      return [headers.join(','), ...rows].join('\n');
     }
   },
 
