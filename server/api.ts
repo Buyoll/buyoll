@@ -16,9 +16,78 @@ import {
   GroupInviteRequest,
   ChamaActivityItem,
   WalletDepositRequest,
+  Announcement,
+  SupportTicket,
+  UserNotification,
+  DeliveryAddress,
+  MemberOrder,
+  MerchantSubscriptionTier,
+  MerchantVerificationRecord,
+  MerchantSubscriptionRecord,
+  ChatStrikeRecord,
 } from '../src/types.js';
 
+export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
+  {
+    id: 'tier_250',
+    name: 'Micro-Merchant (KES 250)',
+    monthlyFee: 250,
+    maxProducts: 2,
+    maxGroupsPerProduct: 2,
+    description: 'Caters to very small businesses.',
+    features: ['1 to 2 products max', '2 groups per product', '30-day active window'],
+  },
+  {
+    id: 'tier_500',
+    name: 'Growing Merchant (KES 500)',
+    monthlyFee: 500,
+    maxProducts: 10,
+    maxGroupsPerProduct: 5,
+    description: 'Ideal for budding local stores.',
+    features: ['Up to 10 products', '5 groups per product', '30-day active window'],
+  },
+  {
+    id: 'tier_1500',
+    name: 'Pro Merchant (KES 1,500)',
+    monthlyFee: 1500,
+    maxProducts: 50,
+    maxGroupsPerProduct: 10,
+    description: 'For active retail businesses.',
+    features: ['Up to 50 products', '10 groups per product', 'Priority Chama matching'],
+  },
+  {
+    id: 'tier_3500',
+    name: 'Commercial (KES 3,500)',
+    monthlyFee: 3500,
+    maxProducts: 100,
+    maxGroupsPerProduct: 30,
+    description: 'High capacity volume sales.',
+    features: ['Up to 100 products', '30 groups per product', 'Multi-speed groups'],
+  },
+  {
+    id: 'tier_7500',
+    name: 'Enterprise Scale (KES 7,500)',
+    monthlyFee: 7500,
+    maxProducts: -1, // Unlimited
+    maxGroupsPerProduct: 50,
+    description: 'Unlimited catalog for major distributors.',
+    features: ['Unlimited products', '50 groups per product', 'Dedicated account manager'],
+  },
+  {
+    id: 'enterprise',
+    name: 'Custom Enterprise',
+    monthlyFee: 15000,
+    maxProducts: -1,
+    maxGroupsPerProduct: 100,
+    description: 'Custom SLA and limits set by admin.',
+    features: ['Unlimited products', 'Up to 100 groups per product', 'Custom SLA'],
+  },
+];
+
+import { prompt2Router } from './prompt2_api.js';
+
 export const apiRouter = Router();
+apiRouter.use(prompt2Router);
 
 function generateCode(length = 6): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -84,6 +153,265 @@ apiRouter.post('/user/preferences', async (req: Request, res: Response) => {
   }
   res.status(404).json({ error: 'User not found' });
 });
+
+// -------------------------------------------------------------
+// SECTION 1 & 5: ANNOUNCEMENTS (PUBLIC FEED, ADMIN POST/DELETE)
+// -------------------------------------------------------------
+apiRouter.get('/announcements', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const list = (db.announcements || []).map((a) => ({
+    id: a.id,
+    title: a.title,
+    body: a.body,
+    imageUrl: a.imageUrl,
+    category: a.category || 'General',
+    createdAt: a.createdAt,
+    authorName: a.authorName || 'Buyoll Admin',
+  }));
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  res.json({ announcements: list });
+});
+
+apiRouter.post('/announcements', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
+
+  const { title, body, imageUrl, category } = req.body;
+  if (!title || !body) {
+    return res.status(400).json({ error: 'Title and body are required for an announcement.' });
+  }
+
+  if (!db.announcements) db.announcements = [];
+  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
+
+  const newAnnouncement: Announcement = {
+    id: db.nextIds.announcement++,
+    title: String(title).trim(),
+    body: String(body).trim(),
+    imageUrl: imageUrl ? String(imageUrl).trim() : undefined,
+    category: category ? String(category).trim() : 'Platform News',
+    createdAt: Date.now(),
+    authorId: user.id,
+    authorName: user.name,
+  };
+
+  db.announcements.unshift(newAnnouncement);
+  // Admin broadcast: Post once and deliver to notifications of all users on platform (Part A)
+  if (!db.userNotifications) db.userNotifications = [];
+  db.users.forEach((u) => {
+    db.userNotifications.unshift({
+      id: `notif_broadcast_${newAnnouncement.id}_${u.id}_${Date.now()}`,
+      userId: u.id,
+      title: `📢 Platform Announcement: ${newAnnouncement.title}`,
+      message: newAnnouncement.body,
+      type: 'broadcast',
+      link: '/announcements',
+      read: false,
+      timestamp: Date.now(),
+    });
+  });
+
+  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_CREATED', `Created announcement: "${newAnnouncement.title}" & broadcasted to all users.`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    success: true,
+    announcement: newAnnouncement,
+    message: 'Announcement posted to public feed and broadcasted to all member notification feeds.',
+  });
+});
+
+apiRouter.put('/announcements/:id', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
+
+  const announcementId = req.params.id;
+  const announcement = (db.announcements || []).find((a) => String(a.id) === announcementId);
+  if (!announcement) {
+    return res.status(404).json({ error: 'Announcement not found.' });
+  }
+
+  const { title, body, imageUrl, category } = req.body;
+  if (title) announcement.title = String(title).trim();
+  if (body) announcement.body = String(body).trim();
+  if (imageUrl !== undefined) announcement.imageUrl = imageUrl ? String(imageUrl).trim() : undefined;
+  if (category) announcement.category = String(category).trim();
+  announcement.updatedAt = Date.now();
+
+  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_UPDATED', `Updated announcement #${announcement.id}`);
+  await saveDatabase(db);
+
+  res.json({ success: true, announcement, message: 'Announcement updated.' });
+});
+
+apiRouter.delete('/announcements/:id', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
+
+  const announcementId = req.params.id;
+  const index = (db.announcements || []).findIndex((a) => String(a.id) === announcementId);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Announcement not found.' });
+  }
+
+  const removed = db.announcements.splice(index, 1)[0];
+  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_DELETED', `Deleted announcement #${removed.id} "${removed.title}"`);
+  await saveDatabase(db);
+
+  res.json({ success: true, message: 'Announcement removed from public feed.' });
+});
+
+// -------------------------------------------------------------
+// SECTION 3: DARK MODE (GROUP-LEVEL, MODERATOR-ONLY)
+// -------------------------------------------------------------
+apiRouter.post('/groups/:id/theme', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const { theme } = req.body;
+  if (theme !== 'light' && theme !== 'dark') {
+    return res.status(400).json({ error: 'Theme must be "light" or "dark"' });
+  }
+
+  const db = await getDatabase();
+  const groupId = Number(req.params.id);
+  const group = db.groups.find((g) => g.id === groupId);
+  if (!group) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+
+  // Strict backend moderator check:
+  const isModerator =
+    group.adminId === user.id ||
+    (group.moderators && group.moderators.includes(user.id)) ||
+    user.role === 'admin';
+
+  if (!isModerator) {
+    return res.status(403).json({
+      error: 'Access denied. Only group moderators can change this Chama group theme.',
+    });
+  }
+
+  group.theme = theme;
+  logAudit(db, user.id, user.name, 'GROUP_THEME_CHANGED', `Changed group #${group.id} theme to ${theme}`);
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    groupId: group.id,
+    theme: group.theme,
+    message: `Chama theme updated to ${theme} mode for this group.`,
+  });
+});
+
+// -------------------------------------------------------------
+// SUPPORT TICKETS (PERSONALISED & PRIVATE TO USER)
+// -------------------------------------------------------------
+apiRouter.get('/user/tickets', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const db = await getDatabase();
+  const tickets = (db.supportTickets || []).filter((t) => t.userId === user.id);
+  res.json({ tickets });
+});
+
+apiRouter.post('/user/tickets', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { subject, message, category } = req.body;
+  if (!subject || !message) {
+    return res.status(400).json({ error: 'Subject and message are required.' });
+  }
+
+  const db = await getDatabase();
+  if (!db.supportTickets) db.supportTickets = [];
+  if (!db.nextIds.supportTicket) db.nextIds.supportTicket = (db.supportTickets.length || 0) + 1;
+
+  const newTicket: SupportTicket = {
+    id: `ticket_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    userId: user.id,
+    userName: user.name,
+    userEmail: user.email,
+    userPhone: user.phone,
+    subject: String(subject).trim(),
+    message: String(message).trim(),
+    category: category || 'inquiry',
+    status: 'open',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    replies: [],
+  };
+
+  db.supportTickets.unshift(newTicket);
+  logAudit(db, user.id, user.name, 'TICKET_CREATED', `Support ticket created: "${newTicket.subject}"`);
+  await saveDatabase(db);
+
+  res.status(201).json({
+    success: true,
+    ticket: newTicket,
+    message: 'Your support ticket has been submitted. Our team will review and reply promptly.',
+  });
+});
+
+// Data isolation: User X requesting User Y's private resource returns 404 (Not Found)
+apiRouter.get('/tickets/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(404).json({ error: 'Resource not found' });
+
+  const db = await getDatabase();
+  const ticket = (db.supportTickets || []).find((t) => t.id === req.params.id);
+  if (!ticket || (ticket.userId !== user.id && user.role !== 'admin')) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  res.json({ ticket });
+});
+
+apiRouter.get('/wallet/user/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(404).json({ error: 'Resource not found' });
+
+  const targetUserId = Number(req.params.id);
+  if (targetUserId !== user.id && user.role !== 'admin') {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+
+  const db = await getDatabase();
+  const target = db.users.find((u) => u.id === targetUserId);
+  if (!target) return res.status(404).json({ error: 'Resource not found' });
+
+  res.json({
+    userId: target.id,
+    credit: target.credit || 0,
+    coins: target.coins || 0,
+    points: target.points || 0,
+  });
+});
+
+apiRouter.get('/loans/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(404).json({ error: 'Resource not found' });
+
+  const db = await getDatabase();
+  const loan = (db.peerLoans || []).find((l) => l.id === Number(req.params.id));
+  if (
+    !loan ||
+    (loan.borrowerId !== user.id &&
+      loan.requesterId !== user.id &&
+      loan.fundedByUserId !== user.id &&
+      user.role !== 'admin')
+  ) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  res.json({ loan });
+});
+
 
 // -------------------------------------------------------------
 // AUTH ROUTES
@@ -582,7 +910,9 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Only verified merchants or admins can create products' });
   }
 
-  // Merchant gating check: Subscription must be active and merchant must be verified
+  const db = await getDatabase();
+
+  // Merchant gating check: Subscription must be active, verified, and within tier product limits
   if (user.role === 'merchant') {
     if (user.merchantSubscriptionStatus !== 'active' || !user.verified) {
       return res.status(403).json({
@@ -591,6 +921,21 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
         isVerified: Boolean(user.verified),
       });
     }
+
+    const activeSub = (db.merchantSubscriptions || []).find(
+      (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
+    );
+    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan === 'starter' ? 'tier_250' : 'tier_500');
+    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
+
+    if (tier.maxProducts !== -1) {
+      const currentProductsCount = db.products.filter((p) => p.vendorId === user.id).length;
+      if (currentProductsCount >= tier.maxProducts) {
+        return res.status(403).json({
+          error: `You have reached your catalog limit of ${tier.maxProducts} product(s) for the ${tier.name}. Please upgrade after your current 30-day subscription ends.`,
+        });
+      }
+    }
   }
 
   const { title, description, category, price, wasPrice, discountPercent, images, speedOptions, stockQuantity, attributes, promotionType, promotionDiscount, bonusGift } = req.body;
@@ -598,8 +943,6 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
   if (!title || !description || !price || !category) {
     return res.status(400).json({ error: 'Title, description, category, and price are required' });
   }
-
-  const db = await getDatabase();
   const numPrice = Number(price);
 
   // Generate standard speed options including 1-member Lipa Mdogomdogo
@@ -939,6 +1282,27 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Product not found' });
   }
 
+  // Strict ownership check: Merchant can only add groups inside products created by their store
+  if (user.role === 'merchant') {
+    if (product.vendorId !== user.id && user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only create Chama groups inside products created by your store.' });
+    }
+
+    // Subscription tier group-per-product limit
+    const activeSub = (db.merchantSubscriptions || []).find(
+      (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
+    );
+    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan === 'starter' ? 'tier_250' : 'tier_500');
+    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
+
+    const currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id).length;
+    if (currentGroupsForProduct >= tier.maxGroupsPerProduct) {
+      return res.status(403).json({
+        error: `You have reached the maximum of ${tier.maxGroupsPerProduct} groups per product for the ${tier.name}. Please upgrade after your current 30-day subscription ends.`,
+      });
+    }
+  }
+
   const speedSize = Number(size);
   if (speedSize < 1 || speedSize > 10) {
     return res.status(400).json({ error: 'Group speed must be between 1 and 10 members.' });
@@ -1077,6 +1441,27 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   await saveDatabase(db);
   res.status(201).json({ group: newGroup, message: 'Your group was created and activated immediately. You are Member #1.' });
+});
+
+// Group Immutability: Merchants CANNOT edit or delete a group once created!
+apiRouter.put('/groups/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (user?.role === 'merchant') {
+    return res.status(403).json({
+      error: 'Merchants cannot edit Chama groups. Once created, groups belong strictly to their members and moderators.',
+    });
+  }
+  return res.status(404).json({ error: 'Direct group modification not permitted.' });
+});
+
+apiRouter.delete('/groups/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (user?.role === 'merchant') {
+    return res.status(403).json({
+      error: 'Merchants cannot delete, archive, or deactivate Chama groups. Groups belong strictly to their members.',
+    });
+  }
+  return res.status(404).json({ error: 'Group deletion not permitted.' });
 });
 
 // Join group with code

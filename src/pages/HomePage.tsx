@@ -21,8 +21,13 @@ import {
   Percent,
   Flame,
   X,
+  Megaphone,
+  Bell,
+  LogIn,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import { User } from '../types.ts';
+import { User, Announcement } from '../types.ts';
 import { useSearchHistory } from '../hooks/useSearchHistory.ts';
 
 interface HomePageProps {
@@ -31,6 +36,8 @@ interface HomePageProps {
   searchQuery: string;
   onSearchChange?: (query: string) => void;
   onClearSearch?: () => void;
+  onOpenAuth?: () => void;
+  onNavigate?: (view: string, arg?: any) => void;
 }
 
 const CATEGORIES = [
@@ -53,12 +60,22 @@ export const HomePage: React.FC<HomePageProps> = ({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  onOpenAuth,
+  onNavigate,
 }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<ChamaGroup[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
   const [aiModalProduct, setAiModalProduct] = useState<Product | null>(null);
+
+  // Admin announcement creation state
+  const [showAnnForm, setShowAnnForm] = useState(false);
+  const [annTitle, setAnnTitle] = useState('');
+  const [annBody, setAnnBody] = useState('');
+  const [annImageUrl, setAnnImageUrl] = useState('');
+  const [submittingAnn, setSubmittingAnn] = useState(false);
 
   // Featured announcements slider state
   const [featuredIndex, setFeaturedIndex] = useState(0);
@@ -77,19 +94,52 @@ export const HomePage: React.FC<HomePageProps> = ({
   async function loadHomeData() {
     setLoading(true);
     try {
-      const [prodRes, grpRes] = await Promise.all([
+      const [prodRes, grpRes, annRes] = await Promise.all([
         api.getProducts({
           category: selectedCategory !== 'All' ? selectedCategory : undefined,
           search: searchQuery || undefined,
         }),
         api.getGroups(),
+        api.getAnnouncements().catch(() => ({ announcements: [] })),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
+      setAnnouncements(annRes.announcements || []);
     } catch {
       setProducts([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCreateAnnouncement(e: React.FormEvent) {
+    e.preventDefault();
+    if (!annTitle.trim() || !annBody.trim()) return;
+    setSubmittingAnn(true);
+    try {
+      const res = await api.createAnnouncement({
+        title: annTitle.trim(),
+        body: annBody.trim(),
+        imageUrl: annImageUrl.trim() || undefined,
+      });
+      setAnnouncements(prev => [res.announcement, ...prev]);
+      setAnnTitle('');
+      setAnnBody('');
+      setAnnImageUrl('');
+      setShowAnnForm(false);
+    } catch {
+      // ignore
+    } finally {
+      setSubmittingAnn(false);
+    }
+  }
+
+  async function handleDeleteAnnouncement(id: string | number) {
+    try {
+      await api.deleteAnnouncement(id);
+      setAnnouncements(prev => prev.filter(a => a.id !== id));
+    } catch {
+      // ignore
     }
   }
 
@@ -219,6 +269,169 @@ export const HomePage: React.FC<HomePageProps> = ({
             Clear all
           </button>
         </div>
+      )}
+
+      {/* Guest Welcome & Authentication Prompt Strip (Public Announcements Landing) */}
+      {!currentUser && (
+        <div className="bg-gradient-to-r from-emerald-900 via-[#0E5A3C] to-emerald-950 text-white rounded-2xl p-4 sm:p-5 mb-8 shadow-md border border-emerald-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 shadow-sm font-black">
+              <Megaphone className="w-5 h-5 text-slate-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
+                  Welcome to Buyoll — Kenya's Social Fintech Chama Marketplace
+                </h2>
+                <span className="px-2 py-0.5 bg-emerald-700/80 text-emerald-100 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                  Public Feed
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100/80 mt-0.5 max-w-2xl leading-relaxed">
+                Explore official announcements and genuine merchant Chama deals below. Sign in to access your private Chamas, Wallet, Merchant Catalog, or Peer Lending Desk.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onOpenAuth?.()}
+            className="self-start sm:self-auto px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-sm shrink-0 flex items-center gap-2 cursor-pointer active:scale-95"
+          >
+            <LogIn className="w-4 h-4" />
+            <span>Log in / Sign up</span>
+          </button>
+        </div>
+      )}
+
+      {/* Official Buyoll Announcements Feed (Public, read-only for visitors, admin-managed) */}
+      {!searchQuery && selectedCategory === 'All' && announcements.length > 0 && (
+        <section className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl sm:rounded-3xl p-5 sm:p-6 mb-8 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#1E2B26] mb-5">
+            <div className="flex items-center gap-2.5">
+              <span className="p-2 bg-emerald-50 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] rounded-xl">
+                <Bell className="w-4 h-4" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                    Platform Announcements & Notices
+                  </h2>
+                  <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded-full">
+                    {announcements.length} Verified
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Official notices, regulatory updates, and Chama platform news from Buyoll Administration.
+                </p>
+              </div>
+            </div>
+
+            {currentUser?.role === 'admin' && (
+              <button
+                onClick={() => setShowAnnForm(!showAnnForm)}
+                className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{showAnnForm ? 'Close Form' : 'Post Announcement'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Admin Announcement Creator Form */}
+          {currentUser?.role === 'admin' && showAnnForm && (
+            <form onSubmit={handleCreateAnnouncement} className="bg-slate-50 dark:bg-[#16221E] p-4 rounded-xl border border-slate-200 dark:border-[#24312C] mb-5 space-y-3">
+              <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Create Official Announcement (Admin Only)
+              </h3>
+              <input
+                type="text"
+                placeholder="Announcement Title"
+                value={annTitle}
+                onChange={e => setAnnTitle(e.target.value)}
+                required
+                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+              />
+              <textarea
+                placeholder="Announcement Body Details..."
+                rows={3}
+                value={annBody}
+                onChange={e => setAnnBody(e.target.value)}
+                required
+                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+              />
+              <input
+                type="url"
+                placeholder="Optional Image URL (https://...)"
+                value={annImageUrl}
+                onChange={e => setAnnImageUrl(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAnnForm(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingAnn}
+                  className="px-4 py-1.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0a422c] disabled:opacity-50"
+                >
+                  {submittingAnn ? 'Publishing...' : 'Publish Announcement'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Announcements Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {announcements.map((ann) => (
+              <div
+                key={ann.id}
+                className="bg-slate-50 dark:bg-[#16221E] border border-slate-200/80 dark:border-[#24312C] rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-700/50 transition-all shadow-2xs"
+              >
+                <div>
+                  {ann.imageUrl && (
+                    <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-slate-200 dark:bg-slate-800">
+                      <img
+                        src={resolveImageUrl(ann.imageUrl)}
+                        alt={ann.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-black rounded-md uppercase tracking-wider">
+                      Official Notice
+                    </span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                      {new Date(ann.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mb-1.5 line-clamp-2">
+                    {ann.title}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
+                    {ann.body}
+                  </p>
+                </div>
+
+                {currentUser?.role === 'admin' && (
+                  <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex justify-end">
+                    <button
+                      onClick={() => handleDeleteAnnouncement(ann.id)}
+                      className="text-red-500 hover:text-red-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* 1. FEATURED DEAL SECTION ON HERO (Moving right-to-left at 2.5s interval, KSh 500/image merchant fee, 100k scale) */}

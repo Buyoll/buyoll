@@ -16,6 +16,7 @@ import {
   Sparkles,
   Tag,
   X,
+  Store,
 } from 'lucide-react';
 
 interface VendorDashboardPageProps {
@@ -156,6 +157,26 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     }
     setEditingProduct(null);
     setIsEditorOpen(true);
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16 text-center">
+        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Store className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Merchant Portal</h2>
+        <p className="text-xs text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
+          Sign in or register your merchant store to post genuine verified items, manage Chama rotation orders, and activate 10-day speed groups.
+        </p>
+        <button
+          onClick={() => onNavigate('home')}
+          className="px-6 py-2.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+        >
+          Explore Public Marketplace
+        </button>
+      </div>
+    );
   }
 
   return (

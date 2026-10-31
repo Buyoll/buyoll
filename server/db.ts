@@ -18,6 +18,14 @@ import {
   ChatModerationEvent,
   MpesaStatementRecord,
   WalletDepositRequest,
+  Announcement,
+  SupportTicket,
+  UserNotification,
+  DeliveryAddress,
+  MemberOrder,
+  MerchantVerificationRecord,
+  MerchantSubscriptionRecord,
+  ChatStrikeRecord,
 } from '../src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,6 +46,17 @@ export interface DatabaseSchema {
   chatModerationLogs: ChatModerationEvent[];
   mpesaStatements: MpesaStatementRecord[];
   walletDeposits: WalletDepositRequest[];
+  announcements: Announcement[];
+  supportTickets: SupportTicket[];
+  userNotifications: UserNotification[];
+  deliveryAddresses: DeliveryAddress[];
+  memberOrders: MemberOrder[];
+  merchantVerifications: MerchantVerificationRecord[];
+  merchantSubscriptions: MerchantSubscriptionRecord[];
+  chatStrikes: ChatStrikeRecord[];
+  savedItems: Array<{ id: string; userId: number; productId: number; addedAt: number }>;
+  followedMerchants: Array<{ id: string; userId: number; merchantId: number; followedAt: number }>;
+  recentlyViewed: Array<{ id: string; userId: number; productId: number; viewedAt: number }>;
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -52,6 +71,8 @@ export interface DatabaseSchema {
     coinLedger: number;
     moderation: number;
     walletDeposit?: number;
+    announcement?: number;
+    supportTicket?: number;
     audit: number;
   };
 }
@@ -682,6 +703,8 @@ function getInitialDatabase(): DatabaseSchema {
       },
     ],
     walletDeposits: [],
+    announcements: [],
+    supportTickets: [],
   };
 }
 
@@ -697,6 +720,35 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.coinLedger) dbCache!.coinLedger = [];
     if (!dbCache!.chatModerationLogs) dbCache!.chatModerationLogs = [];
     if (!dbCache!.walletDeposits) dbCache!.walletDeposits = [];
+    if (!dbCache!.supportTickets) dbCache!.supportTickets = [];
+    if (!dbCache!.announcements || dbCache!.announcements.length === 0) {
+      dbCache!.announcements = [
+        {
+          id: 1,
+          title: 'Welcome to Buyoll Chama Marketplace!',
+          body: 'Kenya’s first social fintech marketplace combining rotating savings groups (Chamas), Lipa Mdogomdogo, and verified merchant deals.',
+          category: 'Platform Update',
+          createdAt: Date.now() - 86400000 * 2,
+          authorName: 'Buyoll Platform Team',
+        },
+        {
+          id: 2,
+          title: 'New: Lipa Mdogomdogo Solo Plans Live',
+          body: 'Save towards any appliance or smart electronics with single-member Lipa Mdogomdogo plans over 1 to 6 months. Zero interest, direct merchant fulfillment.',
+          category: 'Savings Plans',
+          createdAt: Date.now() - 86400000 * 1,
+          authorName: 'Buyoll Savings Desk',
+        },
+        {
+          id: 3,
+          title: 'Merchant & 3rd-Party Lender Portals Open',
+          body: 'Verified merchants can list inventory with 10-speed Chama groups. 3rd-party lenders can fund member wallets with guaranteed 3% platform commission.',
+          category: 'Merchant & Lending',
+          createdAt: Date.now() - 3600000 * 4,
+          authorName: 'Buyoll Operations',
+        },
+      ];
+    }
     if (!dbCache!.mpesaStatements) {
       dbCache!.mpesaStatements = [
         {
@@ -725,6 +777,116 @@ export async function getDatabase(): Promise<DatabaseSchema> {
         },
       ];
     }
+    if (!dbCache!.userNotifications) {
+      dbCache!.userNotifications = [
+        {
+          id: 1,
+          userId: 3,
+          title: 'Welcome to Buyoll Social Fintech',
+          message: 'Your personal member profile is ready. Browse verified merchant products and pick your rotating Chama savings group!',
+          type: 'system',
+          read: false,
+          timestamp: Date.now() - 86400000,
+        },
+        {
+          id: 2,
+          userId: 3,
+          title: 'Platform Announcement: Lipa Mdogomdogo Live',
+          message: 'Official Buyoll update: Single-member Lipa Mdogomdogo solo plans are now active.',
+          type: 'broadcast',
+          read: true,
+          timestamp: Date.now() - 43200000,
+        },
+        {
+          id: 3,
+          userId: 2,
+          title: 'Storefront Status: Verified Merchant Active',
+          message: 'Your merchant store is verified and your 30-day posting subscription is active.',
+          type: 'verification',
+          read: true,
+          timestamp: Date.now() - 86400000 * 5,
+        },
+      ];
+    }
+    if (!dbCache!.deliveryAddresses) {
+      dbCache!.deliveryAddresses = [
+        {
+          id: 'addr_1',
+          userId: 3,
+          fullName: 'Faith Chebet',
+          phone: '0711000000',
+          county: 'Nairobi',
+          city: 'Westlands',
+          streetAddress: 'Ring Road Parklands, Westgate Plaza Apt 4B',
+          isDefault: true,
+          createdAt: Date.now() - 86400000 * 10,
+        },
+      ];
+    }
+    if (!dbCache!.memberOrders) {
+      dbCache!.memberOrders = [
+        {
+          id: 'ord_1',
+          userId: 3,
+          groupId: 1,
+          groupName: 'Samsung Crystal UHD 55" Chama',
+          productId: 1,
+          productTitle: 'Samsung 55" Crystal UHD 4K Smart TV',
+          productPrice: 58000,
+          productImage: 'https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=600&q=80',
+          slotNumber: 1,
+          speed: 10,
+          status: 'confirmed',
+          totalPaid: 58000,
+          targetAmount: 58000,
+          expectedDeliveryDate: Date.now() + 86400000 * 5,
+          createdAt: Date.now() - 86400000 * 15,
+        },
+      ];
+    }
+    if (!dbCache!.merchantVerifications) {
+      dbCache!.merchantVerifications = [
+        {
+          merchantId: 2,
+          status: 'verified',
+          hasPhysicalShop: true,
+          tradingLicenceNumber: 'TL-NRB-2024-88319',
+          nationalIdOrPassport: '29881234',
+          yearsOperating: 4,
+          businessType: 'Consumer Electronics & Appliances',
+          shopLocation: 'Luthuli Avenue, Al-Noor Complex Shop G12, Nairobi CBD',
+          shopVisitScheduledAt: Date.now() - 86400000 * 40,
+          shopVisitCompletedAt: Date.now() - 86400000 * 38,
+          shopVisitRepresentative: 'Evans Kiprop (Buyoll Field Verification Team)',
+          shopVisitNotes: 'Physical shop verified. Adequate stock verified on shelves. Trading licence original inspected.',
+          advertInstalledAt: Date.now() - 86400000 * 38,
+          advertPhotoUrl: 'https://images.unsplash.com/photo-1555421689-491a97ff2040?auto=format&fit=crop&w=600&q=80',
+          submittedAt: Date.now() - 86400000 * 45,
+          reviewedAt: Date.now() - 86400000 * 38,
+        },
+      ];
+    }
+    if (!dbCache!.merchantSubscriptions) {
+      dbCache!.merchantSubscriptions = [
+        {
+          id: 'sub_active_2',
+          merchantId: 2,
+          tierId: 'tier_500',
+          tierName: 'KES 500 Plan (Growing Merchant)',
+          amount: 500,
+          paymentMethod: 'wallet_coins',
+          status: 'active',
+          startDate: Date.now() - 86400000 * 10,
+          expiresAt: Date.now() + 86400000 * 20,
+          createdAt: Date.now() - 86400000 * 10,
+        },
+      ];
+    }
+    if (!dbCache!.chatStrikes) dbCache!.chatStrikes = [];
+    if (!dbCache!.savedItems) dbCache!.savedItems = [];
+    if (!dbCache!.followedMerchants) dbCache!.followedMerchants = [];
+    if (!dbCache!.recentlyViewed) dbCache!.recentlyViewed = [];
+
     if (!dbCache!.nextIds) {
       dbCache!.nextIds = {
         user: 20,

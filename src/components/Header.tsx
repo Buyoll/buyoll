@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types.ts';
-import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Sparkles, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Sparkles, Clock, AlertTriangle, ArrowRight, Store, Landmark } from 'lucide-react';
 import { api, resolveImageUrl } from '../api.ts';
 import {
   getInAppNotifications,
@@ -126,32 +126,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   const unreadNotifCount = notifications.filter((n) => !n.isRead).length;
 
-  // Dark mode state with persistence & system preference detection
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const saved = localStorage.getItem('buyoll_theme');
-    if (saved) return saved === 'dark';
-    return (
-      document.documentElement.classList.contains('dark') ||
-      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    );
-  });
-
+  // Platform default theme is clean light. Dark mode is group-level only (Section 3).
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      document.documentElement.setAttribute('data-theme', 'dark');
-      localStorage.setItem('buyoll_theme', 'dark');
-    } else {
+    if (typeof document !== 'undefined') {
       document.documentElement.classList.remove('dark');
       document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('buyoll_theme', 'light');
     }
-  }, [isDark]);
+  }, []);
 
-  const toggleTheme = () => {
-    setIsDark((prev) => !prev);
-  };
 
   // Scroll listener for soft shadow on scroll
   useEffect(() => {
@@ -393,64 +375,38 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="leading-tight text-center">Wallet</span>
               </button>
 
-              {/* Help & FAQ */}
+              {/* Merchant */}
               <button
-                onClick={() => onOpenHelp?.('faq')}
-                className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                onClick={() => {
+                  if (!currentUser) onOpenAuth('merchant');
+                  else onNavigate('vendor-dashboard');
+                }}
+                aria-current={currentView === 'vendor-dashboard' ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                  currentView === 'vendor-dashboard'
+                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                }`}
               >
-                <svg
-                  className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
-                </svg>
-                <span className="leading-tight text-center">Help &amp; FAQ</span>
+                <Store className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                <span className="leading-tight text-center">Merchant</span>
               </button>
 
-              {/* Dark Mode Theme Toggle */}
+              {/* Lender */}
               <button
-                type="button"
-                onClick={toggleTheme}
-                aria-label={isDark ? 'Switch to light theme' : 'Switch to high-contrast dark theme'}
-                title={isDark ? 'Light Theme' : 'High-Contrast Dark Theme'}
-                className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                onClick={() => {
+                  if (!currentUser) onOpenAuth('lender');
+                  else onNavigate('lenders-dashboard');
+                }}
+                aria-current={currentView === 'lenders-dashboard' ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                  currentView === 'lenders-dashboard'
+                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                }`}
               >
-                {isDark ? (
-                  <svg
-                    className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-amber-300"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                  </svg>
-                ) : (
-                  <svg
-                    className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-slate-600"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-                  </svg>
-                )}
-                <span className="leading-tight text-center">{isDark ? 'Light' : 'Dark'}</span>
+                <Landmark className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                <span className="leading-tight text-center">Lender</span>
               </button>
 
               {/* Share App button (Prompt 2 Feature B) */}
@@ -826,11 +782,29 @@ export const Header: React.FC<HeaderProps> = ({
 
 
 
-              {/* Lenders Desk */}
+              {/* Merchant */}
               <button
                 onClick={() => {
                   setIsMobileMenuOpen(false);
-                  onNavigate('lenders-dashboard');
+                  if (!currentUser) onOpenAuth('merchant');
+                  else onNavigate('vendor-dashboard');
+                }}
+                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  currentView === 'vendor-dashboard'
+                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                }`}
+              >
+                <Store className="w-5 h-5 shrink-0" />
+                <span>Merchant</span>
+              </button>
+
+              {/* Lender */}
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  if (!currentUser) onOpenAuth('lender');
+                  else onNavigate('lenders-dashboard');
                 }}
                 className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                   currentView === 'lenders-dashboard'
@@ -838,50 +812,8 @@ export const Header: React.FC<HeaderProps> = ({
                     : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
                 }`}
               >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
-                </svg>
-                <span>Lenders Desk (3% fee)</span>
-              </button>
-
-              {/* Help & FAQ */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onOpenHelp?.('faq');
-                }}
-                className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
-              >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
-                </svg>
-                <span>Help &amp; FAQ</span>
-              </button>
-
-              {/* Dark Mode Toggle */}
-              <button
-                type="button"
-                onClick={() => {
-                  toggleTheme();
-                }}
-                className="min-h-[44px] flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  {isDark ? (
-                    <svg className="w-5 h-5 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-                    </svg>
-                  )}
-                  <span>Theme: {isDark ? 'Dark (Active)' : 'Light (Active)'}</span>
-                </div>
-                <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-mono">
-                  Toggle
-                </span>
+                <Landmark className="w-5 h-5 shrink-0" />
+                <span>Lender</span>
               </button>
 
               {/* Share App */}

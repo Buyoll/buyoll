@@ -57,7 +57,7 @@ export const Footer: React.FC<FooterProps> = ({
 
   return (
     <>
-      <footer className="bg-white dark:bg-[#111A17] border-t border-[#E5E7EB] dark:border-[#24312C] text-[#4B5563] dark:text-[#9CA3AF] text-sm leading-[1.55] transition-colors duration-200">
+      <footer className="bg-white dark:bg-[#111A17] border-t border-[#E5E7EB] dark:border-[#24312C] text-[#4B5563] dark:text-[#9CA3AF] text-sm leading-[1.55] transition-colors duration-200 pb-20 lg:pb-0">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-12">
           {/* Top 4-Column Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr] gap-8 lg:gap-10">
@@ -401,10 +401,19 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
           </details>
 
-          {/* Bottom Copyright & Legal links */}
+          {/* Bottom Copyright & Legal/Help links */}
           <div className="mt-8 border-t border-[#E5E7EB] dark:border-[#24312C] py-5 sm:py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-[13px] text-[#4B5563] dark:text-[#9CA3AF]">
             <span>© 2026 Buyoll Fintech. All rights reserved. Made in Kenya.</span>
-            <nav aria-label="Legal" className="flex gap-4 sm:gap-5 flex-wrap">
+            <nav aria-label="Help and Legal" className="flex items-center gap-4 sm:gap-6 flex-wrap">
+              <button
+                onClick={() => onOpenHelp?.('faq')}
+                className="font-bold text-[#0F5C3A] dark:text-[#4ADE9A] hover:underline transition-colors flex items-center gap-1.5"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
+                </svg>
+                <span>Help &amp; FAQ</span>
+              </button>
               <button
                 onClick={() => openLegalDoc('Terms & Conditions')}
                 className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"

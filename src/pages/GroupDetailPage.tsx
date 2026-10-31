@@ -28,8 +28,11 @@ import {
   UserMinus,
   Lock,
   Download,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { ChamaActivityFeed } from '../components/ChamaActivityFeed.tsx';
+import { ContributionCalendar } from '../components/ContributionCalendar.tsx';
 
 interface GroupDetailPageProps {
   groupId: number;
@@ -88,6 +91,25 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [removeReason, setRemoveReason] = useState('Non-participation in mandatory daily Chama payment');
   const [submittingRemove, setSubmittingRemove] = useState(false);
   const [claimingLender, setClaimingLender] = useState(false);
+
+  // Group-level moderator-only theme state (Section 3)
+  const [togglingTheme, setTogglingTheme] = useState(false);
+
+  async function handleToggleGroupTheme() {
+    if (!group || !isModerator) return;
+    const currentTheme = group.theme || 'light';
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setTogglingTheme(true);
+    try {
+      await api.updateGroupTheme(group.id, nextTheme);
+      setGroup((prev) => (prev ? { ...prev, theme: nextTheme } : null));
+      onNotify('success', `Chama group theme switched to ${nextTheme} mode.`);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update group theme');
+    } finally {
+      setTogglingTheme(false);
+    }
+  }
 
   // Member Financial Statement Modal state
   const [selectedStatementMember, setSelectedStatementMember] = useState<{ id: number; name: string } | null>(null);
@@ -718,48 +740,80 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const occupiedSlots = group.slots.filter(s => s.status === 'active').length;
   const availableSlots = group.size - occupiedSlots;
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Back button */}
-      <button
-        onClick={() => onNavigate('product', group.productId)}
-        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 mb-4 transition-colors"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Back to Product Details</span>
-      </button>
+  const isDarkGroup = group.theme === 'dark';
 
-      {/* Chama Hero Header */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 mb-8 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full uppercase tracking-wider">
-                {group.status === 'active' ? 'Active Group' : group.status}
-              </span>
-              <span className="text-xs text-slate-500">
-                {group.size}-Member Rotation · Every {group.cycleDays} Days
-              </span>
-              {isModerator && (
-                <>
-                  <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <Shield className="w-3 h-3" />
-                    <span>You are a Moderator</span>
-                  </span>
-                  <button
-                    onClick={() => setShowModeratorInvitesModal(true)}
-                    className="text-xs bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>
-                      Invite Requests (
-                      {(group.inviteRequests || []).filter(r => r.status === 'pending').length}
-                      )
+  return (
+    <div className={`transition-colors duration-200 ${isDarkGroup ? 'dark bg-[#0b1411] text-white min-h-screen py-6' : 'bg-[#F9FBF9] text-slate-900 py-6'}`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Back button */}
+        <button
+          onClick={() => onNavigate('product', group.productId)}
+          className={`flex items-center gap-1.5 text-xs mb-4 transition-colors ${isDarkGroup ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Product Details</span>
+        </button>
+
+        {/* Chama Hero Header */}
+        <div className={`border rounded-2xl p-6 sm:p-8 mb-8 shadow-xs ${isDarkGroup ? 'bg-[#121c18] border-[#20322b] text-white' : 'bg-white border-slate-200'}`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-full uppercase tracking-wider">
+                  {group.status === 'active' ? 'Active Group' : group.status}
+                </span>
+                <span className={`text-xs ${isDarkGroup ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {group.size}-Member Rotation · Every {group.cycleDays} Days
+                </span>
+                {isModerator && (
+                  <>
+                    <span className="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Shield className="w-3 h-3" />
+                      <span>You are a Moderator</span>
                     </span>
-                  </button>
-                </>
-              )}
-            </div>
+                    <button
+                      type="button"
+                      onClick={handleToggleGroupTheme}
+                      disabled={togglingTheme}
+                      title={isDarkGroup ? 'Switch this Chama group to Light theme' : 'Switch this Chama group to Dark theme'}
+                      className={`text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 border transition-all cursor-pointer shadow-xs ${
+                        isDarkGroup
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 hover:bg-amber-300'
+                          : 'bg-slate-900 text-white border-slate-700 hover:bg-slate-800'
+                      }`}
+                    >
+                      {isDarkGroup ? (
+                        <>
+                          <Sun className="w-3 h-3 text-slate-950" />
+                          <span>Theme: Dark</span>
+                        </>
+                      ) : (
+                        <>
+                          <Moon className="w-3 h-3 text-amber-300" />
+                          <span>Theme: Light</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setShowModeratorInvitesModal(true)}
+                      className="text-xs bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>
+                        Invite Requests (
+                        {(group.inviteRequests || []).filter(r => r.status === 'pending').length}
+                        )
+                      </span>
+                    </button>
+                  </>
+                )}
+                {!isModerator && isDarkGroup && (
+                  <span className="text-xs bg-slate-800 text-slate-300 font-medium px-2 py-0.5 rounded-full flex items-center gap-1 border border-slate-700">
+                    <Moon className="w-3 h-3 text-amber-300" />
+                    <span>Group Theme: Dark (Moderator Controlled)</span>
+                  </span>
+                )}
+              </div>
 
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               {group.name}
@@ -942,6 +996,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* VISUAL CONTRIBUTION CALENDAR (D3 6-MONTH SAVINGS HEAT MAP) */}
+      <ContributionCalendar group={group} isDark={isDarkGroup} />
 
       {/* REAL-TIME CONTRIBUTION TRACKER & ROTATION CYCLE COMPONENT (Specification Section 6) */}
       {(() => {
@@ -3716,7 +3773,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
+
 

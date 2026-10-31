@@ -24,6 +24,7 @@ import {
   AlertCircle,
   X,
   HandCoins,
+  Landmark,
 } from 'lucide-react';
 
 import {
@@ -41,6 +42,10 @@ export default function App() {
   const [authInitialRole, setAuthInitialRole] = useState<'member' | 'merchant' | 'lender' | 'admin'>('member');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [helpCategory, setHelpCategory] = useState<string>('inquiry');
+
+  // Pending return target route for authenticated redirect (Section 4)
+  const [pendingTargetView, setPendingTargetView] = useState<string | null>(null);
+  const [pendingTargetArg, setPendingTargetArg] = useState<any>(null);
 
   // Notification state
   const [notification, setNotification] = useState<{
@@ -62,7 +67,7 @@ export default function App() {
       navigator.serviceWorker.addEventListener('message', swListener);
     }
 
-    // 3. Dedicated URL & Hash routing for /admin/login, #admin, /admin/dashboard, and /chama/:id
+    // 3. Dedicated URL & Hash routing for /announcements, /chamas, /wallet, /merchant, /lender, /admin/login
     const syncRouteFromUrl = () => {
       if (typeof window === 'undefined') return;
       const path = window.location.pathname;
@@ -77,6 +82,42 @@ export default function App() {
         } else {
           handleNavigate('admin-dashboard');
         }
+      } else if (path === '/announcements' || path === '/home' || path === '/') {
+        handleNavigate('home');
+      } else if (path === '/chamas' || path === '/my-chamas') {
+        if (!currentUser) {
+          setPendingTargetView('my-chamas');
+          handleOpenAuth('member');
+          handleNavigate('home');
+        } else {
+          handleNavigate('my-chamas');
+        }
+      } else if (path === '/wallet') {
+        if (!currentUser) {
+          setPendingTargetView('wallet');
+          handleOpenAuth('member');
+          handleNavigate('home');
+        } else {
+          handleNavigate('wallet');
+        }
+      } else if (path === '/merchant') {
+        if (!currentUser) {
+          setPendingTargetView('vendor-dashboard');
+          handleOpenAuth('merchant');
+          handleNavigate('home');
+        } else {
+          handleNavigate('vendor-dashboard');
+        }
+      } else if (path === '/lender') {
+        if (!currentUser) {
+          setPendingTargetView('lenders-dashboard');
+          handleOpenAuth('lender');
+          handleNavigate('home');
+        } else {
+          handleNavigate('lenders-dashboard');
+        }
+      } else if (path === '/help') {
+        handleOpenHelp('faq');
       } else {
         const chamaMatch = path.match(/\/chama\/(\d+)/);
         if (chamaMatch && chamaMatch[1]) {
@@ -119,7 +160,7 @@ export default function App() {
       window.removeEventListener('popstate', syncRouteFromUrl);
       window.removeEventListener('hashchange', syncRouteFromUrl);
     };
-  }, []);
+  }, [currentUser]);
 
   function handleNotify(type: 'success' | 'error' | 'info', message: string) {
     setNotification({ type, message });
@@ -129,20 +170,51 @@ export default function App() {
   }
 
   function handleNavigate(view: string, arg?: any) {
+    // Protected private route check: redirect unauthenticated visitors to login, preserving destination
+    if (!currentUser && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard')) {
+      setPendingTargetView(view);
+      setPendingTargetArg(arg ?? null);
+      const targetRole = view === 'vendor-dashboard' ? 'merchant' : view === 'lenders-dashboard' ? 'lender' : 'member';
+      handleOpenAuth(targetRole);
+      return;
+    }
+
     setCurrentView(view as any);
     setViewArg(arg ?? null);
+
+    // Synchronize browser history path for clean, bookmarkable URLs
+    if (typeof window !== 'undefined') {
+      let targetPath = '/announcements';
+      if (view === 'home') targetPath = '/announcements';
+      else if (view === 'my-chamas') targetPath = '/chamas';
+      else if (view === 'wallet') targetPath = '/wallet';
+      else if (view === 'vendor-dashboard') targetPath = '/merchant';
+      else if (view === 'lenders-dashboard') targetPath = '/lender';
+      else if (view === 'group' && arg) targetPath = `/chama/${arg}`;
+      else if (view === 'admin-login') targetPath = '/admin/login';
+      else if (view === 'admin-dashboard') targetPath = '/admin/dashboard';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    }
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleLogout() {
     api.logout();
     setCurrentUser(null);
+    setPendingTargetView(null);
+    setPendingTargetArg(null);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('alibaird_client_db');
+    }
     handleNotify('info', 'You have been signed out.');
     handleNavigate('home');
   }
 
   function handleOpenHelp(tab?: string) {
-    setHelpCategory(tab || 'inquiry');
+    setHelpCategory(tab || 'faq');
     setIsHelpOpen(true);
   }
 
@@ -208,6 +280,8 @@ export default function App() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onClearSearch={() => setSearchQuery('')}
+            onOpenAuth={() => handleOpenAuth('member')}
+            onNavigate={handleNavigate}
           />
         )}
 

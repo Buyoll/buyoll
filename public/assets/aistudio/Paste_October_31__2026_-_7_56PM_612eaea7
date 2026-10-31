@@ -1,0 +1,396 @@
+## TASK TYPE: IMPLEMENTATION BY AI STUDIO, NOT A NEW BUILD (PROMPT 2)
+
+This prompt will be implemented by AI Studio. Buyoll already exists. Do NOT create a new project, scaffold a new app, or rewrite from scratch. This prompt builds on top of the existing app and on Prompt 1 (access model, header/footer changes, group-level dark mode).
+
+- First, audit the current code: routes, components, auth, database/collections, wallet, merchant, lender, groups, chat, announcements, profile and admin. Summarize what already exists before changing anything.
+- Reuse existing components, design system, naming conventions, auth setup and backend. Do not replace them.
+- Keep everything that already works. Change only what is needed to meet the requirements below.
+- The Groups mechanism, its appearance and its logic/layout ALREADY EXIST. Reuse and extend them. Do not rebuild them.
+- Add database changes as incremental migrations or rule updates. Do not drop or reset existing data.
+- Do NOT modify the existing login/sign up model. Flag anything that would require it and wait.
+- If something I describe conflicts with the existing code, flag it and propose the smallest change that fits.
+- AI Studio must create a powerful, secure, production-grade backend for everything in this prompt (see the BACKEND REQUIREMENTS section). The UI alone is not enough. Every rule below must be enforced on the server.
+- At the end, list every file you changed or added.
+
+## PRODUCT CONTEXT
+"Buyoll" is a social fintech marketplace. Merchants post products. Members buy products through groups. Each user (member, merchant, lender) has their own private space. Currency is KES.
+
+### NO CART MODEL
+- Buyoll has NO shopping cart and no cart mechanism. Do not add a cart, "Add to cart" button, cart icon, cart page or cart-based checkout anywhere.
+- The only way a member purchases a product is by picking a group inside the product and using that group as the vehicle to purchase it.
+- If any existing cart-like element is found, flag it to me and do not extend it.
+
+## PART A. NOTIFICATIONS: MOVE FROM HEADER TO USER PROFILE
+
+### Remove from header
+- Remove the Notification icon/link from the header. It has no meaning there, because every user already has private notifications that tell them everything that concerns them personally. Do not delete the notification data. Only its placement changes.
+
+### Notifications live in each user's profile
+- Every user has a Notification section inside their own profile.
+- Notifications are a PRIVATE feature at profile level. They are NOT public.
+- Each member has their own notifications, privately. Each lender has their own notifications, privately. Each merchant has their own notifications, privately.
+- Groups are private and linked to the user's profile, so group-related notifications go only to that user.
+- A user receives communication concerning them personally, for example:
+  - new products in the market
+  - new product recommendations
+  - group announcements
+  - group moderator messages
+  - platform warnings
+  - moderator warnings
+  - chat warnings and chat blacklist notices from the platform
+  - deposits
+  - lender communication
+  - merchant verification updates (shop visit scheduled, visit completed, verified, exemption granted, declined)
+  - subscription and featured payment updates (approved, declined, expiring, expired, upgraded)
+  - for merchants: every chat message coming from one of their groups, with a link to that group (see Part I)
+  - and any other item that concerns them
+- User X must never see User Y's notifications, even by changing a URL or ID. Enforce this on the backend, not only in the UI.
+
+### Admin broadcast
+- Admin communication to all users on the platform, posted as an announcement, must also be delivered to every user's notifications (for example: "The platform will undergo maintenance tonight").
+- Admin posts once and it appears in the notifications of all users on the platform.
+
+## PART B. USER PROFILE
+
+Every user must have a profile. Members get a normal, familiar e-commerce customer profile that mimics the Jumia customer profile, adapted to Buyoll (no cart).
+
+### Profile sections (private to the owner)
+- Account Overview: name, phone, email, profile photo, and quick links to the sections below.
+- Personal Details: edit name, photo and contact details. Do NOT change login credentials or the auth model from here.
+- Address Book: saved delivery addresses, with a default address.
+- Orders: the member's own purchases, made through groups, with status (pending, confirmed, delivered, cancelled) and group details. This replaces any cart or checkout history.
+- My Groups: ALL the groups the member has joined (a member can join more than one group), each with the member's role in it (member or moderator).
+- Saved Items: products the member has saved for later (a wishlist, not a cart).
+- Followed Merchants: merchants the member follows.
+- Recently Viewed: products the member recently opened.
+- Notifications: the private notification feed from Part A.
+- Wallet: link to the existing private Wallet.
+- Account Settings: preferences such as notification preferences and account closing, without touching the auth model.
+
+### Merchant and Lender profiles
+- Merchants and lenders also have a profile with the same Overview, Personal Details and Notifications sections, plus a link to their existing Merchant or Lender section.
+- One account can hold member, merchant and lender roles. They share one profile.
+
+### Rules
+- The profile is strictly private. User X must never see, fetch or infer User Y's profile data, even by changing a URL or ID. Enforce on the backend.
+- Keep the existing visual style. Mimic the layout and familiarity of the Jumia profile, not its branding.
+- No cart, wishlist-to-cart flow or checkout cart anywhere in the profile.
+
+## PART C. MERCHANT SUBSCRIPTION MODEL
+
+Merchants already exist. Extend them with the rules below. Do not rebuild them.
+
+### Core subscription rules
+- Enforce a subscription model on the merchant side.
+- Every paid subscription is open for 30 days only. After 30 days it expires and the merchant's posting rights and limits are enforced accordingly.
+- A merchant must successfully: register, be verified, and pay the 30-day subscription before they can upload products and create groups.
+- The subscription is paid using the same two payment methods as the featured fee (see Part F): wallet coins (automatic) or manual till/paybill (approved by admin). The payment reason is recorded as "subscription".
+- Merchants must be able to create groups successfully, and those groups must be visible to ALL users, including new users.
+
+### Subscription tiers (enforce on the backend)
+| Monthly subscription | Max products | Max groups per product |
+|---|---|---|
+| KES 250 (very small business) | 1 to 2 products max | 2 groups only |
+| KES 500 | 10 | 5 |
+| KES 1,500 | 50 | 10 |
+| KES 3,500 | 100 | 30 |
+| KES 7,500 | Unlimited | 50 |
+| Enterprise | Price to be agreed (custom, set by admin per merchant) | Up to 100 |
+
+- The KES 250 tier caters to very small businesses. A merchant on it can post between 1 and 2 products (maximum 2) and can create only 2 groups inside each product. Enforce this.
+- Enterprise is a custom tier. Its price is agreed with the merchant and set by an admin. Its group limit can go up to 100 groups per product. Flag if you need more information.
+- The highest standard tier allows up to 50 groups per product. Only Enterprise can go up to 100.
+- All limits must be rejected by the backend, not only hidden in the UI.
+- Store tiers (name, price, max products, max groups per product, benefits text) in a configurable plans table so the list in the Upgrade feature and the limit enforcement both read from one source of truth.
+- Because groups can never be deleted (see Part H), every group a merchant creates counts permanently toward the groups-per-product limit of that product.
+- If a subscription expires, limits and posting rights are enforced accordingly. Existing products and groups are never deleted automatically. When a merchant is over their limit, new posts are blocked until they are back within it.
+
+### Merchant registration and verification requirements
+The merchant fills in:
+- personal details
+- what they do (type of business)
+- contact
+- business location
+- whether they have a trading licence
+- whether they have a physical shop
+
+Mandatory requirements:
+- They MUST have a physical shop.
+- They MUST have a trading licence and upload it.
+- They MUST provide a national ID number or passport number.
+- They MUST have operated the business for more than 3 years.
+- Buyoll MUST visit the shop. After the visit, Buyoll installs an advert in the shop that says "Buyoll Verified Merchant".
+- The merchant must be verified by an admin before they can post.
+
+Exemptions:
+- ONLY an admin can exempt a merchant from these requirements, either the whole set or any part of it (for example only the 3-year rule, or only the trading licence).
+- An exemption is granted only with a valid reason. The admin must enter the reason in writing and select which requirement or requirements are exempted. The backend rejects any exemption without a reason.
+- Each exemption is stored on the merchant's verification record (requirement exempted, reason, admin who granted it, date) and written to the audit log. The merchant can see which requirements were exempted. Other merchants and members cannot.
+- A requirement that is not exempted stays mandatory. A merchant cannot be verified until every non-exempted requirement is met.
+- Merchants cannot exempt themselves. The client can never send or change an exemption.
+
+Shop visit and "Buyoll Verified Merchant" advert:
+- The verification record tracks the visit with these steps: visit pending, visit scheduled (date and time, assigned Buyoll representative), visit completed (date, visit notes, photos of the shop), advert installed (date, photo of the advert in the shop).
+- The admin records the visit result in the admin Merchant Verification section.
+- A merchant who has not been visited cannot be fully verified, unless an admin has exempted the shop visit with a valid reason. If the physical shop requirement is exempted, there is no shop to visit, so the shop visit and advert steps are treated as exempted too, with the reason recorded.
+- A merchant who passes the visit and has the advert installed receives the "Buyoll Verified Merchant" badge on their merchant profile and on their products. The badge is shown only to verified merchants.
+- If the visit fails (for example the shop does not exist or the details do not match), the admin declines verification with a reason, and the merchant is notified and cannot post.
+
+Verification statuses: pending review, visit scheduled, visit completed, verified, declined. The merchant can post only when the status is "verified" and the subscription is active.
+
+## PART D. UPGRADE FEATURE (MERCHANT SECTION)
+
+Add an "Upgrade" feature inside the Merchant section.
+
+### When a merchant can upgrade
+- A merchant can upgrade ONLY when their current subscription has ended (expired). Enforce this on the backend.
+- While the current 30-day subscription is still active, the Upgrade button is disabled and shows the current plan and the date it ends (for example: "Your KES 500 plan ends on 12 Dec. You can upgrade after it ends."). The backend must reject any upgrade attempt or upgrade payment made before the subscription ends, even if the request is sent directly.
+- A merchant who has never subscribed picks their first plan through the same plan list.
+
+### Upgrade flow
+1. The merchant taps "Upgrade" (available once their subscription has ended).
+2. A list of ALL subscription plans comes up (KES 250, 500, 1,500, 3,500, 7,500 and Enterprise). Each plan card shows its subscription amount and its benefits (max products, max groups per product, and any other benefits). The merchant's previous plan is marked "Previous plan".
+3. The merchant checks the plans and selects the one they like.
+4. They proceed to pay using the same two methods as Part F: wallet coins (automatic) or manual till/paybill (pending admin approval). The payment reason is recorded as "subscription".
+5. When payment is confirmed (instantly for wallet coins, after admin approval for manual payment), the new plan activates automatically and a fresh 30-day period starts. The merchant's limits and features change automatically to match the chosen plan, and they start enjoying the benefits of that level straight away: more products and more groups per product, in line with the plan they chose.
+6. The merchant gets a private notification confirming the new plan, its limits and its end date.
+
+### Rules
+- The new limits apply from the moment the new plan activates. Existing products and groups are kept.
+- Enterprise cannot be paid until an admin has set its price and limits for that merchant. Selecting Enterprise sends a request to the admin, who agrees the price and then enables payment.
+- Only one subscription payment can be pending at a time. A merchant cannot start a second upgrade while one is pending.
+- If a manual payment is declined, the merchant stays on the expired state and can try again.
+- Record every subscription change (old plan, new plan, amount, payment method, payment reference, start date, end date) in a subscription history the merchant can see privately and the admin can audit.
+- Choosing a plan lower than the previous one is allowed only if you confirm it; by default the plan list shows all plans and the merchant may pick any of them. Flag this to me if it needs a different rule.
+
+## PART E. PRODUCT UPLOAD
+
+After registration, verification and the 30-day subscription payment, the merchant proceeds to product upload.
+
+- The upload form includes all product information: description, prices, discount, gifts, and any other relevant details.
+- On successful upload, during the upload flow, ask the merchant:
+  - Do you want the product FEATURED, and for how long? OR
+  - Do you want the product to go directly to the ANNOUNCEMENT section?
+- Announcement section: FREE.
+- Featured section: PAID. The fee is KES 30 per day. Enforce the featured payment.
+
+## PART F. PAYMENTS: SUBSCRIPTION AND FEATURED (TWO METHODS)
+
+Both the subscription fee and the featured fee are paid using the same two methods below. The only difference is the payment reason: "subscription" or "featured product".
+
+### Method 1: Pay with platform wallet coins (automatic)
+- The merchant pays the fee into the platform (admin) wallet using their own wallet coins.
+- The merchant ticks the admin wallet, chooses the coins to transfer, then clicks OK.
+- The platform automatically debits the merchant wallet, credits the admin wallet, and updates the balances on both wallets.
+- The transaction records the payment reason: "subscription" or "featured product".
+- When the transfer succeeds, the paid subscription period or featured period starts automatically.
+
+### Method 2: Manual payment (till or paybill)
+- The merchant selects the till or paybill, makes the payment outside the app, then posts:
+  - payment code
+  - amount paid
+  - reason paid: "subscription" (for a subscription) or "featured product" (for a featured product)
+- The payment is held as pending until the admin authenticates it and approves or declines it.
+- The subscription or featured period starts only after admin approval.
+
+## PART G. ADMIN SECTIONS (add to the existing admin)
+1. Merchant Verification: review merchant registrations and documents, grant exemptions (whole or part, with a required written reason), schedule and record the shop visit, confirm the "Buyoll Verified Merchant" advert installation, then verify or decline the merchant.
+2. Featured Products: approve or decline manual featured payments.
+3. Subscriptions: approve or decline manual subscription payments, view all merchant subscriptions and their history, and set the custom Enterprise price and limits.
+4. Coins Acceptance: a section for accepting coins.
+5. Chat Moderation: review censored and flagged chat messages, see warnings issued, strike counts and blacklisted users, review user reports, and lift or confirm a blacklist (see Part I).
+
+### When a featured payment is accepted
+- The product goes STRICTLY to the Featured section, for exactly the period that was paid for.
+- The featured product ALSO appears in the Announcements section.
+- When the paid period ends, the product leaves the Featured section (it remains in Announcements).
+
+## PART H. PRODUCTS AND GROUPS
+
+### Where products appear
+- Products posted by merchants appear in the Announcements section (and in Featured when paid).
+- When a user logs in, they can click any product in Announcements or Featured, and the product opens.
+- A merchant can have as many products in the Announcements section as their subscription allows, and each product has groups inside it.
+
+### How a merchant adds a group (merchant only)
+- The merchant is the ONLY person who can add a group, and the ONLY person who sees the "Add group" button and can add the group icon. Members, moderators, lenders and other merchants never see it.
+- Flow: the merchant opens a product THEY created, taps "Add group", then chooses the group speed (1 to 10), and optionally adds the group icon. The icon can only be added at this moment, because the group cannot be edited afterwards.
+- "Add group" is limited by the merchant's subscription tier (see the tier table). When the limit for that product is reached, the button is disabled or hidden and the backend rejects any further group creation, with a clear message to upgrade after the current plan ends.
+- A merchant can add groups only inside their own products. Merchant X can never add or edit groups in Merchant Y's product.
+- A merchant can create up to 50 groups per product, limited by their subscription tier. Only Enterprise can go up to 100.
+- When a group is created, it is visible inside the product to all users, including new users.
+
+### Merchant has NO authority over a group once it is created
+- After a merchant creates a group, the merchant has no authority over it. The group belongs to its members and its moderator.
+- The merchant CANNOT edit the group in any way: not the speed, not the icon, not the name, not the description, not the members, not the moderator. There is no "Edit group" option anywhere.
+- The merchant CANNOT delete the group. There is no "Delete group" option. The merchant also cannot deactivate, archive, hide, close, merge or reassign it.
+- The merchant CANNOT dictate to the group: no removing members, no blocking members, no changing the moderator, no controlling who joins.
+- The merchant CAN do only two things with a group: (1) notify the group and (2) communicate with the group through the group chat (see Part I).
+- The UI must not show any edit, delete or manage controls to the merchant on a group. The backend must reject any update or delete request on a group from a merchant, even when sent directly. Group records must be read-only to the merchant at the rules level (Firebase Security Rules or Supabase RLS), and group changes (such as member count, members joining, moderator assignment) happen only through the server functions described below.
+- Flag to me before implementing anything that would let a merchant change or remove a group, including any existing code that already allows it, and remove that capability from the merchant side.
+
+### Group speed
+- Speed means the number of members a group holds: 1, 2, 3, 4, 5, 6, 7, 8, 9 or max 10 members. Speed is fixed at creation and can never be changed.
+- The merchant has full flexibility over speeds and can mix them any way they want. There is no rule or guide for how groups are created inside a product. For example, a merchant may create groups of only 1 member, only 2, only 3, only 4, or a mix such as 1, 3 and 10.
+
+### How members use groups
+- Members are spoiled for choice. A member can pick any group in the product and use it as the vehicle to purchase the product.
+- A member can join MORE THAN ONE group. There is no one-group limit per member. This applies to groups in the same product and to groups across different products. Each membership is independent, with its own role (member or moderator), its own purchase and its own notifications.
+- A group cannot exceed its speed (member capacity). When a group is full, it shows as full and no more members can join.
+- There is no cart. The group is the purchase vehicle.
+- Members can invite friends to join the group they picked.
+- The FIRST person to invite people to join a group becomes that group's moderator.
+- Members can browse all groups the merchant has created inside the product.
+
+## PART I. MERCHANT-GROUP COMMUNICATION (CHAT) AND CHAT MODERATION
+
+Each group has a chat channel between the merchant who owns the product and the group, with the group's moderator as the group's main voice. Chat is the only way a merchant interacts with a group after creating it.
+
+### Who can chat
+- The merchant who owns the product can send messages to the group and receive replies.
+- The group's moderator can message the merchant on behalf of the group and reply to the merchant.
+- Other members of the group can read the chat of their own group. Whether they can also write is controlled by the moderator, with writing limited to the moderator by default. Flag this to me if the existing group logic suggests a different rule.
+- Before a group has a moderator (nobody has invited anyone yet), the merchant can still notify the group, and members of that group receive it.
+- Nobody outside the group, and no other merchant, can see or send messages in that chat. Enforce this on the backend.
+- Chat is private to the group and the product's merchant. Chat messages are never public.
+
+### Merchant notifications and the group link
+- Every chat message that comes from a group appears in the merchant's private notifications (Part A), showing the group name, the product, a short preview of the message and the time.
+- Each notification carries a link to the group where the message came from.
+- When the merchant taps the link, they navigate directly to that group, which opens in VIEW-ONLY mode by default.
+- From the view-only screen the merchant can choose to chat back: tap "Reply" to open the chat input, then respond. Until they tap reply, they only view.
+- Replying in the chat resolves the related notification as handled. Unread chat notifications are counted and shown in the merchant's notification section.
+- The same link-to-group behaviour works for group moderators: when the merchant sends a message or notice, the moderator and members receive a notification that links to the group chat.
+- A merchant's view-only access to the group does not give them any authority. They see the group and the chat, never the members' private data (wallets, addresses, personal details).
+
+### Chat must be positive: moderation by the platform
+- Chat must remain respectful and positive. Insults, abuse, threats, harassment and defamatory language are not allowed, by anyone: merchants, moderators or members.
+- The platform scans every message on the server BEFORE it is delivered. A message that breaks the rules is either censored (offending words masked) or blocked, depending on severity.
+- The platform sends an automatic warning to the culprit explaining which rule was broken. The warning is delivered to the culprit's private notifications as a "platform warning".
+- Repeat offenders are escalated by strikes: first violation is a warning, repeat violations lead to a temporary chat mute, and continued violations lead to the culprit being BLACKLISTED from chat by the platform. A blacklisted user cannot send chat messages. They can still read, and a clear notice explains the status and how to appeal.
+- Blacklisting a merchant from chat must not remove their ability to receive notifications from groups, so group members can still reach them through the platform's normal notice flow. Flag this to me if you see a conflict.
+- Defamatory language includes false and damaging statements about a person or business, and insults aimed at individuals. The system uses a combination of a configurable word and phrase list (including English, Kiswahili and Sheng) and an automated classifier, plus a "Report message" button for members to flag content. Admins review flagged and censored messages in the Chat Moderation section and can confirm, reverse, warn, mute or blacklist.
+- Strike thresholds, mute durations and the word list are configurable by an admin and are not hard-coded.
+- Every moderation action (censor, block, warning, mute, blacklist, appeal result) is written to the audit log with who, what, when, the original message (stored privately for admins only) and the reason.
+- Moderation also protects the merchant: members cannot harass the merchant, and the same rules apply to everyone.
+
+## BACKEND REQUIREMENTS (AI STUDIO MUST BUILD A POWERFUL BACKEND)
+
+Build a robust, secure, scalable backend for all of the above, using the backend the project already uses (Firebase with Cloud Functions and Security Rules, or Supabase with Postgres, RLS and Edge Functions). Do not switch backends. Critical logic runs on the server only, never in the client.
+
+### 1. Server-side business logic
+- All sensitive actions go through server endpoints or functions, not direct client writes: subscribe, upgrade, pay with wallet coins, submit manual payment, approve or decline payment, grant exemption, record shop visit, verify or decline merchant, create product, feature product, create group, join group, invite, assign moderator, send chat message, report message, send notification, broadcast announcement, warn, mute and blacklist.
+- Derive the user from the verified session or token. Never trust user IDs, plan names, prices, limits, exemptions or roles sent from the client.
+- Validate every input on the server (types, ranges, required fields, file types and sizes). Return clear, consistent error messages and codes.
+
+### 2. Merchant verification engine
+- A merchant_verification record per merchant: status (pending review, visit scheduled, visit completed, verified, declined), the mandatory requirements and whether each is met, exempted or not met, and the shop visit details (scheduled date, representative, completed date, notes, photos, advert installed date and photo).
+- Exemptions are a separate table: merchant_id, requirement (physical_shop, trading_licence, id_or_passport, three_years_operating, shop_visit, or all), reason (required, not empty), granted_by (admin), granted_at. Only admins can write to it, and every grant or revoke goes to the audit log.
+- A verification guard function computes whether every non-exempted requirement is met and the shop visit and advert are done (or exempted). The merchant can be set to "verified" only when the guard passes. Reject otherwise.
+- The product and group creation guard checks verification status "verified" in addition to the active subscription.
+- The "Buyoll Verified Merchant" badge is derived from the verified status on the server, never set by the client.
+
+### 3. Subscription and upgrade engine
+- Plans table as the single source of truth for price, limits and benefits.
+- Subscription records: merchant_id, plan_id, status (pending, active, expired, declined), start_date, end_date, payment_id.
+- A guard function checks, on every product or group creation: merchant verified, subscription active and not expired, product count within the plan limit, groups per product within the plan limit (counting every group ever created, since groups are never deleted). Reject otherwise.
+- An upgrade guard rejects any upgrade or plan-change payment while the current subscription is still active.
+- A scheduled job (cron or scheduled function) runs at least hourly to: expire subscriptions at 30 days, end featured periods, send "expiring soon" notices (for example 3 days before and on the day), and update statuses.
+- Plan activation is automatic after a successful wallet payment or an admin approval, and the new limits take effect immediately.
+
+### 4. Wallet and payments ledger
+- Use a double-entry style ledger: every transfer creates a debit entry and a credit entry with the same transaction ID.
+- Wallet transfers run in a single atomic database transaction: debit merchant, credit admin wallet, record the ledger entries, update both balances, activate the subscription or featured period. If any step fails, everything rolls back.
+- Idempotency keys on every payment request so a double tap or retry never charges twice.
+- Block negative balances and block overdrafts with row locking or transaction checks.
+- Manual payments are stored as pending with code, amount, reason, method (till or paybill), timestamp and merchant. Reject duplicate payment codes. Only admins can approve or decline, and approval is itself atomic and idempotent.
+- Featured fee is computed on the server as KES 30 per day times the number of days chosen.
+- Keep an immutable audit log for payments, approvals, plan changes, verification decisions, exemptions, shop visits, chat moderation actions and admin actions (who, what, when, before and after).
+
+### 5. Groups and concurrency
+- Group capacity enforced with a transaction or row lock, so two members joining at the same moment can never exceed the speed limit.
+- Prevent the same member from joining the same group twice. Allow the same member to join many different groups.
+- The first-inviter-becomes-moderator rule is decided on the server, atomically, so only one person can win it.
+- Only the product's owner merchant can CREATE groups or upload the group icon at creation, checked on the server.
+- Group update and delete operations are disabled for merchants at both the rules level and the function level. The merchant role has create-only permission on groups, then read-only. No endpoint exists for a merchant to edit or delete a group. Group changes (membership, capacity, moderator) happen only through server functions triggered by members' actions.
+- Group speed and icon are immutable after creation (enforce with rules or database constraints and triggers).
+
+### 6. Chat engine
+- Collections or tables: chat_threads (one per group, linked to the group, product and merchant), chat_messages (thread_id, sender_id, sender_role, text, status [delivered, censored, blocked, removed], created_at, read_by), chat_reports, chat_strikes, chat_blacklist.
+- Chat is real-time (Firebase listeners or Supabase Realtime), with pagination for history, delivery state and read state.
+- Message send goes through a server function that: verifies the sender is the product's merchant, the group moderator, or an allowed member of that group; checks the sender is not muted or blacklisted; runs the moderation pipeline; stores the message; then triggers notifications.
+- Moderation pipeline on the server: normalize text (case, spacing, character swaps), check against the configurable word and phrase list, run the classifier for insults, threats and defamatory language, and return one of: allow, censor (mask offending words) or block. The original text of censored and blocked messages is kept privately for admin review, never shown to recipients.
+- Strike system: record each violation, send a warning notification from the platform to the culprit, apply escalation (warning, temporary mute, blacklist) according to admin-configured thresholds, and notify the user at each step. Blacklist and mute are enforced by the server on every send.
+- Rate limiting and anti-spam on chat sends (per user, per thread).
+- Merchant notification fan-out: when a message from a group is delivered, create a notification for the merchant containing group_id, product_id, message preview and a deep link to the group (view-only mode). Group-side notifications for messages from the merchant link to the group chat in the same way.
+- Deep link behaviour: the link opens the group page for the merchant in view-only mode; the "Reply" action enables the chat input. Authorization is checked again on the server when the link opens, so a forged link to someone else's group shows nothing ("not found").
+- Report message: members and merchants can report a message. Reports go to the admin Chat Moderation queue.
+- Appeals: a blacklisted user can submit an appeal that an admin reviews.
+
+### 7. Notifications engine
+- Notifications are stored per user with type, title, body, link (deep link), read status and timestamp, readable only by the owner.
+- Admin broadcast fans out to all users reliably (batched background job for large user counts, not one slow request), and new users also see active broadcasts.
+- Trigger notifications automatically for verification updates (visit scheduled, visit completed, verified, exemption granted, declined), payment approved or declined, subscription activated, expiring or expired, plan upgraded, featured started or ended, group events, chat messages, chat warnings, mutes and blacklist notices, moderator messages and warnings.
+
+### 8. Security and access control
+- Row-level security or security rules on every collection or table: owner-only for notifications, profiles, wallets, merchant and lender data; group chat readable only by the group's members and the product's merchant. Public read only for announcements, featured products, products and their groups (public fields only), and the verified badge.
+- Role checks (member, merchant, lender, admin) on the server for every admin or merchant endpoint.
+- Return "not found" instead of forbidden when a user requests another user's resource.
+- Rate limiting and abuse protection on payment, join, invite, chat and upload endpoints.
+- Store uploaded trading licences, ID documents, shop visit photos and notes in private storage, accessible only to the owner and admins, with signed URLs. Only the verified badge is public.
+- Never log sensitive data (document numbers, balances tied to names, full chat content) in plain logs.
+
+### 9. Performance and reliability
+- Add database indexes for the common queries (products by status, groups by product, notifications by user and date, chat messages by thread and date, subscriptions by merchant and end date, payments by status, merchants by verification status, chat reports by status).
+- Paginate lists (products, groups, notifications, chat messages, admin queues).
+- Use transactions for any multi-step write. Make background jobs retry-safe.
+- Return useful error states to the UI (loading, empty, error, retry).
+
+### 10. Backend testing
+- Write automated tests for the critical logic: plan limits for every tier, upgrade-only-after-expiry, 30-day expiry, verification guard (all requirements, partial exemptions, exemption without reason rejected), shop visit and badge, atomic wallet transfer with rollback, idempotent payments, duplicate payment codes, group capacity race, first-inviter moderator, owner-only group creation, merchant cannot edit or delete a group (rules and endpoints), group speed and icon immutable, chat access control (outsider and other merchants blocked), chat moderation (censor, block, warning sent, strikes, mute, blacklist), merchant notification with working deep link and view-only default, and data isolation between two users.
+- Report which tests pass before finishing.
+
+## SECURITY REQUIREMENTS
+- Notifications, profiles, wallets, merchant data and lender data are private to their owner. Enforce on the backend with row-level rules (Firebase Security Rules or Supabase RLS, whichever the project already uses).
+- Subscription limits (including the KES 250 tier), the 30-day expiry, the upgrade-only-after-expiry rule, verification checks, exemptions, the shop visit requirement, subscription and featured fees, and "only the merchant can add groups and the group icon, only in their own products" must all be enforced server-side. Never trust values sent from the client.
+- A merchant has no authority over a group after creating it: no edit, no delete, no control. Enforce on the server and in the rules.
+- Group chat is private to the group and the product's merchant. Moderation runs on the server before delivery, and warnings, mutes and blacklists are enforced on the server.
+- Only admins can approve or decline subscriptions, featured payments, coin acceptance, verification, shop visit results and exemptions (whole or part, with a valid reason), and confirm or reverse chat blacklists.
+- Wallet transfers (for both subscription and featured payments) must be atomic: the debit and credit succeed together or neither happens. Prevent double payments and negative balances.
+- Group capacity must be enforced server-side so a group can never exceed its speed, even when two members join at the same moment.
+- Do not expose private data of one merchant, member or lender to another.
+
+## ACCEPTANCE TESTS
+1. The header no longer contains Notifications. Each user (member, merchant, lender) has a private Notification section in their profile.
+2. Every user has a profile. A member's profile has Overview, Personal Details, Address Book, Orders, My Groups, Saved Items, Followed Merchants, Recently Viewed, Notifications, Wallet link and Account Settings, in a familiar Jumia-style layout.
+3. There is no cart, "Add to cart" button, cart icon or cart page anywhere in the app. Members purchase only through groups.
+4. User A cannot see User B's notifications or profile data, even by changing an ID in the URL.
+5. An admin broadcast (for example, a maintenance notice) appears in every user's notifications.
+6. A merchant cannot post products or create groups unless registered, verified and subscribed for the current 30 days.
+7. A merchant cannot be verified unless every requirement is met or exempted: physical shop, uploaded trading licence, ID or passport number, more than 3 years of operation, and the Buyoll shop visit. Only an admin can exempt the whole set or any part of it, and only with a written reason. An exemption without a reason is rejected by the backend, and every exemption appears in the audit log.
+8. The admin Merchant Verification section lets an admin schedule and record the shop visit, confirm the "Buyoll Verified Merchant" advert installation, grant exemptions and verify or decline. After verification the merchant shows the "Buyoll Verified Merchant" badge, and a merchant who is not verified does not.
+9. Each tier enforces its limits: 250: 2 products max and 2 groups per product; 500: 10 products and 5 groups; 1,500: 50 and 10; 3,500: 100 and 30; 7,500: unlimited products and 50 groups; Enterprise: custom, up to 100 groups per product. Expiry on day 31 blocks posting.
+10. A KES 250 merchant cannot post a 3rd product or add a 3rd group to a product, even by calling the backend directly.
+11. A product posted to Announcements is free. A featured product costs KES 30 per day.
+12. Paying the featured fee with wallet coins debits the merchant, credits the admin wallet and updates both balances automatically, with the reason recorded as "featured product".
+13. Paying the subscription fee with wallet coins debits the merchant, credits the admin wallet and updates both balances automatically, with the reason recorded as "subscription", and the 30-day subscription starts.
+14. A manual till/paybill payment (for a subscription or a featured product) with code, amount and reason is held until an admin approves or declines it. The subscription or featured period starts only after approval.
+15. Admin has working Merchant Verification, Featured Products, Subscriptions, Coins Acceptance and Chat Moderation sections.
+16. An approved featured product appears in Featured for exactly the paid period and also in Announcements.
+17. Only the merchant who created a product sees "Add group" and the group icon option inside it. They choose the speed (1 to 10), and the button stops working once the tier limit is reached. Other users and other merchants never see it.
+18. Groups created by the merchant are visible to all users, including new users, inside the product.
+19. After creating a group, the merchant sees no edit, delete, deactivate or manage option on it. A direct backend request from the merchant to edit or delete a group (including its speed or icon) is rejected.
+20. The merchant can notify and chat with a group, and nothing else.
+21. A member can join more than one group (in the same product and across products), all of them appear in My Groups, and a full group cannot accept more members.
+22. A member can pick any group, invite friends, and the first person to invite becomes the group moderator.
+23. A chat message from a group (moderator) to the merchant appears in the merchant's notifications with the group name, product, preview and a link. Tapping the link opens that group in view-only mode, and the merchant can tap "Reply" to respond in the chat.
+24. The merchant and the group moderator can chat in both directions in real time. Other merchants and people outside the group cannot see or send messages, even by guessing a URL or ID.
+25. A message with insults or defamatory language is censored or blocked by the platform before delivery, a platform warning is sent to the culprit, and the incident appears in the admin Chat Moderation section.
+26. Repeat violations escalate from warning to temporary mute to chat blacklist. A muted or blacklisted user cannot send messages, even by calling the backend directly, and sees a clear notice and appeal option.
+27. The Merchant section has an Upgrade feature. While the subscription is active, Upgrade is disabled and shows the end date, and the backend rejects any upgrade attempt before the subscription ends.
+28. After the subscription ends, tapping Upgrade shows all plans with their amounts and benefits. The merchant picks one, pays (wallet coins or manual), and once payment is confirmed the plan activates automatically with new limits and a fresh 30-day period.
+29. After upgrading from a lower plan, the merchant can immediately post more products and create more groups per product, according to the new plan.
+30. Enterprise cannot be paid until an admin sets its price and limits for that merchant.
+31. Only one subscription payment can be pending at a time, and every plan change appears in the subscription history.
+32. The backend passes automated tests for plan limits, upgrade-only-after-expiry, verification and exemptions, atomic wallet transfers, idempotent payments, group capacity races, merchant group immutability, chat access control, chat moderation and data isolation between users.
+33. The login/sign up model is unchanged, and all previously working features still work (no regressions).

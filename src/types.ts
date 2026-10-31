@@ -42,6 +42,12 @@ export interface User {
   nonWithdrawableBalance?: number; // in KSh
   coins: number;
   points: number;
+  merchantCategory?: string;
+  merchantLocation?: string;
+  lenderName?: string;
+  lenderType?: string;
+  lenderLocation?: string;
+  verification_status?: 'pending' | 'approved';
   preferences?: UserPreferences;
   lastActive: number;
   createdAt: number;
@@ -258,6 +264,7 @@ export interface ChamaGroup {
     slotNumber?: number;
     reason?: string;
   }>;
+  theme?: 'light' | 'dark';
 }
 
 export interface ChamaActivityItem {
@@ -475,3 +482,146 @@ export interface AuditLog {
   details: string;
 }
 
+export interface Announcement {
+  id: string | number;
+  title: string;
+  body: string;
+  imageUrl?: string;
+  category?: string;
+  createdAt: number;
+  updatedAt?: number;
+  authorId?: number;
+  authorName?: string;
+}
+
+export interface SupportTicketReply {
+  id: string;
+  authorId: number;
+  authorName: string;
+  isAdmin: boolean;
+  text: string;
+  createdAt: number;
+}
+
+export interface SupportTicket {
+  id: string;
+  userId: number;
+  userName: string;
+  userEmail?: string;
+  userPhone?: string;
+  subject: string;
+  message: string;
+  category: 'inquiry' | 'payment' | 'chama' | 'technical';
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  createdAt: number;
+  updatedAt: number;
+  replies?: SupportTicketReply[];
+}
+
+export interface UserNotification {
+  id: string | number;
+  userId: number;
+  title: string;
+  message: string;
+  type: 'broadcast' | 'order' | 'group' | 'warning' | 'chat' | 'payment' | 'verification' | 'system';
+  link?: string;
+  read: boolean;
+  timestamp: number;
+}
+
+export interface DeliveryAddress {
+  id: string;
+  userId: number;
+  fullName: string;
+  phone: string;
+  county: string;
+  city: string;
+  streetAddress: string;
+  isDefault: boolean;
+  createdAt: number;
+}
+
+export interface MemberOrder {
+  id: string;
+  userId: number;
+  groupId: number;
+  groupName: string;
+  productId: number;
+  productTitle: string;
+  productImage?: string;
+  productPrice: number;
+  slotNumber: number;
+  speed: number;
+  status: 'pending' | 'in_progress' | 'confirmed' | 'delivered' | 'cancelled';
+  totalPaid: number;
+  targetAmount: number;
+  expectedDeliveryDate?: number;
+  deliveredAt?: number;
+  createdAt: number;
+}
+
+export interface MerchantSubscriptionTier {
+  id: 'tier_250' | 'tier_500' | 'tier_1500' | 'tier_3500' | 'tier_7500' | 'enterprise';
+  name: string;
+  monthlyFee: number;
+  maxProducts: number; // -1 for unlimited
+  maxGroupsPerProduct: number;
+  description: string;
+  features: string[];
+}
+
+export interface MerchantExemption {
+  requirement: 'physical_shop' | 'trading_licence' | 'id_or_passport' | 'three_years_operating' | 'shop_visit' | 'all';
+  reason: string;
+  grantedBy: string;
+  grantedAt: number;
+}
+
+export interface MerchantVerificationRecord {
+  merchantId: number;
+  status: 'pending_review' | 'visit_scheduled' | 'visit_completed' | 'verified' | 'declined';
+  hasPhysicalShop: boolean;
+  tradingLicenceNumber?: string;
+  tradingLicenceUrl?: string;
+  nationalIdOrPassport: string;
+  yearsOperating: number;
+  businessType?: string;
+  shopLocation: string;
+  shopVisitScheduledAt?: number;
+  shopVisitCompletedAt?: number;
+  shopVisitRepresentative?: string;
+  shopVisitNotes?: string;
+  shopVisitPhotos?: string[];
+  advertInstalledAt?: number;
+  advertPhotoUrl?: string;
+  exemptions?: MerchantExemption[];
+  declineReason?: string;
+  submittedAt: number;
+  reviewedAt?: number;
+}
+
+export interface MerchantSubscriptionRecord {
+  id: string;
+  merchantId: number;
+  tierId: string;
+  tierName: string;
+  amount: number;
+  paymentMethod: 'wallet_coins' | 'mpesa_till_paybill';
+  paymentCode?: string;
+  status: 'pending' | 'active' | 'expired' | 'declined';
+  startDate?: number;
+  expiresAt?: number;
+  createdAt: number;
+}
+
+export interface ChatStrikeRecord {
+  userId: number;
+  userName: string;
+  strikeCount: number;
+  isMuted: boolean;
+  mutedUntil?: number;
+  isBlacklisted: boolean;
+  blacklistReason?: string;
+  lastViolationAt: number;
+  warnings?: Array<{ reason: string; timestamp: number }>;
+}

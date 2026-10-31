@@ -15,6 +15,14 @@ import {
   ProductAIInquiry,
   WalletDepositRequest,
   ChamaActivityItem,
+  Announcement,
+  SupportTicket,
+  UserNotification,
+  DeliveryAddress,
+  MemberOrder,
+  MerchantSubscriptionTier,
+  MerchantVerificationRecord,
+  MerchantSubscriptionRecord,
 } from './types.ts';
 
 const USER_STORAGE_KEY = 'alibaird_current_user';
@@ -2506,7 +2514,46 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // Public Announcements Feed
+  async getAnnouncements(): Promise<{ announcements: Announcement[] }> {
+    return await fetchApi<{ announcements: Announcement[] }>('/announcements');
+  },
+
+  async createAnnouncement(data: { title: string; body: string; imageUrl?: string; category?: string }): Promise<any> {
+    return await fetchApi<any>('/announcements', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAnnouncement(id: string | number): Promise<any> {
+    return await fetchApi<any>(`/announcements/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Group-Level Moderator-Only Theme Toggle
+  async updateGroupTheme(groupId: number, theme: 'light' | 'dark'): Promise<{ success: boolean; theme: 'light' | 'dark'; message: string }> {
+    return await fetchApi<{ success: boolean; theme: 'light' | 'dark'; message: string }>(`/groups/${groupId}/theme`, {
+      method: 'POST',
+      body: JSON.stringify({ theme }),
+    });
+  },
+
+  // Support Tickets
+  async getUserTickets(): Promise<{ tickets: SupportTicket[] }> {
+    return await fetchApi<{ tickets: SupportTicket[] }>('/user/tickets');
+  },
+
+  async createSupportTicket(data: { subject: string; message: string; category?: string }): Promise<any> {
+    return await fetchApi<any>('/user/tickets', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
 };
+
 
 
 
