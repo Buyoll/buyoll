@@ -541,20 +541,14 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
   const txId = `sub_coins_${Date.now()}_${user.id}`;
   db.coinLedger.push({
     id: db.coinLedger.length + 1,
-    userId: user.id,
-    amount: -feeCoins,
-    type: 'spend',
-    reason: 'subscription',
-    reference: `Paid 30-day subscription for ${targetTier.name}`,
-    timestamp: Date.now(),
-  });
-  db.coinLedger.push({
-    id: db.coinLedger.length + 1,
-    userId: adminUser.id,
+    senderId: user.id,
+    senderName: user.name,
+    recipientId: adminUser.id,
+    recipientName: adminUser.name,
     amount: feeCoins,
-    type: 'earn',
+    type: 'transfer',
     reason: 'subscription',
-    reference: `Merchant #${user.id} subscription payment for ${targetTier.name}`,
+    note: `Paid 30-day subscription for ${targetTier.name}`,
     timestamp: Date.now(),
   });
 
@@ -659,7 +653,7 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
     code,
     amount: Number(amount) || targetTier.monthlyFee,
     status: 'pending',
-    type: 'platform_fee',
+    type: 'merchant_subscription',
     channel: channel || 'Till 196853',
     createdAt: now,
     verifiedAt: null,
@@ -973,6 +967,121 @@ prompt2Router.get('/admin/merchant-verifications', async (req: Request, res: Res
   });
 
   res.json({ verifications: list });
+});
+
+// Admin lists all subscriptions
+prompt2Router.get('/admin/merchant-subscriptions', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+
+  const db = await getDatabase();
+  const list = (db.merchantSubscriptions || []).map((s) => {
+    const m = db.users.find((u) => u.id === s.merchantId);
+    return {
+      ...s,
+      merchantName: m?.name || 'Merchant',
+      shopName: m?.shopName || m?.name || 'Store',
+      phone: m?.phone || '',
+      email: m?.email || '',
+    };
+  });
+
+  res.json({ subscriptions: list });
+});
+
+// Admin approves manual till/paybill subscription
+prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+
+  const subId = req.params.id;
+  const db = await getDatabase();
+  const sub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
+  if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+
+  const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === sub.tierId) || SUBSCRIPTION_TIERS[0];
+  const now = Date.now();
+  const expiresAt = now + 30 * 86400000;
+
+  sub.status = 'active';
+  sub.startDate = now;
+  sub.expiresAt = expiresAt;
+
+  const merchantUser = db.users.find((u) => u.id === sub.merchantId);
+  if (merchantUser) {
+    merchantUser.merchantSubscriptionStatus = 'active';
+    merchantUser.merchantSubscriptionPlan = sub.tierId as any;
+    merchantUser.merchantSubscriptionExpiresAt = expiresAt;
+
+    if (!db.userNotifications) db.userNotifications = [];
+    db.userNotifications.unshift({
+      id: `notif_${Date.now()}`,
+      userId: merchantUser.id,
+      title: `🎉 Subscription Approved: ${targetTier.name}`,
+      message: `Your manual payment code (${sub.paymentCode || 'M-Pesa'}) has been reconciled and approved by Admin. Your store is active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
+      type: 'payment',
+      read: false,
+      timestamp: now,
+    });
+  }
+
+  logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved manual subscription for merchant #${sub.merchantId} (${targetTier.name})`);
+  await saveDatabase(db);
+
+  res.json({ success: true, subscription: sub, message: 'Subscription approved and 30-day active window started.' });
+});
+
+// Admin agrees custom enterprise pricing for merchant
+prompt2Router.post('/admin/merchant-subscriptions/set-enterprise-price', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+
+  const { merchantId, agreedPrice } = req.body;
+  const mid = Number(merchantId);
+  const price = Math.max(0, Number(agreedPrice) || 15000);
+
+  const db = await getDatabase();
+  const merchantUser = db.users.find((u) => u.id === mid);
+  if (!merchantUser) return res.status(404).json({ error: 'Merchant not found' });
+
+  if (!merchantUser.preferences) merchantUser.preferences = {};
+  merchantUser.preferences.enterprisePriceAgreed = true;
+  merchantUser.preferences.enterpriseAgreedPrice = price;
+
+  logAudit(db, user.id, user.name, 'ENTERPRISE_PRICE_AGREED', `Agreed custom Enterprise price KSh ${price.toLocaleString()} for merchant #${mid}`);
+  await saveDatabase(db);
+
+  res.json({ success: true, message: `Agreed Enterprise pricing KSh ${price.toLocaleString()} for ${merchantUser.name}.` });
+});
+
+// Admin lists and toggles Featured Products (KES 30/day)
+prompt2Router.get('/admin/featured-products', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+
+  const db = await getDatabase();
+  const featured = db.products.filter((p) => p.isFeatured);
+  const allProducts = db.products;
+
+  res.json({ featured, allProducts });
+});
+
+prompt2Router.post('/admin/featured-products/:id/toggle', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+
+  const pid = Number(req.params.id);
+  const db = await getDatabase();
+  const product = db.products.find((p) => p.id === pid);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+
+  product.isFeatured = !product.isFeatured;
+  product.updatedAt = Date.now();
+
+  logAudit(db, user.id, user.name, 'PRODUCT_FEATURED_TOGGLED', `Admin toggled featured status of "${product.title}" to ${product.isFeatured}`);
+  await saveDatabase(db);
+
+  res.json({ success: true, product, message: `"${product.title}" is now ${product.isFeatured ? 'Featured' : 'Standard'}.` });
 });
 
 // ----------------------------------------------------------------------

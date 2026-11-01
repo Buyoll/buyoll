@@ -705,6 +705,15 @@ function getInitialDatabase(): DatabaseSchema {
     walletDeposits: [],
     announcements: [],
     supportTickets: [],
+    userNotifications: [],
+    deliveryAddresses: [],
+    memberOrders: [],
+    merchantVerifications: [],
+    merchantSubscriptions: [],
+    chatStrikes: [],
+    savedItems: [],
+    followedMerchants: [],
+    recentlyViewed: [],
   };
 }
 

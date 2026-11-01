@@ -18,16 +18,27 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
 }) => {
   const [groups, setGroups] = useState<ChamaGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [quickJoinCode, setQuickJoinCode] = useState('');
   const [submittingJoin, setSubmittingJoin] = useState(false);
 
-  useEffect(() => {
-    loadMyGroups();
-  }, [currentUser]);
+  const currentUserId = currentUser?.id;
 
-  async function loadMyGroups() {
+  useEffect(() => {
+    if (currentUserId) {
+      loadMyGroups(true);
+    } else {
+      setGroups([]);
+      setLoading(false);
+      setHasLoaded(true);
+    }
+  }, [currentUserId]);
+
+  async function loadMyGroups(isInitial = false) {
     if (!currentUser) return;
-    setLoading(true);
+    if (isInitial || !hasLoaded) {
+      setLoading(true);
+    }
     try {
       const res = await api.getGroups();
       const my = res.groups.filter(g =>
@@ -38,6 +49,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       onNotify('error', err.message || 'Failed to load your Chamas');
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }
 
@@ -125,10 +137,16 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
         </form>
       </div>
 
-      {loading ? (
-        <div className="py-20 text-center text-xs text-slate-400">Loading your groups...</div>
+      {loading && !hasLoaded ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-xs min-h-[380px] flex flex-col items-center justify-center">
+          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <h3 className="text-base font-bold text-slate-900 mb-1">Loading your groups...</h3>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto">
+            Retrieving your Chama memberships and savings schedules
+          </p>
+        </div>
       ) : groups.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-xs">
+        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-xs min-h-[380px] flex flex-col items-center justify-center">
           <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-900 mb-1">
             You have not joined a Chama yet

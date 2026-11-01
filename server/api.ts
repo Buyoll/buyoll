@@ -1284,7 +1284,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   // Strict ownership check: Merchant can only add groups inside products created by their store
   if (user.role === 'merchant') {
-    if (product.vendorId !== user.id && user.role !== 'admin') {
+    if (product.vendorId !== user.id) {
       return res.status(403).json({ error: 'You can only create Chama groups inside products created by your store.' });
     }
 

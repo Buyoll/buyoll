@@ -77,13 +77,23 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   // Active ledger view tab
   const [historyTab, setHistoryTab] = useState<'mpesa' | 'deposits' | 'coins' | 'credit'>('mpesa');
 
-  useEffect(() => {
-    loadWalletData();
-  }, [currentUser]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const currentUserId = currentUser?.id;
 
-  async function loadWalletData() {
+  useEffect(() => {
+    if (currentUserId) {
+      loadWalletData(true);
+    } else {
+      setLoading(false);
+      setHasLoaded(true);
+    }
+  }, [currentUserId]);
+
+  async function loadWalletData(isInitial = false) {
     if (!currentUser) return;
-    setLoading(true);
+    if (isInitial || !hasLoaded) {
+      setLoading(true);
+    }
     try {
       const [defaultsRes, paymentsRes, coinLedgerRes, depositsRes] = await Promise.all([
         api.getMyDefaults(),
@@ -101,6 +111,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
       onNotify('error', err.message || 'Failed to load wallet data');
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }
 

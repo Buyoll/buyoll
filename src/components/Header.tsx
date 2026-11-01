@@ -94,14 +94,14 @@ export const Header: React.FC<HeaderProps> = ({
   });
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.id) {
       api.getUserPreferences().then((res) => {
         if (res?.preferences?.pushNotificationsEnabled !== undefined) {
           setPushEnabledInDb(Boolean(res.preferences.pushNotificationsEnabled));
         }
       }).catch(() => {});
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   const handleTogglePushNotifications = async () => {
     const nextState = !pushEnabledInDb;
@@ -422,147 +422,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </nav>
 
-            {/* Right section: Notification Bell + Vertical Divider + User Profile / Sign In Button */}
+            {/* Right section: User Profile / Sign In Button */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-              {/* Notification Bell Dropdown */}
-              <div className="relative" ref={notifRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsNotifMenuOpen(!isNotifMenuOpen);
-                    if (!isNotifMenuOpen) {
-                      markAllNotificationsAsRead();
-                    }
-                  }}
-                  aria-label="Notifications"
-                  aria-expanded={isNotifMenuOpen}
-                  title="Chama Alerts & Push Notifications"
-                  className="relative flex items-center justify-center p-2 rounded-xl text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadNotifCount > 0 && (
-                    <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
-                      {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                    </span>
-                  )}
-                </button>
-
-                {isNotifMenuOpen && (
-                  <div className="absolute right-0 top-[calc(100%+8px)] w-80 sm:w-96 bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-2xl p-3 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
-                    <div className="flex items-center justify-between pb-2.5 border-b border-[#E5E7EB] dark:border-[#24312C] mb-2">
-                      <div className="flex items-center gap-2">
-                        <Bell className="w-4 h-4 text-[#0F5C3A] dark:text-[#4ADE9A]" />
-                        <h4 className="text-xs font-black text-[#111827] dark:text-[#F3F4F6] uppercase tracking-wider">
-                          Chama Alerts &amp; Invites
-                        </h4>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {notifications.length > 0 && (
-                          <button
-                            onClick={() => {
-                              clearInAppNotifications();
-                              setNotifications([]);
-                            }}
-                            className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                          >
-                            Clear
-                          </button>
-                        )}
-                        <span className="text-[10px] bg-[#E7F3EC] dark:bg-[#12372A] text-[#0F5C3A] dark:text-[#4ADE9A] font-bold px-2 py-0.5 rounded-full">
-                          {notifications.length} Total
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Dynamic Push Notifications Banner */}
-                    <div className="mb-2 p-2.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2">
-                      <div className="text-[11px] text-emerald-950 dark:text-emerald-200">
-                        <p className="font-bold flex items-center gap-1.5">
-                          <span>Push Notifications</span>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${pushEnabledInDb ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
-                            {pushEnabledInDb ? 'Active' : 'Off'}
-                          </span>
-                        </p>
-                        <p className="text-[10px] text-emerald-800 dark:text-emerald-300">Get alerts even when app is minimized</p>
-                      </div>
-                      <button
-                        onClick={handleTogglePushNotifications}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg shadow-xs shrink-0 cursor-pointer transition-colors ${
-                          pushEnabledInDb ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'bg-[#0F5C3A] hover:bg-[#0b4830] text-white'
-                        }`}
-                      >
-                        {pushEnabledInDb ? 'Enabled (✓)' : 'Enable'}
-                      </button>
-                    </div>
-
-                    {/* Notifications list */}
-                    {notifications.length === 0 ? (
-                      <div className="py-8 text-center text-slate-400 dark:text-slate-500 text-xs">
-                        <Bell className="w-8 h-8 mx-auto mb-1.5 opacity-30" />
-                        <p>No new notifications</p>
-                        <p className="text-[10px] mt-0.5">You're all caught up with your Chamas!</p>
-                      </div>
-                    ) : (
-                      <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                        {notifications.map((notif) => (
-                          <div
-                            key={notif.id}
-                            onClick={() => {
-                              setIsNotifMenuOpen(false);
-                              if (notif.groupId) {
-                                onNavigate('group', notif.groupId);
-                              } else if (notif.url) {
-                                const match = notif.url.match(/\/chama\/(\d+)/);
-                                if (match) onNavigate('group', Number(match[1]));
-                                else if (notif.url.includes('wallet')) onNavigate('wallet');
-                              }
-                            }}
-                            className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all hover:scale-[1.01] ${
-                              notif.type === 'payment_due'
-                                ? 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40 text-amber-950 dark:text-amber-200'
-                                : notif.type === 'new_group_created'
-                                ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40 text-emerald-950 dark:text-emerald-200'
-                                : notif.type === 'invite_approved'
-                                ? 'bg-teal-50/80 dark:bg-teal-950/20 border-teal-200 dark:border-teal-900/40 text-teal-950 dark:text-teal-200'
-                                : 'bg-slate-50 dark:bg-[#1A2622] border-slate-200 dark:border-[#24312C] text-slate-900 dark:text-slate-200'
-                            }`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <span className="text-base shrink-0 mt-0.5">
-                                {notif.type === 'payment_due'
-                                  ? '⏰'
-                                  : notif.type === 'new_group_created'
-                                  ? '🎉'
-                                  : notif.type === 'invite_approved'
-                                  ? '✅'
-                                  : '🔔'}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <span className="font-extrabold block truncate leading-tight">
-                                  {notif.title}
-                                </span>
-                                <p className="text-[11px] opacity-90 line-clamp-2 mt-0.5">
-                                  {notif.body}
-                                </p>
-                                <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                                  <span>{new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                  <span className="font-bold text-[#0F5C3A] dark:text-[#4ADE9A] flex items-center gap-0.5">
-                                    <span>Check details</span>
-                                    <ArrowRight className="w-3 h-3" />
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Vertical divider */}
-              <span className="hidden md:block w-[1px] h-8 bg-[#E5E7EB] dark:bg-[#24312C] my-auto" aria-hidden="true" />
 
               {/* User Account / Sign In Pill */}
               {currentUser ? (
@@ -602,11 +463,32 @@ export const Header: React.FC<HeaderProps> = ({
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false);
+                          onNavigate('profile');
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] transition-colors flex items-center justify-between"
+                      >
+                        <span>My Profile (Customer Portal)</span>
+                        <span className="text-[10px] bg-[#0F5C3A] text-white px-1.5 py-0.2 rounded-full font-bold">New</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          onNavigate('profile', { tab: 'notifications' });
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                      >
+                        Private Notifications
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
                           onNavigate('wallet');
                         }}
                         className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
                       >
-                        Profile &amp; Wallet Statement
+                        Wallet &amp; Statements
                       </button>
 
                       {currentUser.role === 'merchant' && (
@@ -779,6 +661,27 @@ export const Header: React.FC<HeaderProps> = ({
                 </svg>
                 <span>Wallet</span>
               </button>
+
+              {/* My Profile */}
+              {currentUser && (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onNavigate('profile');
+                  }}
+                  className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    currentView === 'profile'
+                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                  }`}
+                >
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  <span>My Profile</span>
+                </button>
+              )}
 
 
 

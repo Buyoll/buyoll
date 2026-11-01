@@ -25,6 +25,7 @@ import {
   VolumeX,
   Trash2,
   Wallet,
+  Tag,
 } from 'lucide-react';
 
 interface AdminDashboardPageProps {
@@ -50,7 +51,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit'>('payments');
+  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured'>('payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
 
   // Wallet deposits data
@@ -104,6 +105,40 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [moderationReason, setModerationReason] = useState('');
   const [activeChatGroupFilter, setActiveChatGroupFilter] = useState<number | 'all'>('all');
 
+  // Merchant Verifications state (Part C & G)
+  const [verificationsList, setVerificationsList] = useState<any[]>([]);
+  const [scheduleModal, setScheduleModal] = useState<{ open: boolean; merchantId: number; scheduledDate: string; representative: string }>({
+    open: false,
+    merchantId: 0,
+    scheduledDate: '',
+    representative: 'Buyoll Field Operations Team',
+  });
+  const [completeVisitModal, setCompleteVisitModal] = useState<{ open: boolean; merchantId: number; notes: string; advertInstalled: boolean; photoUrl: string }>({
+    open: false,
+    merchantId: 0,
+    notes: 'Physical shop verified and inventory validated.',
+    advertInstalled: true,
+    photoUrl: 'https://images.unsplash.com/photo-1555421689-491a97ff2040?auto=format&fit=crop&w=600&q=80',
+  });
+  const [exemptionModal, setExemptionModal] = useState<{ open: boolean; merchantId: number; requirement: string; reason: string }>({
+    open: false,
+    merchantId: 0,
+    requirement: 'three_years_operating',
+    reason: '',
+  });
+
+  // Merchant Subscriptions state (Part C & D)
+  const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
+  const [enterprisePriceModal, setEnterprisePriceModal] = useState<{ open: boolean; merchantId: number; price: number }>({
+    open: false,
+    merchantId: 0,
+    price: 15000,
+  });
+
+  // Featured Products state (Part E & G)
+  const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
+  const [allProductsList, setAllProductsList] = useState<any[]>([]);
+
   useEffect(() => {
     loadAllAdminData();
   }, []);
@@ -111,12 +146,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   async function loadAllAdminData() {
     setLoading(true);
     try {
-      const [overviewRes, walletsRes, usersRes, chatLogsRes, depositsRes] = await Promise.all([
+      const [overviewRes, walletsRes, usersRes, chatLogsRes, depositsRes, verifsRes, subsRes, featRes] = await Promise.all([
         api.getAdminOverview(),
         api.getAdminWallets().catch(() => null),
         api.getAdminUsers().catch(() => ({ users: [] })),
         api.getAdminChatLogs().catch(() => ({ moderationEvents: [], recentChats: [] })),
         api.getAdminWalletDeposits().catch(() => ({ deposits: [] })),
+        api.getAdminMerchantVerifications().catch(() => ({ verifications: [] })),
+        api.getAdminMerchantSubscriptions().catch(() => ({ subscriptions: [] })),
+        api.getAdminFeaturedProducts().catch(() => ({ featured: [], allProducts: [] })),
       ]);
 
       if (overviewRes) {
@@ -160,6 +198,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         });
       }
       if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits || []);
+      if (verifsRes?.verifications) setVerificationsList(verifsRes.verifications || []);
+      if (subsRes?.subscriptions) setSubscriptionsList(subsRes.subscriptions || []);
+      if (featRes) {
+        setFeaturedProducts(featRes.featured || []);
+        setAllProductsList(featRes.allProducts || []);
+      }
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load administration data');
     } finally {
@@ -283,6 +327,132 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to apply moderation action');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Schedule Shop Visit (Part C & G)
+  async function handleScheduleVisitSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setProcessingId(`sched_${scheduleModal.merchantId}`);
+    try {
+      const res = await api.adminScheduleVisit(scheduleModal.merchantId, {
+        scheduledDate: scheduleModal.scheduledDate,
+        representative: scheduleModal.representative,
+      });
+      onNotify('success', res.message || 'Shop visit scheduled!');
+      setScheduleModal({ ...scheduleModal, open: false });
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to schedule shop visit');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Record Completed Visit & Advert Photo (Part C & G)
+  async function handleCompleteVisitSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setProcessingId(`visit_${completeVisitModal.merchantId}`);
+    try {
+      const res = await api.adminCompleteVisit(completeVisitModal.merchantId, {
+        notes: completeVisitModal.notes,
+        advertInstalled: completeVisitModal.advertInstalled,
+        photoUrl: completeVisitModal.photoUrl,
+      });
+      onNotify('success', res.message || 'Shop visit details recorded!');
+      setCompleteVisitModal({ ...completeVisitModal, open: false });
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to record shop visit');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Grant Exemption with Mandatory Reason (Part C & G)
+  async function handleGrantExemptionSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!exemptionModal.reason.trim()) {
+      onNotify('error', 'Exemption reason is mandatory. Written justification required.');
+      return;
+    }
+    setProcessingId(`ex_${exemptionModal.merchantId}`);
+    try {
+      const res = await api.adminGrantExemption(exemptionModal.merchantId, {
+        requirement: exemptionModal.requirement,
+        reason: exemptionModal.reason,
+      });
+      onNotify('success', res.message || 'Exemption granted and logged in audit trail!');
+      setExemptionModal({ ...exemptionModal, open: false, reason: '' });
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to grant exemption');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Verification Decision (Verify or Decline)
+  async function handleVerificationDecision(merchantId: number, action: 'verify' | 'decline') {
+    let declineReason = '';
+    if (action === 'decline') {
+      const promptRes = window.prompt('Enter reason for declining verification:');
+      if (promptRes === null) return;
+      declineReason = promptRes;
+    }
+    setProcessingId(`dec_${merchantId}`);
+    try {
+      const res = await api.adminDecideVerification(merchantId, { action, declineReason });
+      onNotify('success', res.message || `Merchant verification ${action === 'verify' ? 'approved' : 'declined'}`);
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update verification status');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Manual Subscription Approval (Part C & D)
+  async function handleApproveSubscription(subId: string) {
+    setProcessingId(subId);
+    try {
+      const res = await api.approveAdminMerchantSubscription(subId);
+      onNotify('success', res.message || 'Subscription approved and store activated for 30 days!');
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to approve subscription');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Enterprise Price Agreement (Part C & D)
+  async function handleSetEnterprisePriceSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setProcessingId(`ent_${enterprisePriceModal.merchantId}`);
+    try {
+      const res = await api.setAdminEnterprisePrice(enterprisePriceModal.merchantId, enterprisePriceModal.price);
+      onNotify('success', res.message || 'Custom Enterprise price agreed!');
+      setEnterprisePriceModal({ ...enterprisePriceModal, open: false });
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to set Enterprise price');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // Handle Toggle Featured Product (KES 30/day)
+  async function handleToggleFeatured(productId: number) {
+    setProcessingId(`feat_${productId}`);
+    try {
+      const res = await api.toggleAdminFeaturedProduct(productId);
+      onNotify('success', res.message || 'Featured product updated!');
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update featured product');
     } finally {
       setProcessingId(null);
     }
@@ -427,6 +597,36 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         >
           <RotateCcw className="w-4 h-4" />
           <span>Refund Requests ({(data?.refundRequests || []).length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('verifications')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
+            activeTab === 'verifications' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Shield className="w-4 h-4" />
+          <span>Merchant Verifications ({verificationsList.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('subscriptions')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
+            activeTab === 'subscriptions' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Subscriptions ({subscriptionsList.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('featured')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
+            activeTab === 'featured' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Tag className="w-4 h-4" />
+          <span>Featured Products ({featuredProducts.length})</span>
         </button>
 
         <button
@@ -1211,6 +1411,642 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* TAB 7: MERCHANT VERIFICATIONS (Part C & G) */}
+      {activeTab === 'verifications' && (
+        <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900">
+                  Merchant Verification & Physical Shop Inspection
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Review merchant applications, schedule field inspections, record advert banner installations, and grant written exemptions.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">
+                  Total Records: {verificationsList.length}
+                </span>
+              </div>
+            </div>
+
+            {verificationsList.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 text-xs">
+                <Shield className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                No merchant verification applications submitted yet.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {verificationsList.map((verif) => (
+                  <div
+                    key={verif.merchantId}
+                    className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <b className="text-sm text-slate-900">{verif.shopName || verif.merchantName}</b>
+                          <span className="text-xs text-slate-500 font-mono">#{verif.merchantId}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              verif.status === 'verified'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : verif.status === 'declined'
+                                ? 'bg-red-100 text-red-800'
+                                : verif.status === 'visit_scheduled'
+                                ? 'bg-blue-100 text-blue-800'
+                                : verif.status === 'visit_completed'
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {verif.status?.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          Owner: {verif.merchantName} · Phone: {verif.phone} · Category: {verif.businessType}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {verif.status === 'pending_review' && (
+                          <button
+                            onClick={() =>
+                              setScheduleModal({
+                                open: true,
+                                merchantId: verif.merchantId,
+                                scheduledDate: new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10),
+                                representative: 'Buyoll Field Operations Team',
+                              })
+                            }
+                            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            Schedule Visit
+                          </button>
+                        )}
+
+                        {verif.status === 'visit_scheduled' && (
+                          <button
+                            onClick={() =>
+                              setCompleteVisitModal({
+                                open: true,
+                                merchantId: verif.merchantId,
+                                notes: 'Physical premises verified; stock inspected.',
+                                advertInstalled: true,
+                                photoUrl: 'https://images.unsplash.com/photo-1555421689-491a97ff2040?auto=format&fit=crop&w=600&q=80',
+                              })
+                            }
+                            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            Record Visit & Advert
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() =>
+                            setExemptionModal({
+                              open: true,
+                              merchantId: verif.merchantId,
+                              requirement: 'three_years_operating',
+                              reason: '',
+                            })
+                          }
+                          className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Grant Exemption
+                        </button>
+
+                        {verif.status !== 'verified' && (
+                          <button
+                            onClick={() => handleVerificationDecision(verif.merchantId, 'verify')}
+                            disabled={processingId === `dec_${verif.merchantId}`}
+                            className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Verify (Badge)</span>
+                          </button>
+                        )}
+
+                        {verif.status !== 'declined' && (
+                          <button
+                            onClick={() => handleVerificationDecision(verif.merchantId, 'decline')}
+                            disabled={processingId === `dec_${verif.merchantId}`}
+                            className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            Decline
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Details Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                        <span className="text-slate-400 block text-[10px] font-bold uppercase">Premises & Documents</span>
+                        <div className="text-slate-900 mt-1">
+                          <b>Physical Store:</b> {verif.hasPhysicalShop ? 'Yes (Walk-in)' : 'No (Online/Warehouse)'}
+                        </div>
+                        <div className="text-slate-700 mt-0.5">
+                          <b>Location:</b> {verif.shopLocation || 'N/A'}
+                        </div>
+                        <div className="text-slate-700 mt-0.5">
+                          <b>Trading Licence:</b> <span className="font-mono">{verif.tradingLicenceNumber}</span>
+                        </div>
+                        <div className="text-slate-700 mt-0.5">
+                          <b>National ID:</b> <span className="font-mono">{verif.nationalIdOrPassport}</span>
+                        </div>
+                        <div className="text-slate-700 mt-0.5">
+                          <b>Years Operating:</b> {verif.yearsOperating} year(s)
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                        <span className="text-slate-400 block text-[10px] font-bold uppercase">Field Inspection</span>
+                        {verif.shopVisitScheduledAt && (
+                          <div className="text-slate-800 mt-1">
+                            <b>Visit Scheduled:</b> {new Date(verif.shopVisitScheduledAt).toLocaleDateString()}
+                          </div>
+                        )}
+                        {verif.shopVisitRepresentative && (
+                          <div className="text-slate-600 mt-0.5">
+                            <b>Field Officer:</b> {verif.shopVisitRepresentative}
+                          </div>
+                        )}
+                        {verif.shopVisitNotes && (
+                          <div className="text-slate-600 mt-0.5 italic">
+                            "{verif.shopVisitNotes}"
+                          </div>
+                        )}
+                        {verif.advertInstalledAt && (
+                          <div className="text-emerald-700 font-bold mt-1 flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Buyoll Advert Photo Installed</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                        <span className="text-slate-400 block text-[10px] font-bold uppercase">Exemptions Granted ({verif.exemptions?.length || 0})</span>
+                        {(verif.exemptions || []).length === 0 ? (
+                          <div className="text-slate-400 mt-1 italic">No exemptions granted.</div>
+                        ) : (
+                          <div className="space-y-1 mt-1">
+                            {verif.exemptions.map((ex: any, idx: number) => (
+                              <div key={idx} className="p-1.5 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900">
+                                <b>{ex.requirement}:</b> {ex.reason}
+                                <span className="block text-[9px] text-amber-700 mt-0.5">By {ex.grantedBy}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 8: MERCHANT SUBSCRIPTIONS & TIERS (Part C & D) */}
+      {activeTab === 'subscriptions' && (
+        <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900">
+                  Merchant Subscriptions & 6-Tier Catalog Management
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Review active 30-day subscriptions, reconcile manual M-Pesa payments, and manage custom Enterprise tier pricing.
+                </p>
+              </div>
+            </div>
+
+            {/* 6-Tier Reference Matrix */}
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-6">
+              {[
+                { name: 'Tier 1 (KES 250)', prods: 'Max 2 Prods', grps: '2 Grps / Prod' },
+                { name: 'Tier 2 (KES 500)', prods: 'Max 10 Prods', grps: '5 Grps / Prod' },
+                { name: 'Tier 3 (KES 1,500)', prods: 'Max 50 Prods', grps: '10 Grps / Prod' },
+                { name: 'Tier 4 (KES 3,500)', prods: 'Max 100 Prods', grps: '30 Grps / Prod' },
+                { name: 'Tier 5 (KES 7,500)', prods: 'Unlimited Prods', grps: '50 Grps / Prod' },
+                { name: 'Enterprise', prods: 'Unlimited Prods', grps: 'Up to 100 Grps' },
+              ].map((t, idx) => (
+                <div key={idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                  <div className="font-bold text-xs text-slate-900">{t.name}</div>
+                  <div className="text-[10px] text-emerald-800 font-semibold mt-0.5">{t.prods}</div>
+                  <div className="text-[10px] text-slate-500">{t.grps}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Subscriptions Table */}
+            {subscriptionsList.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 text-xs">
+                <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                No merchant subscriptions logged yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Merchant</th>
+                      <th className="py-2.5 px-3">Tier</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Method</th>
+                      <th className="py-2.5 px-3">Code / Ref</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Dates (Active)</th>
+                      <th className="py-2.5 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {subscriptionsList.map((sub) => (
+                      <tr key={sub.id} className="hover:bg-slate-50/70">
+                        <td className="py-3 px-3">
+                          <b className="text-slate-900 block">{sub.shopName || sub.merchantName}</b>
+                          <span className="text-[10px] text-slate-500 font-mono">#{sub.merchantId} · {sub.phone}</span>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className="font-semibold text-slate-900">{sub.tierName}</span>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold text-[#0E5A3C]">
+                          KSh {Number(sub.amount || 0).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-semibold">
+                            {sub.paymentMethod === 'wallet_coins' ? 'Wallet Coins' : 'M-Pesa Till/Paybill'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold uppercase text-slate-800">
+                          {sub.paymentCode || 'ATOMIC'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              sub.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : sub.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {sub.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-[11px] text-slate-600">
+                          {sub.startDate ? (
+                            <div>
+                              <span>{new Date(sub.startDate).toLocaleDateString()}</span>
+                              <span className="text-slate-400"> → </span>
+                              <b>{new Date(sub.expiresAt).toLocaleDateString()}</b>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">Pending Activation</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {sub.status === 'pending' && (
+                              <button
+                                onClick={() => handleApproveSubscription(sub.id)}
+                                disabled={processingId === sub.id}
+                                className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                              >
+                                Approve & Activate (30d)
+                              </button>
+                            )}
+
+                            {sub.tierId === 'enterprise' && (
+                              <button
+                                onClick={() =>
+                                  setEnterprisePriceModal({
+                                    open: true,
+                                    merchantId: sub.merchantId,
+                                    price: sub.amount || 15000,
+                                  })
+                                }
+                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg cursor-pointer"
+                              >
+                                Set Custom Price
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 9: FEATURED PRODUCTS (Part E & G) */}
+      {activeTab === 'featured' && (
+        <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900">
+                  Featured Products Showcase & Announcement System
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Announcements are free and broadcasted to private user profiles. Featured placement on the homepage banner carries a fee of <b>KES 30 / day</b>.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2 py-0.5 bg-[#0E5A3C] text-white text-[10px] font-black uppercase rounded">
+                    Free
+                  </span>
+                  <b className="text-xs text-[#0E5A3C]">System Announcements</b>
+                </div>
+                <p className="text-xs text-slate-600 leading-normal">
+                  Free of charge. When posted by admin or merchant, updates fan out automatically to all members' private notification center in their customer portal.
+                </p>
+              </div>
+
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-black uppercase rounded">
+                    KES 30 / Day
+                  </span>
+                  <b className="text-xs text-amber-900">Featured Listing Placements</b>
+                </div>
+                <p className="text-xs text-slate-600 leading-normal">
+                  Merchants pay KES 30/day via wallet coins or M-Pesa. Featured items appear in the hero showcase carousel with top priority across Chama searches.
+                </p>
+              </div>
+            </div>
+
+            {/* Products List & Toggle */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-2.5 px-3">Product</th>
+                    <th className="py-2.5 px-3">Price</th>
+                    <th className="py-2.5 px-3">Category</th>
+                    <th className="py-2.5 px-3">Merchant ID</th>
+                    <th className="py-2.5 px-3">Featured Status</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {allProductsList.map((prod) => (
+                    <tr key={prod.id} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 px-3 flex items-center gap-2.5">
+                        <img
+                          src={prod.image || './images/smart_tv.jpg'}
+                          alt={prod.title}
+                          className="w-10 h-10 object-cover rounded-lg border border-slate-200 shrink-0"
+                        />
+                        <div>
+                          <b className="text-slate-900 block">{prod.title}</b>
+                          <span className="text-[10px] text-slate-500">{prod.chamaOptions || 'Standard Speed'}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                        KSh {Number(prod.price || 0).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 capitalize">{prod.category}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-600">Vendor #{prod.vendorId}</td>
+                      <td className="py-2.5 px-3">
+                        {prod.isFeatured ? (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-amber-600" />
+                            <span>Featured (KES 30/day)</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">Standard</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <button
+                          onClick={() => handleToggleFeatured(prod.id)}
+                          disabled={processingId === `feat_${prod.id}`}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                            prod.isFeatured
+                              ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                              : 'bg-amber-500 hover:bg-amber-600 text-white shadow-xs'
+                          }`}
+                        >
+                          {prod.isFeatured ? 'Demote to Standard' : 'Promote to Featured'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCHEDULE VISIT MODAL */}
+      {scheduleModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleScheduleVisitSubmit} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900 mb-3">Schedule Shop Verification Visit</h3>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Visit Date</label>
+                <input
+                  type="date"
+                  required
+                  value={scheduleModal.scheduledDate}
+                  onChange={(e) => setScheduleModal({ ...scheduleModal, scheduledDate: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Field Representative Name</label>
+                <input
+                  type="text"
+                  required
+                  value={scheduleModal.representative}
+                  onChange={(e) => setScheduleModal({ ...scheduleModal, representative: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setScheduleModal({ ...scheduleModal, open: false })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-blue-700 text-white text-xs font-bold rounded-xl"
+              >
+                Confirm Schedule
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* COMPLETE VISIT MODAL */}
+      {completeVisitModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleCompleteVisitSubmit} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900 mb-3">Record Shop Inspection & Advert</h3>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Field Inspection Report / Notes</label>
+                <textarea
+                  rows={3}
+                  required
+                  value={completeVisitModal.notes}
+                  onChange={(e) => setCompleteVisitModal({ ...completeVisitModal, notes: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs text-slate-800 font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={completeVisitModal.advertInstalled}
+                    onChange={(e) => setCompleteVisitModal({ ...completeVisitModal, advertInstalled: e.target.checked })}
+                  />
+                  <span>Official Buyoll Advert Poster Installed in Shop</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Advert Evidence Photo URL</label>
+                <input
+                  type="text"
+                  value={completeVisitModal.photoUrl}
+                  onChange={(e) => setCompleteVisitModal({ ...completeVisitModal, photoUrl: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCompleteVisitModal({ ...completeVisitModal, open: false })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-indigo-700 text-white text-xs font-bold rounded-xl"
+              >
+                Save Inspection Record
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* GRANT EXEMPTION MODAL WITH MANDATORY REASON */}
+      {exemptionModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleGrantExemptionSubmit} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900 mb-2">Grant Policy Exemption</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              A written justification reason is <b>mandatory</b> and permanently recorded in the system audit trail.
+            </p>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Requirement to Exempt</label>
+                <select
+                  value={exemptionModal.requirement}
+                  onChange={(e) => setExemptionModal({ ...exemptionModal, requirement: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                >
+                  <option value="three_years_operating">3-Year Operating History (Exemption)</option>
+                  <option value="physical_premises">Ground Floor Walk-in Shop (Exemption)</option>
+                  <option value="county_licence">Annual County Trade Licence (Exemption)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Written Justification Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Enter detailed reason for granting exemption..."
+                  value={exemptionModal.reason}
+                  onChange={(e) => setExemptionModal({ ...exemptionModal, reason: e.target.value })}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setExemptionModal({ ...exemptionModal, open: false })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl"
+              >
+                Grant Exemption
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ENTERPRISE PRICE MODAL */}
+      {enterprisePriceModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleSetEnterprisePriceSubmit} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900 mb-2">Set Custom Enterprise Pricing</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Agree on custom monthly subscription pricing for merchant #{enterprisePriceModal.merchantId}.
+            </p>
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Agreed Monthly Fee (KES)</label>
+              <input
+                type="number"
+                min={0}
+                step={500}
+                required
+                value={enterprisePriceModal.price}
+                onChange={(e) => setEnterprisePriceModal({ ...enterprisePriceModal, price: Number(e.target.value) })}
+                className="w-full text-xs p-2.5 border border-slate-200 rounded-xl font-mono"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEnterprisePriceModal({ ...enterprisePriceModal, open: false })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
+              >
+                Save Agreed Price
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Product, ChamaGroup } from '../types.ts';
+import { User, Product, ChamaGroup, MerchantSubscriptionTier } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { triggerVisualPushAlert } from '../utils/notifications.ts';
@@ -17,6 +17,13 @@ import {
   Tag,
   X,
   Store,
+  Shield,
+  Coins,
+  CreditCard,
+  FileCheck,
+  Building,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface VendorDashboardPageProps {
@@ -36,16 +43,40 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
 
-  // PROMPT 4: Merchant Onboarding & Subscription 3-Step Flow state
+  // 6-Tier Subscription & Upgrade state (Part C & D)
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{
+    hasSubscription: boolean;
+    isExpired: boolean;
+    daysRemaining: number;
+    subscription: any;
+    tier: any;
+    canUpgrade: boolean;
+    message: string;
+  } | null>(null);
+  const [tiersList, setTiersList] = useState<MerchantSubscriptionTier[]>([]);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
-  const [subStep, setSubStep] = useState<1 | 2 | 3>(1);
-  const [subPlan, setSubPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
+  const [selectedTierId, setSelectedTierId] = useState<string>('tier_500');
+  const [subPaymentMethod, setSubPaymentMethod] = useState<'wallet_coins' | 'mpesa_till'>('wallet_coins');
   const [subPaymentCode, setSubPaymentCode] = useState('');
-  const [subTillNumber, setSubTillNumber] = useState(currentUser?.tillNumber || '');
-  const [subPaybillNumber, setSubPaybillNumber] = useState(currentUser?.paybillNumber || '');
   const [submittingSubscription, setSubmittingSubscription] = useState(false);
 
-  // PROMPT 4: 10-Speed Group Creation modal
+  // Merchant Verification state (Part C & G)
+  const [verificationInfo, setVerificationInfo] = useState<{
+    hasSubmitted: boolean;
+    verification: any;
+    isVerified: boolean;
+    badge: string | null;
+  } | null>(null);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [verifPhysicalShop, setVerifPhysicalShop] = useState(true);
+  const [verifLicence, setVerifLicence] = useState('');
+  const [verifNationalId, setVerifNationalId] = useState('');
+  const [verifYears, setVerifYears] = useState(3);
+  const [verifLocation, setVerifLocation] = useState('');
+  const [verifBusinessType, setVerifBusinessType] = useState('Retail & Electronics');
+  const [submittingVerification, setSubmittingVerification] = useState(false);
+
+  // 10-Speed Group Creation modal
   const [isSpeedGroupModalOpen, setIsSpeedGroupModalOpen] = useState(false);
   const [selectedProductForGroup, setSelectedProductForGroup] = useState<Product | null>(null);
   const [selectedSpeedSize, setSelectedSpeedSize] = useState<number>(10);
@@ -53,37 +84,75 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [submittingSpeedGroup, setSubmittingSpeedGroup] = useState(false);
 
   const isSubscribedAndVerified = Boolean(
-    currentUser?.merchantSubscriptionStatus === 'active' && currentUser?.verified
+    (currentUser?.merchantSubscriptionStatus === 'active' || (subscriptionInfo?.subscription && !subscriptionInfo?.isExpired)) &&
+    (currentUser?.verified || verificationInfo?.isVerified)
   );
 
-  async function handleSubscriptionSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const code = subPaymentCode.trim().toUpperCase();
-    if (!code) {
-      onNotify('error', 'Please enter your M-Pesa transaction code.');
-      return;
+  async function handleSubscriptionPay() {
+    setSubmittingSubscription(true);
+    try {
+      if (subPaymentMethod === 'wallet_coins') {
+        const res = await api.paySubscriptionCoins(selectedTierId);
+        onNotify('success', res.message || 'Subscription paid successfully using wallet coins!');
+        setIsSubscriptionModalOpen(false);
+        loadVendorData();
+      } else {
+        const code = subPaymentCode.trim().toUpperCase();
+        if (!code) {
+          onNotify('error', 'Please enter your M-Pesa transaction code.');
+          setSubmittingSubscription(false);
+          return;
+        }
+        const tierFeeMap: Record<string, number> = {
+          tier_250: 250,
+          tier_500: 500,
+          tier_1500: 1500,
+          tier_3500: 3500,
+          tier_7500: 7500,
+          enterprise: 15000,
+        };
+        const amount = tierFeeMap[selectedTierId] || 500;
+        const res = await api.submitManualSubscription({
+          tierId: selectedTierId,
+          paymentCode: code,
+          amount,
+        });
+        onNotify('success', res.message || 'Subscription payment submitted for admin reconciliation.');
+        setIsSubscriptionModalOpen(false);
+        setSubPaymentCode('');
+        loadVendorData();
+      }
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to process subscription');
+    } finally {
+      setSubmittingSubscription(false);
     }
-    if (!/^[A-Z0-9]{8,12}$/i.test(code)) {
-      onNotify('error', 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters.');
+  }
+
+  async function handleVerificationSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!verifLicence.trim() || !verifNationalId.trim() || !verifLocation.trim()) {
+      onNotify('error', 'Trading licence, national ID/passport, and shop location are mandatory.');
       return;
     }
 
-    setSubmittingSubscription(true);
+    setSubmittingVerification(true);
     try {
-      const res = await api.subscribeMerchant({
-        plan: subPlan,
-        paymentCode: code,
-        tillNumber: subTillNumber || undefined,
-        paybillNumber: subPaybillNumber || undefined,
+      const res = await api.submitMerchantVerification({
+        hasPhysicalShop: verifPhysicalShop,
+        tradingLicenceNumber: verifLicence,
+        nationalIdOrPassport: verifNationalId,
+        yearsOperating: verifYears,
+        shopLocation: verifLocation,
+        businessType: verifBusinessType,
       });
-      onNotify('success', res.message);
-      setIsSubscriptionModalOpen(false);
-      setSubPaymentCode('');
+      onNotify('success', res.message || 'Verification submitted for Buyoll Admin review!');
+      setIsVerificationModalOpen(false);
       loadVendorData();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to submit merchant subscription');
+      onNotify('error', err.message || 'Failed to submit verification');
     } finally {
-      setSubmittingSubscription(false);
+      setSubmittingVerification(false);
     }
   }
 
@@ -121,24 +190,41 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     }
   }
 
-  useEffect(() => {
-    loadVendorData();
-  }, [currentUser]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const currentUserId = currentUser?.id;
 
-  async function loadVendorData() {
+  useEffect(() => {
+    if (currentUserId) {
+      loadVendorData(true);
+    } else {
+      setLoading(false);
+      setHasLoaded(true);
+    }
+  }, [currentUserId]);
+
+  async function loadVendorData(isInitial = false) {
     if (!currentUser) return;
-    setLoading(true);
+    if (isInitial || !hasLoaded) {
+      setLoading(true);
+    }
     try {
-      const [prodRes, grpRes] = await Promise.all([
+      const [prodRes, grpRes, subRes, tiersRes, verifRes] = await Promise.all([
         api.getProducts({ vendorId: currentUser.id }),
         api.getGroups(),
+        api.getMerchantSubscriptionCurrent().catch(() => null),
+        api.getSubscriptionTiers().catch(() => ({ tiers: [] })),
+        api.getMerchantVerificationStatus().catch(() => null),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
+      if (subRes) setSubscriptionInfo(subRes);
+      if (tiersRes?.tiers?.length) setTiersList(tiersRes.tiers);
+      if (verifRes) setVerificationInfo(verifRes);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load merchant data');
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }
 
@@ -184,19 +270,31 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
               {currentUser?.shopName || currentUser?.name} Dashboard
             </h1>
-            {currentUser?.verified ? (
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                <span>Verified Merchant</span>
+            {currentUser?.verified || verificationInfo?.isVerified ? (
+              <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-2xs border border-emerald-300">
+                <Shield className="w-3.5 h-3.5 text-emerald-700" />
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                <span>Buyoll Verified Merchant</span>
               </span>
             ) : (
-              <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
-                {currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Pending Admin Approval' : 'Subscription Inactive'}
-              </span>
+              <button
+                onClick={() => setIsVerificationModalOpen(true)}
+                className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Click to submit verification details or check status"
+              >
+                <Shield className="w-3.5 h-3.5 text-amber-600" />
+                <span>
+                  {verificationInfo?.verification?.status === 'pending_review'
+                    ? 'Verification: Under Admin Review'
+                    : verificationInfo?.verification?.status === 'visit_scheduled'
+                    ? 'Verification: Shop Visit Scheduled'
+                    : 'Apply for Verified Merchant Badge'}
+                </span>
+              </button>
             )}
           </div>
           <p className="text-xs text-slate-500">
@@ -204,16 +302,29 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {!isSubscribedAndVerified && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* STRICT UPGRADE BUTTON RULE (Part D): Disabled if active with expiration date; enabled if expired */}
+          {subscriptionInfo && !subscriptionInfo.isExpired ? (
+            <button
+              disabled
+              title="Upgrade button disabled while 30-day subscription is active. Enabled once current plan expires."
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl cursor-not-allowed opacity-80"
+            >
+              <Clock className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                Active: {subscriptionInfo.tier?.name?.split(' ')[0] || 'Store'} (Expires: {new Date(subscriptionInfo.subscription?.expiresAt).toLocaleDateString()}) · Upgrade on expiry
+              </span>
+            </button>
+          ) : (
             <button
               onClick={() => setIsSubscriptionModalOpen(true)}
               className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>{currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'View Subscription Status' : 'Subscribe & Activate Store'}</span>
+              <span>{subscriptionInfo?.isExpired ? 'Upgrade / Renew Subscription' : 'Subscribe Store (30-Day Tiers)'}</span>
             </button>
           )}
+
           <button
             onClick={handleOpenCreateProduct}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-sm self-start sm:self-auto"
@@ -224,32 +335,32 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
       </div>
 
-      {/* PROMPT 4: ONBOARDING BANNER IF NOT SUBSCRIBED */}
-      {!isSubscribedAndVerified && (
+      {/* Subscription banner if expired or inactive */}
+      {(!subscriptionInfo || subscriptionInfo.isExpired) && (
         <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-teal-500/10 border-2 border-emerald-600/30 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="px-2 py-0.5 bg-[#0E5A3C] text-white text-[10px] font-black uppercase rounded-full">
-                Step 1 of 3: Merchant Onboarding
+                Merchant Subscription (30 Days)
               </span>
               <span className="text-xs font-bold text-amber-800">
-                {currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Payment submitted · Awaiting Admin verification' : 'Activation Required'}
+                {subscriptionInfo?.isExpired ? 'Subscription Expired · Upgrade Enabled' : 'Activation Required'}
               </span>
             </div>
             <h3 className="text-base font-extrabold text-slate-900">
-              {currentUser?.merchantSubscriptionStatus === 'pending_verification'
-                ? 'Your Subscription Payment is Awaiting Admin Verification'
-                : 'Subscribe to Buyoll Direct to Start Listing Products & Opening Speed Groups'}
+              {subscriptionInfo?.isExpired
+                ? 'Your 30-Day Subscription has ended. Upgrade is now available to choose any tier.'
+                : 'Subscribe to a 30-Day Merchant Tier to Post Products & Open Speed Groups'}
             </h3>
             <p className="text-xs text-slate-600 mt-1 max-w-2xl">
-              Verified merchants can list unlimited products, configure 1-10 member speed groups, collect payments directly to their Till (Option A) or via Buyoll Escrow (Option B), and receive 5-star verified merchant badges.
+              Choose from 6 plans starting from KES 250/mo up to Enterprise. Pay seamlessly via Wallet Coins or manual M-Pesa Till / Paybill.
             </p>
           </div>
           <button
             onClick={() => setIsSubscriptionModalOpen(true)}
             className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2"
           >
-            <span>{currentUser?.merchantSubscriptionStatus === 'pending_verification' ? 'Check Payment Status' : 'Choose Plan & Subscribe'}</span>
+            <span>Upgrade / Choose Plan</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -502,10 +613,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         />
       )}
 
-      {/* PROMPT 4: MERCHANT ONBOARDING & SUBSCRIPTION 3-STEP MODAL */}
+      {/* 6-TIER MERCHANT SUBSCRIPTION MODAL (Part C & D) */}
       {isSubscriptionModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsSubscriptionModalOpen(false)}
               className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
@@ -513,172 +624,278 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            {/* Stepper Header */}
-            <div className="pb-4 border-b border-slate-100 mb-5">
+            <div className="pb-3 border-b border-slate-100 mb-4">
               <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
-                Buyoll Direct Merchant Onboarding · 3-Step Flow
+                Buyoll Merchant 30-Day Subscriptions
               </span>
               <h3 className="text-base font-extrabold text-slate-900">
-                {subStep === 1
-                  ? 'Step 1: Choose Your Merchant Subscription Plan'
-                  : subStep === 2
-                  ? 'Step 2: Payment Instructions & Store Till'
-                  : 'Step 3: Submit M-Pesa Code for Verification'}
+                Choose Your 30-Day Merchant Plan
               </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Each subscription grants an active 30-day selling window. Upgrade to another tier becomes available once this cycle expires.
+              </p>
             </div>
 
-            {/* Step 1: Choose Plan */}
-            {subStep === 1 && (
-              <div className="space-y-4">
-                <div className="space-y-2.5">
-                  {[
-                    { id: 'starter', name: 'Starter Merchant', price: 1500, desc: 'Up to 5 listings · Standard Chama speeds · Platform Till Option B' },
-                    { id: 'pro', name: 'Pro Merchant (Recommended)', price: 3500, desc: 'Up to 20 listings · 1-10 full speed spectrum · Verified store badge · Own Till Option A' },
-                    { id: 'enterprise', name: 'Enterprise Store', price: 7000, desc: 'Unlimited listings · Dedicated Account Manager · Top hero placement' },
-                  ].map((plan) => (
-                    <div
-                      key={plan.id}
-                      onClick={() => setSubPlan(plan.id as any)}
-                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                        subPlan === plan.id
-                          ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-slate-900 text-xs">{plan.name}</span>
-                        <b className="text-[#0E5A3C] font-mono text-sm">KSh {plan.price.toLocaleString()} / mo</b>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-normal">{plan.desc}</p>
-                    </div>
-                  ))}
+            {/* 6 Tiers Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+              {[
+                { id: 'tier_250', name: 'Micro-Merchant', fee: 250, prods: 'Max 2 Products', grps: '2 Groups / Product', desc: 'Caters to very small businesses and solo makers' },
+                { id: 'tier_500', name: 'Growing Merchant', fee: 500, prods: 'Up to 10 Products', grps: '5 Groups / Product', desc: 'Ideal for growing neighborhood retailers' },
+                { id: 'tier_1500', name: 'Pro Merchant', fee: 1500, prods: 'Up to 50 Products', grps: '10 Groups / Product', desc: 'For active retail businesses and popular shops' },
+                { id: 'tier_3500', name: 'Commercial', fee: 3500, prods: 'Up to 100 Products', grps: '30 Groups / Product', desc: 'High capacity volume sales for established stores' },
+                { id: 'tier_7500', name: 'Enterprise Scale', fee: 7500, prods: 'Unlimited Products', grps: '50 Groups / Product', desc: 'Unlimited catalog for major retail distributors' },
+                { id: 'enterprise', name: 'Custom Enterprise', fee: 15000, prods: 'Unlimited Products', grps: 'Up to 100 Groups', desc: 'Custom SLA and limits set by Buyoll Admin' },
+              ].map((tier) => (
+                <div
+                  key={tier.id}
+                  onClick={() => setSelectedTierId(tier.id)}
+                  className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    selectedTierId === tier.id
+                      ? 'border-[#0E5A3C] bg-emerald-50/60 shadow-xs ring-1 ring-[#0E5A3C]'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-1">
+                    <span className="font-bold text-xs text-slate-900">{tier.name}</span>
+                    <span className="text-xs font-mono font-bold text-[#0E5A3C]">KSh {tier.fee.toLocaleString()}</span>
+                  </div>
+                  <div className="text-[11px] font-semibold text-emerald-800 mb-1">
+                    {tier.prods} · {tier.grps}
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight">{tier.desc}</p>
                 </div>
+              ))}
+            </div>
 
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    onClick={() => setIsSubscriptionModalOpen(false)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => setSubStep(2)}
-                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
-                  >
-                    <span>Proceed to Step 2</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+            {/* Payment Method Switcher (Part D) */}
+            <div className="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <label className="block text-xs font-bold text-slate-700 mb-2">
+                Select Payment Method:
+              </label>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setSubPaymentMethod('wallet_coins')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    subPaymentMethod === 'wallet_coins'
+                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                    <Coins className="w-4 h-4 text-amber-500" />
+                    <span>Wallet Coins (Instant)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Automatic atomic transfer. Your balance: {currentUser?.coins || 0} coins.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubPaymentMethod('mpesa_till')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    subPaymentMethod === 'mpesa_till'
+                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                    <CreditCard className="w-4 h-4 text-emerald-600" />
+                    <span>M-Pesa Till / Paybill</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Buy Goods Till 196853 or Paybill 522533. Reconciled by Admin.
+                  </p>
+                </button>
+              </div>
+
+              {subPaymentMethod === 'mpesa_till' && (
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <div className="text-[11px] text-emerald-900 font-medium">
+                    Pay KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} to <b>Buy Goods Till 196853</b> (Buyoll Platform) or <b>Paybill 522533</b> (Acc: code4363).
+                  </div>
+                  <input
+                    type="text"
+                    value={subPaymentCode}
+                    onChange={(e) => setSubPaymentCode(e.target.value.toUpperCase())}
+                    placeholder="Enter M-Pesa Transaction Code (e.g. QJL890KN12)"
+                    maxLength={12}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg uppercase focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSubscriptionModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubscriptionPay}
+                disabled={submittingSubscription}
+                className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+              >
+                {submittingSubscription ? 'Processing...' : subPaymentMethod === 'wallet_coins' ? 'Confirm Payment with Coins' : 'Submit Code for Admin Approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MERCHANT VERIFICATION APPLICATION MODAL (Part C & G) */}
+      {isVerificationModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setIsVerificationModalOpen(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Buyoll Verified Merchant Application
+                </h3>
+                <span className="text-[10px] font-bold text-slate-500">
+                  Physical Shop Visit & Document Inspection
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              Earn the <b>Buyoll Verified Merchant</b> badge. Verification requires a physical shop visit by our field operations team, trading license verification, and advert photo installation.
+            </p>
+
+            <form onSubmit={handleVerificationSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Do you operate a physical retail shop / store? <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="physical"
+                      checked={verifPhysicalShop === true}
+                      onChange={() => setVerifPhysicalShop(true)}
+                    />
+                    <span>Yes, physical walk-in store</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="physical"
+                      checked={verifPhysicalShop === false}
+                      onChange={() => setVerifPhysicalShop(false)}
+                    />
+                    <span>Online / Warehouse only</span>
+                  </label>
                 </div>
               </div>
-            )}
 
-            {/* Step 2: Payment Till Instructions & Store Details */}
-            {subStep === 2 && (
-              <div className="space-y-4">
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1.5 text-emerald-950">
-                  <div className="font-bold text-sm">Pay Subscription Fee via M-Pesa:</div>
-                  <div className="font-mono text-xs">Amount: <b>KSh {subPlan === 'enterprise' ? '7,000' : subPlan === 'pro' ? '3,500' : '1,500'}</b></div>
-                  <div className="font-mono text-xs">Buy Goods Till: <b>196853</b> (Buyoll Platform)</div>
-                  <div className="font-mono text-xs">Or Paybill: <b>522533</b> · Account: <b>code4363</b></div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Your Store M-Pesa Till Number (Optional for Option A):
-                    </label>
-                    <input
-                      type="text"
-                      value={subTillNumber}
-                      onChange={(e) => setSubTillNumber(e.target.value)}
-                      placeholder="e.g. 3463533 (for direct member payments)"
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Your Store Paybill Number (Optional):
-                    </label>
-                    <input
-                      type="text"
-                      value={subPaybillNumber}
-                      onChange={(e) => setSubPaybillNumber(e.target.value)}
-                      placeholder="e.g. 26253326"
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-between pt-2">
-                  <button
-                    onClick={() => setSubStep(1)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
-                  >
-                    Back to Step 1
-                  </button>
-                  <button
-                    onClick={() => setSubStep(3)}
-                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
-                  >
-                    <span>Proceed to Step 3</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Physical Shop Address & Landmark <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={verifLocation}
+                  onChange={(e) => setVerifLocation(e.target.value)}
+                  placeholder="e.g. Stall B14, Luthuli Avenue, Nairobi CBD"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                />
               </div>
-            )}
 
-            {/* Step 3: Enter M-Pesa Code */}
-            {subStep === 3 && (
-              <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Plan:</span>
-                    <b className="text-slate-900 uppercase">{subPlan}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Subscription Amount:</span>
-                    <b className="text-[#0E5A3C] font-mono">
-                      KSh {subPlan === 'enterprise' ? '7,000' : subPlan === 'pro' ? '3,500' : '1,500'}
-                    </b>
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Enter M-Pesa Transaction Code <span className="text-red-500">*</span>
+                    Trading Licence No. <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
-                    maxLength={12}
-                    value={subPaymentCode}
-                    onChange={(e) => setSubPaymentCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. QJL890KN12"
-                    className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                    value={verifLicence}
+                    onChange={(e) => setVerifLicence(e.target.value)}
+                    placeholder="e.g. NCC-TL-2026-981"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Once submitted, our Admin team verifies the Till statement and activates your store with a 5-star verified badge!
-                  </p>
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    National ID / Passport <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={verifNationalId}
+                    onChange={(e) => setVerifNationalId(e.target.value)}
+                    placeholder="e.g. 29384756"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                  />
+                </div>
+              </div>
 
-                <div className="flex justify-between pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setSubStep(2)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
-                  >
-                    Back to Step 2
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submittingSubscription}
-                    className="px-5 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
-                  >
-                    {submittingSubscription ? 'Submitting...' : 'Submit Code for Activation'}
-                  </button>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Years Operating
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={verifYears}
+                    onChange={(e) => setVerifYears(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                  />
                 </div>
-              </form>
-            )}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Business Category
+                  </label>
+                  <input
+                    type="text"
+                    value={verifBusinessType}
+                    onChange={(e) => setVerifBusinessType(e.target.value)}
+                    placeholder="e.g. Electronics & Solar"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
+                <b>Field Visit Requirement:</b> Buyoll field representatives will visit your registered premises, inspect your stock, and install an official Buyoll Merchant advert banner.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsVerificationModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingVerification}
+                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                >
+                  {submittingVerification ? 'Submitting Application...' : 'Submit Verification Request'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

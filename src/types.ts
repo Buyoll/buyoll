@@ -59,6 +59,8 @@ export interface UserPreferences {
   instantPayReminderEnabled?: boolean;
   autoRollAnnouncementsEnabled?: boolean;
   theme?: 'light' | 'dark';
+  enterprisePriceAgreed?: boolean;
+  enterpriseAgreedPrice?: number;
 }
 
 export interface SpeedOption {
@@ -363,6 +365,11 @@ export interface PaymentRecord {
   rejectionReason?: string;
   matchedTillEntry?: MpesaStatementRecord;
   idempotencyKey?: string;
+  userPhone?: string;
+  channel?: string;
+  verifiedAt?: number | null;
+  verifiedBy?: string | null;
+  notes?: string;
   createdAt: number;
   approvedAt?: number;
 }

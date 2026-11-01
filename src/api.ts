@@ -2552,6 +2552,212 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
+
+  // -------------------------------------------------------------------
+  // PART A: USER NOTIFICATIONS
+  // -------------------------------------------------------------------
+  async getUserNotifications(): Promise<{ notifications: UserNotification[]; unreadCount: number }> {
+    return await fetchApi<{ notifications: UserNotification[]; unreadCount: number }>('/user/notifications');
+  },
+
+  async markNotificationRead(id: string | number): Promise<any> {
+    return await fetchApi<any>(`/user/notifications/${id}/read`, {
+      method: 'PUT',
+    });
+  },
+
+  async markAllNotificationsRead(): Promise<any> {
+    return await fetchApi<any>('/user/notifications/mark-all-read', {
+      method: 'PUT',
+    });
+  },
+
+  async clearUserNotifications(): Promise<any> {
+    return await fetchApi<any>('/user/notifications', {
+      method: 'DELETE',
+    });
+  },
+
+  // -------------------------------------------------------------------
+  // PART B: USER PROFILE (JUMIA-STYLE, NO CART)
+  // -------------------------------------------------------------------
+  async getUserProfile(): Promise<any> {
+    return await fetchApi<any>('/user/profile');
+  },
+
+  async updateUserProfile(data: { name?: string; phone?: string; email?: string; avatarUrl?: string }): Promise<any> {
+    return await fetchApi<any>('/user/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async addUserAddress(data: Omit<DeliveryAddress, 'id' | 'userId' | 'createdAt'>): Promise<any> {
+    return await fetchApi<any>('/user/addresses', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateUserAddress(id: string, data: Partial<DeliveryAddress>): Promise<any> {
+    return await fetchApi<any>(`/user/addresses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUserAddress(id: string): Promise<any> {
+    return await fetchApi<any>(`/user/addresses/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async saveItemWishlist(productId: number): Promise<any> {
+    return await fetchApi<any>('/user/saved-items', {
+      method: 'POST',
+      body: JSON.stringify({ productId }),
+    });
+  },
+
+  async removeSavedItem(productId: number): Promise<any> {
+    return await fetchApi<any>(`/user/saved-items/${productId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async followMerchant(merchantId: number): Promise<any> {
+    return await fetchApi<any>('/user/follow-merchant', {
+      method: 'POST',
+      body: JSON.stringify({ merchantId }),
+    });
+  },
+
+  async unfollowMerchant(merchantId: number): Promise<any> {
+    return await fetchApi<any>(`/user/follow-merchant/${merchantId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async recordRecentlyViewed(productId: number): Promise<any> {
+    return await fetchApi<any>('/user/recently-viewed', {
+      method: 'POST',
+      body: JSON.stringify({ productId }),
+    });
+  },
+
+  // -------------------------------------------------------------------
+  // PART C & D: MERCHANT SUBSCRIPTION & UPGRADE
+  // -------------------------------------------------------------------
+  async getSubscriptionTiers(): Promise<{ tiers: MerchantSubscriptionTier[] }> {
+    return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/merchant/subscription-tiers');
+  },
+
+  async getMerchantSubscriptionCurrent(): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription/current');
+  },
+
+  async paySubscriptionCoins(tierId: string): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription/pay-coins', {
+      method: 'POST',
+      body: JSON.stringify({ tierId }),
+    });
+  },
+
+  async submitManualSubscription(data: { tierId: string; paymentCode: string; amount: number; channel?: string }): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription/submit-manual', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async payFeaturedCoins(productId: number, days: number): Promise<any> {
+    return await fetchApi<any>('/products/feature/pay-coins', {
+      method: 'POST',
+      body: JSON.stringify({ productId, days }),
+    });
+  },
+
+  // -------------------------------------------------------------------
+  // PART C & G: MERCHANT VERIFICATION
+  // -------------------------------------------------------------------
+  async getMerchantVerificationStatus(): Promise<any> {
+    return await fetchApi<any>('/merchant/verification/status');
+  },
+
+  async submitMerchantVerification(data: Partial<MerchantVerificationRecord>): Promise<any> {
+    return await fetchApi<any>('/merchant/verification/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminMerchantVerifications(): Promise<{ verifications: any[] }> {
+    return await fetchApi<{ verifications: any[] }>('/admin/merchant-verifications');
+  },
+
+  async adminScheduleVisit(merchantId: number, data: { scheduledDate?: string; representative?: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-verifications/${merchantId}/schedule-visit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminCompleteVisit(merchantId: number, data: { notes?: string; advertInstalled?: boolean; photoUrl?: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-verifications/${merchantId}/complete-visit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminGrantExemption(merchantId: number, data: { requirement: string; reason: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-verifications/${merchantId}/grant-exemption`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDecideVerification(merchantId: number, data: { action: 'verify' | 'decline'; declineReason?: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-verifications/${merchantId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Moderated Chat Send
+  async sendModeratedChatMessage(groupId: number, text: string): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/chat-moderated`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  },
+
+  // Admin Subscriptions & Featured Products
+  async getAdminMerchantSubscriptions(): Promise<{ subscriptions: any[] }> {
+    return await fetchApi<{ subscriptions: any[] }>('/admin/merchant-subscriptions');
+  },
+
+  async approveAdminMerchantSubscription(subscriptionId: string): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-subscriptions/${subscriptionId}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async setAdminEnterprisePrice(merchantId: number, agreedPrice: number): Promise<any> {
+    return await fetchApi<any>('/admin/merchant-subscriptions/set-enterprise-price', {
+      method: 'POST',
+      body: JSON.stringify({ merchantId, agreedPrice }),
+    });
+  },
+
+  async getAdminFeaturedProducts(): Promise<{ featured: any[]; allProducts: any[] }> {
+    return await fetchApi<{ featured: any[]; allProducts: any[] }>('/admin/featured-products');
+  },
+
+  async toggleAdminFeaturedProduct(productId: number): Promise<any> {
+    return await fetchApi<any>(`/admin/featured-products/${productId}/toggle`, {
+      method: 'POST',
+    });
+  },
 };
 
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User } from './types.ts';
 import { api, getStoredUser, setStoredUser, resolveImageUrl } from './api.ts';
 import { Header } from './components/Header.tsx';
@@ -11,6 +11,7 @@ import { VendorDashboardPage } from './pages/VendorDashboardPage.tsx';
 import { AdminDashboardPage } from './pages/AdminDashboardPage.tsx';
 import { AdminLoginPage } from './pages/AdminLoginPage.tsx';
 import { LendersDashboardPage } from './pages/LendersDashboardPage.tsx';
+import { ProfilePage } from './pages/ProfilePage.tsx';
 import { AuthModal } from './pages/AuthModal.tsx';
 import { Footer } from './components/Footer.tsx';
 import { HelpSupportModal } from './pages/HelpSupportModal.tsx';
@@ -35,7 +36,7 @@ import {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser());
-  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-login' | 'lenders-dashboard'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-login' | 'lenders-dashboard' | 'profile'>('home');
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -47,11 +48,71 @@ export default function App() {
   const [pendingTargetView, setPendingTargetView] = useState<string | null>(null);
   const [pendingTargetArg, setPendingTargetArg] = useState<any>(null);
 
+  // User and View refs to stabilize callbacks and prevent infinite re-render loops
+  const currentUserRef = useRef<User | null>(currentUser);
+  currentUserRef.current = currentUser;
+
+  const currentViewRef = useRef<{ view: string; arg: any }>({ view: currentView, arg: viewArg });
+  currentViewRef.current = { view: currentView, arg: viewArg };
+
   // Notification state
   const [notification, setNotification] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
+
+  const handleOpenAuth = useCallback((role?: 'member' | 'merchant' | 'lender' | 'admin') => {
+    if (role) {
+      setAuthInitialRole(role);
+    } else {
+      setAuthInitialRole('member');
+    }
+    setIsAuthOpen(true);
+  }, []);
+
+  const handleOpenHelp = useCallback((tab?: string) => {
+    setHelpCategory(tab || 'faq');
+    setIsHelpOpen(true);
+  }, []);
+
+  const handleNavigate = useCallback((view: string, arg?: any, options?: { forceScroll?: boolean }) => {
+    const user = currentUserRef.current;
+    // Protected private route check: redirect unauthenticated visitors to login, preserving destination
+    if (!user && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard' || view === 'profile')) {
+      setPendingTargetView(view);
+      setPendingTargetArg(arg ?? null);
+      const targetRole = view === 'vendor-dashboard' ? 'merchant' : view === 'lenders-dashboard' ? 'lender' : 'member';
+      handleOpenAuth(targetRole);
+      return;
+    }
+
+    const prev = currentViewRef.current;
+    const isSameView = prev.view === view && prev.arg === (arg ?? null);
+
+    setCurrentView(view as any);
+    setViewArg(arg ?? null);
+
+    // Synchronize browser history path for clean, bookmarkable URLs
+    if (typeof window !== 'undefined') {
+      let targetPath = '/announcements';
+      if (view === 'home') targetPath = '/announcements';
+      else if (view === 'my-chamas') targetPath = '/chamas';
+      else if (view === 'wallet') targetPath = '/wallet';
+      else if (view === 'profile') targetPath = '/profile';
+      else if (view === 'vendor-dashboard') targetPath = '/merchant';
+      else if (view === 'lenders-dashboard') targetPath = '/lender';
+      else if (view === 'group' && arg) targetPath = `/chama/${arg}`;
+      else if (view === 'admin-login') targetPath = '/admin/login';
+      else if (view === 'admin-dashboard') targetPath = '/admin/dashboard';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    }
+
+    if (!isSameView || options?.forceScroll) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [handleOpenAuth]);
 
   useEffect(() => {
     // 1. Register Service Worker for Push Notifications
@@ -73,11 +134,12 @@ export default function App() {
       const path = window.location.pathname;
       const hash = window.location.hash.toLowerCase();
       const search = new URLSearchParams(window.location.search);
+      const user = currentUserRef.current;
 
       if (path === '/admin/login' || hash === '#admin' || hash === '#admin-login' || search.get('admin') === 'login') {
         handleNavigate('admin-login');
       } else if (path === '/admin/dashboard' || path === '/admin' || hash === '#admin-dashboard' || search.get('admin') === 'dashboard') {
-        if (!currentUser || currentUser.role !== 'admin') {
+        if (!user || user.role !== 'admin') {
           handleNavigate('admin-login');
         } else {
           handleNavigate('admin-dashboard');
@@ -85,7 +147,7 @@ export default function App() {
       } else if (path === '/announcements' || path === '/home' || path === '/') {
         handleNavigate('home');
       } else if (path === '/chamas' || path === '/my-chamas') {
-        if (!currentUser) {
+        if (!user) {
           setPendingTargetView('my-chamas');
           handleOpenAuth('member');
           handleNavigate('home');
@@ -93,7 +155,7 @@ export default function App() {
           handleNavigate('my-chamas');
         }
       } else if (path === '/wallet') {
-        if (!currentUser) {
+        if (!user) {
           setPendingTargetView('wallet');
           handleOpenAuth('member');
           handleNavigate('home');
@@ -101,7 +163,7 @@ export default function App() {
           handleNavigate('wallet');
         }
       } else if (path === '/merchant') {
-        if (!currentUser) {
+        if (!user) {
           setPendingTargetView('vendor-dashboard');
           handleOpenAuth('merchant');
           handleNavigate('home');
@@ -109,12 +171,20 @@ export default function App() {
           handleNavigate('vendor-dashboard');
         }
       } else if (path === '/lender') {
-        if (!currentUser) {
+        if (!user) {
           setPendingTargetView('lenders-dashboard');
           handleOpenAuth('lender');
           handleNavigate('home');
         } else {
           handleNavigate('lenders-dashboard');
+        }
+      } else if (path === '/profile' || hash === '#profile') {
+        if (!user) {
+          setPendingTargetView('profile');
+          handleOpenAuth('member');
+          handleNavigate('home');
+        } else {
+          handleNavigate('profile', search.get('tab') || undefined);
         }
       } else if (path === '/help') {
         handleOpenHelp('faq');
@@ -130,20 +200,7 @@ export default function App() {
     window.addEventListener('popstate', syncRouteFromUrl);
     window.addEventListener('hashchange', syncRouteFromUrl);
 
-    // 4. Check session on load & trigger payment due checks
-    if (currentUser) {
-      api.getMe()
-        .then(res => {
-          setCurrentUser(res.user);
-          // Check payment due reminders
-          api.getGroups().then(grpRes => {
-            checkAndTriggerPaymentDueAlerts(res.user, grpRes.groups);
-          }).catch(() => {});
-        })
-        .catch(() => {});
-    }
-
-    // 5. Capture referral code if opened via /join?ref=... or ?ref=...
+    // 4. Capture referral code if opened via /join?ref=... or ?ref=...
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const refParam = params.get('ref');
@@ -160,45 +217,45 @@ export default function App() {
       window.removeEventListener('popstate', syncRouteFromUrl);
       window.removeEventListener('hashchange', syncRouteFromUrl);
     };
-  }, [currentUser]);
+  }, [handleNavigate, handleOpenAuth, handleOpenHelp]);
+
+  // Session verification: depend strictly on primitive user ID (not object reference)
+  const currentUserId = currentUser?.id;
+  useEffect(() => {
+    if (!currentUserId) return;
+    api.getMe()
+      .then(res => {
+        if (!res?.user) return;
+        setCurrentUser(prev => {
+          if (!prev) return res.user;
+          if (
+            prev.id === res.user.id &&
+            prev.credit === res.user.credit &&
+            prev.coins === res.user.coins &&
+            prev.points === res.user.points &&
+            prev.role === res.user.role &&
+            prev.name === res.user.name &&
+            prev.phone === res.user.phone
+          ) {
+            return prev;
+          }
+          return res.user;
+        });
+
+        api.getGroups().then(grpRes => {
+          if (grpRes?.groups) {
+            checkAndTriggerPaymentDueAlerts(res.user, grpRes.groups);
+          }
+        }).catch(() => {});
+      })
+      .catch(() => {});
+  }, [currentUserId]);
 
   function handleNotify(type: 'success' | 'error' | 'info', message: string) {
     setNotification({ type, message });
     setTimeout(() => {
       setNotification((curr) => (curr?.message === message ? null : curr));
     }, 4500);
-  }
-
-  function handleNavigate(view: string, arg?: any) {
-    // Protected private route check: redirect unauthenticated visitors to login, preserving destination
-    if (!currentUser && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard')) {
-      setPendingTargetView(view);
-      setPendingTargetArg(arg ?? null);
-      const targetRole = view === 'vendor-dashboard' ? 'merchant' : view === 'lenders-dashboard' ? 'lender' : 'member';
-      handleOpenAuth(targetRole);
-      return;
-    }
-
-    setCurrentView(view as any);
-    setViewArg(arg ?? null);
-
-    // Synchronize browser history path for clean, bookmarkable URLs
-    if (typeof window !== 'undefined') {
-      let targetPath = '/announcements';
-      if (view === 'home') targetPath = '/announcements';
-      else if (view === 'my-chamas') targetPath = '/chamas';
-      else if (view === 'wallet') targetPath = '/wallet';
-      else if (view === 'vendor-dashboard') targetPath = '/merchant';
-      else if (view === 'lenders-dashboard') targetPath = '/lender';
-      else if (view === 'group' && arg) targetPath = `/chama/${arg}`;
-      else if (view === 'admin-login') targetPath = '/admin/login';
-      else if (view === 'admin-dashboard') targetPath = '/admin/dashboard';
-      if (window.location.pathname !== targetPath) {
-        window.history.pushState(null, '', targetPath);
-      }
-    }
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleLogout() {
@@ -211,20 +268,6 @@ export default function App() {
     }
     handleNotify('info', 'You have been signed out.');
     handleNavigate('home');
-  }
-
-  function handleOpenHelp(tab?: string) {
-    setHelpCategory(tab || 'faq');
-    setIsHelpOpen(true);
-  }
-
-  function handleOpenAuth(role?: 'member' | 'merchant' | 'lender' | 'admin') {
-    if (role) {
-      setAuthInitialRole(role);
-    } else {
-      setAuthInitialRole('member');
-    }
-    setIsAuthOpen(true);
   }
 
   return (
@@ -361,6 +404,16 @@ export default function App() {
             onNavigate={handleNavigate}
             onOpenAuth={() => handleOpenAuth('lender')}
             onNotify={handleNotify}
+          />
+        )}
+
+        {currentView === 'profile' && currentUser && (
+          <ProfilePage
+            currentUser={currentUser}
+            onNavigate={handleNavigate}
+            onOpenAuth={() => handleOpenAuth('member')}
+            onNotify={handleNotify}
+            initialTab={viewArg || 'overview'}
           />
         )}
       </main>
