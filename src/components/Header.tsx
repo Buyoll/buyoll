@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User } from '../types.ts';
-import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Sparkles, Clock, AlertTriangle, ArrowRight, Store, Landmark } from 'lucide-react';
+import { User, UserRole } from '../types.ts';
+import { getUserActiveRole, getUserRoles } from '../utils/rbac.ts';
+import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Sparkles, Clock, AlertTriangle, ArrowRight, Store, Landmark, ShieldCheck, Megaphone, Users } from 'lucide-react';
 import { api, resolveImageUrl } from '../api.ts';
 import {
   getInAppNotifications,
@@ -177,12 +178,15 @@ export const Header: React.FC<HeaderProps> = ({
         .toUpperCase()
     : 'BY';
 
+  const activeRole = getUserActiveRole(currentUser);
+  const userRoles = getUserRoles(currentUser);
+
   const userRoleLabel =
-    currentUser?.role === 'admin'
+    activeRole === 'admin'
       ? 'Admin'
-      : currentUser?.role === 'merchant'
+      : activeRole === 'merchant'
       ? 'Merchant'
-      : currentUser?.role === 'lender'
+      : activeRole === 'lender'
       ? 'Lender'
       : 'Member';
 
@@ -284,142 +288,182 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </button>
 
-            {/* Desktop & Tablet: Nav items CENTERED in the available space with even gap (8-12px) */}
+            {/* Desktop & Tablet: Role-specific navigation */}
             <nav
               aria-label="Main Navigation"
               className="hidden md:flex flex-1 items-center justify-center gap-1.5 lg:gap-2.5 mx-2"
             >
-              {/* Announcements */}
-              <button
-                onClick={() => onNavigate('home')}
-                aria-current={currentView === 'home' ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                  currentView === 'home'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                }`}
-              >
-                <svg
-                  className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
+              {/* MEMBER & GUEST: Announcements, My Chamas, Share (No Merchant, No Lender, No Wallet) */}
+              {(!currentUser || activeRole === 'member') && (
+                <>
+                  <button
+                    onClick={() => onNavigate('home')}
+                    aria-current={currentView === 'home' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
+                      <path d="M15 9a4 4 0 0 1 0 6" />
+                    </svg>
+                    <span className="leading-tight text-center">Announcements</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (!currentUser) onOpenAuth('member');
+                      else onNavigate('my-chamas');
+                    }}
+                    aria-current={currentView === 'my-chamas' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'my-chamas'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="9" cy="8" r="3" />
+                      <path d="M3 20a6 6 0 0 1 12 0" />
+                      <circle cx="17" cy="9" r="2.5" />
+                      <path d="M17 14a5 5 0 0 1 4 5" />
+                    </svg>
+                    <span className="leading-tight text-center">My Chamas</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareApp}
+                    aria-label="Share App with friends"
+                    className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Share2 className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+                    <span className="leading-tight text-center">Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* MERCHANT: Merchant dashboard, My Chamas, Announcements, Share (No Lender, No Member dashboard, No Wallet) */}
+              {currentUser && activeRole === 'merchant' && (
+                <>
+                  <button
+                    onClick={() => onNavigate('vendor-dashboard')}
+                    aria-current={currentView === 'vendor-dashboard' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'vendor-dashboard'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <Store className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                    <span className="leading-tight text-center">Merchant</span>
+                  </button>
+
+                  <button
+                    onClick={() => onNavigate('my-chamas')}
+                    aria-current={currentView === 'my-chamas' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'my-chamas'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="9" cy="8" r="3" />
+                      <path d="M3 20a6 6 0 0 1 12 0" />
+                      <circle cx="17" cy="9" r="2.5" />
+                      <path d="M17 14a5 5 0 0 1 4 5" />
+                    </svg>
+                    <span className="leading-tight text-center">My Chamas</span>
+                  </button>
+
+                  <button
+                    onClick={() => onNavigate('home')}
+                    aria-current={currentView === 'home' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
+                      <path d="M15 9a4 4 0 0 1 0 6" />
+                    </svg>
+                    <span className="leading-tight text-center">Announcements</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareApp}
+                    aria-label="Share App with friends"
+                    className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Share2 className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+                    <span className="leading-tight text-center">Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* LENDER: Lender dashboard, Notifications, Share (No Merchant, No Member dashboard, No My Chamas, No Wallet) */}
+              {currentUser && activeRole === 'lender' && (
+                <>
+                  <button
+                    onClick={() => onNavigate('lenders-dashboard')}
+                    aria-current={currentView === 'lenders-dashboard' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'lenders-dashboard'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <Landmark className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                    <span className="leading-tight text-center">Lender</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsNotifMenuOpen(!isNotifMenuOpen)}
+                    aria-label="Notifications"
+                    className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Bell className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+                    <span className="leading-tight text-center">Notifications</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareApp}
+                    aria-label="Share App with friends"
+                    className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Share2 className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+                    <span className="leading-tight text-center">Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* ADMIN: Admin dashboard ONLY */}
+              {currentUser && activeRole === 'admin' && (
+                <button
+                  onClick={() => onNavigate('admin-dashboard')}
+                  aria-current={currentView === 'admin-dashboard' ? 'page' : undefined}
+                  className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                    currentView === 'admin-dashboard'
+                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                  }`}
                 >
-                  <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
-                  <path d="M15 9a4 4 0 0 1 0 6" />
-                </svg>
-                <span className="leading-tight text-center">Announcements</span>
-              </button>
-
-              {/* My Chamas */}
-              <button
-                onClick={() => {
-                  if (!currentUser) onOpenAuth('member');
-                  else onNavigate('my-chamas');
-                }}
-                aria-current={currentView === 'my-chamas' ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                  currentView === 'my-chamas'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                }`}
-              >
-                <svg
-                  className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="9" cy="8" r="3" />
-                  <path d="M3 20a6 6 0 0 1 12 0" />
-                  <circle cx="17" cy="9" r="2.5" />
-                  <path d="M17 14a5 5 0 0 1 4 5" />
-                </svg>
-                <span className="leading-tight text-center">My Chamas</span>
-              </button>
-
-              {/* Wallet */}
-              <button
-                onClick={() => {
-                  if (!currentUser) onOpenAuth('member');
-                  else onNavigate('wallet');
-                }}
-                aria-current={currentView === 'wallet' ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                  currentView === 'wallet'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                }`}
-              >
-                <svg
-                  className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="6" width="18" height="13" rx="2" />
-                  <path d="M3 10h18M16 14.5h2" />
-                </svg>
-                <span className="leading-tight text-center">Wallet</span>
-              </button>
-
-              {/* Merchant */}
-              <button
-                onClick={() => {
-                  if (!currentUser) onOpenAuth('merchant');
-                  else onNavigate('vendor-dashboard');
-                }}
-                aria-current={currentView === 'vendor-dashboard' ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                  currentView === 'vendor-dashboard'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                }`}
-              >
-                <Store className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
-                <span className="leading-tight text-center">Merchant</span>
-              </button>
-
-              {/* Lender */}
-              <button
-                onClick={() => {
-                  if (!currentUser) onOpenAuth('lender');
-                  else onNavigate('lenders-dashboard');
-                }}
-                aria-current={currentView === 'lenders-dashboard' ? 'page' : undefined}
-                className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                  currentView === 'lenders-dashboard'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                }`}
-              >
-                <Landmark className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
-                <span className="leading-tight text-center">Lender</span>
-              </button>
-
-              {/* Share App button (Prompt 2 Feature B) */}
-              <button
-                type="button"
-                onClick={handleShareApp}
-                aria-label="Share App with friends"
-                title="Share App & Earn referral points"
-                className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
-              >
-                <Share2 className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
-                <span className="leading-tight text-center">Share</span>
-              </button>
+                  <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="9" />
+                    <rect x="14" y="3" width="7" height="5" />
+                    <rect x="14" y="12" width="7" height="9" />
+                    <rect x="3" y="16" width="7" height="5" />
+                  </svg>
+                  <span className="leading-tight text-center">Admin Console</span>
+                </button>
+              )}
             </nav>
 
             {/* Right section: User Profile / Sign In Button */}
@@ -449,16 +493,77 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   {isUserMenuOpen && (
-                    <div className="absolute right-0 top-[calc(100%+8px)] min-w-[220px] bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.14)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.7)] z-50 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute right-0 top-[calc(100%+8px)] min-w-[240px] bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-2 shadow-[0_8px_24px_rgba(0,0,0,0.14)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.7)] z-50 animate-in fade-in zoom-in-95 duration-150">
+                      {/* User Info Header */}
                       <div className="px-3 py-2 border-b border-[#E5E7EB] dark:border-[#24312C] mb-1">
-                        <p className="text-xs font-bold text-[#111827] dark:text-[#F3F4F6]">{currentUser.name}</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-[#111827] dark:text-[#F3F4F6]">{currentUser.name}</p>
+                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 rounded uppercase">
+                            {activeRole}
+                          </span>
+                        </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{currentUser.phone || currentUser.email}</p>
+                        
+                        {/* Unique Permanent Customer Platform ID */}
+                        {currentUser.platformId && (
+                          <div className="mt-1.5 flex items-center justify-between bg-slate-50 dark:bg-[#1A2622] px-2 py-1 rounded text-[10.5px] font-mono text-slate-700 dark:text-slate-300">
+                            <span className="font-semibold text-slate-500 dark:text-slate-400">ID:</span>
+                            <span className="font-bold">{currentUser.platformId}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(currentUser.platformId || '');
+                                onNotify?.('success', 'Platform ID copied to clipboard!');
+                              }}
+                              title="Copy Customer ID"
+                              className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 ml-1"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+
                         <div className="flex items-center gap-2 mt-1 text-[11px]">
                           <span className="text-[#0F5C3A] dark:text-[#4ADE9A] font-semibold">Coins: {currentUser.coins || 0}</span>
                           <span className="text-slate-400 dark:text-slate-600">·</span>
                           <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Points: {currentUser.points || 0}</span>
                         </div>
                       </div>
+
+                      {/* ROLE SWITCHER: Only visible if user holds more than one role */}
+                      {userRoles.length > 1 && (
+                        <div className="px-3 py-2 bg-emerald-50/50 dark:bg-[#16221E] rounded-lg my-1.5 border border-emerald-100 dark:border-emerald-950/60">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 mb-1.5">
+                            Switch Active Role
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {userRoles.map((r) => (
+                              <button
+                                key={r}
+                                onClick={async () => {
+                                  if (r !== activeRole) {
+                                    try {
+                                      await api.switchRole(r);
+                                      setIsUserMenuOpen(false);
+                                      onNotify?.('success', `Switched active role to ${r}!`);
+                                      window.location.reload();
+                                    } catch (e: any) {
+                                      onNotify?.('error', e.message || 'Failed to switch role');
+                                    }
+                                  }
+                                }}
+                                className={`px-2 py-1 text-[11px] font-bold rounded-md capitalize transition-colors ${
+                                  r === activeRole
+                                    ? 'bg-[#0E5A3C] text-white shadow-xs'
+                                    : 'bg-white dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] text-slate-700 dark:text-slate-300 hover:bg-slate-50'
+                                }`}
+                              >
+                                {r}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <button
                         onClick={() => {
@@ -468,7 +573,17 @@ export const Header: React.FC<HeaderProps> = ({
                         className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] transition-colors flex items-center justify-between"
                       >
                         <span>My Profile (Customer Portal)</span>
-                        <span className="text-[10px] bg-[#0F5C3A] text-white px-1.5 py-0.2 rounded-full font-bold">New</span>
+                        <span className="text-[10px] bg-[#0F5C3A] text-white px-1.5 py-0.2 rounded-full font-bold">Private</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          onNavigate('profile', 'overview');
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                      >
+                        My {userRoleLabel} Wallet
                       </button>
 
                       <button
@@ -481,17 +596,7 @@ export const Header: React.FC<HeaderProps> = ({
                         Private Notifications
                       </button>
 
-                      <button
-                        onClick={() => {
-                          setIsUserMenuOpen(false);
-                          onNavigate('wallet');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
-                      >
-                        Wallet &amp; Statements
-                      </button>
-
-                      {currentUser.role === 'merchant' && (
+                      {activeRole === 'merchant' && (
                         <button
                           onClick={() => {
                             setIsUserMenuOpen(false);
@@ -499,11 +604,23 @@ export const Header: React.FC<HeaderProps> = ({
                           }}
                           className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
                         >
-                          Merchant Storefront
+                          Merchant Dashboard
                         </button>
                       )}
 
-                      {currentUser.role === 'admin' && (
+                      {activeRole === 'lender' && (
+                        <button
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            onNavigate('lenders-dashboard');
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                        >
+                          Lenders Desk
+                        </button>
+                      )}
+
+                      {activeRole === 'admin' && (
                         <button
                           onClick={() => {
                             setIsUserMenuOpen(false);
@@ -594,143 +711,238 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Mobile Slide-Down Menu (<768px): same items in same order with >=44px touch targets */}
+        {/* Mobile Slide-Down Menu (<768px): Role-specific navigation items */}
         {isMobileMenuOpen && (
           <div
             ref={mobileMenuRef}
             className="md:hidden border-t border-[#E5E7EB] dark:border-[#24312C] bg-white dark:bg-[#111A17] px-4 py-3 shadow-lg animate-in slide-in-from-top-2 duration-150"
           >
             <nav className="flex flex-col gap-1" aria-label="Mobile Navigation">
-              {/* Announcements */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onNavigate('home');
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'home'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
-                  <path d="M15 9a4 4 0 0 1 0 6" />
-                </svg>
-                <span>Announcements</span>
-              </button>
+              {/* Not Logged In View */}
+              {!currentUser && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('home');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Megaphone className="w-5 h-5 shrink-0" />
+                    <span>Announcements</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleShareApp();
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A] transition-colors"
+                  >
+                    <Share2 className="w-5 h-5 shrink-0" />
+                    <span>Share App &amp; Invite</span>
+                  </button>
+                </>
+              )}
 
-              {/* My Chamas */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  if (!currentUser) onOpenAuth('member');
-                  else onNavigate('my-chamas');
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'my-chamas'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="9" cy="8" r="3" />
-                  <path d="M3 20a6 6 0 0 1 12 0" />
-                  <circle cx="17" cy="9" r="2.5" />
-                  <path d="M17 14a5 5 0 0 1 4 5" />
-                </svg>
-                <span>My Chamas</span>
-              </button>
+              {/* MEMBER: Announcements, My Chamas, Share */}
+              {currentUser && activeRole === 'member' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('home');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Megaphone className="w-5 h-5 shrink-0" />
+                    <span>Announcements</span>
+                  </button>
 
-              {/* Wallet */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  if (!currentUser) onOpenAuth('member');
-                  else onNavigate('wallet');
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'wallet'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="6" width="18" height="13" rx="2" />
-                  <path d="M3 10h18M16 14.5h2" />
-                </svg>
-                <span>Wallet</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('my-chamas');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'my-chamas'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Users className="w-5 h-5 shrink-0" />
+                    <span>My Chamas</span>
+                  </button>
 
-              {/* My Profile */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleShareApp();
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A] transition-colors"
+                  >
+                    <Share2 className="w-5 h-5 shrink-0" />
+                    <span>Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* MERCHANT: Merchant dashboard, My Chamas, Announcements, Share */}
+              {currentUser && activeRole === 'merchant' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('vendor-dashboard');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'vendor-dashboard'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Store className="w-5 h-5 shrink-0" />
+                    <span>Merchant Dashboard</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('my-chamas');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'my-chamas'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Users className="w-5 h-5 shrink-0" />
+                    <span>My Chamas</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('home');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Megaphone className="w-5 h-5 shrink-0" />
+                    <span>Announcements</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleShareApp();
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A] transition-colors"
+                  >
+                    <Share2 className="w-5 h-5 shrink-0" />
+                    <span>Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* LENDER: Lender dashboard, Notifications, Share */}
+              {currentUser && activeRole === 'lender' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onNavigate('lenders-dashboard');
+                    }}
+                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      currentView === 'lenders-dashboard'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                    }`}
+                  >
+                    <Landmark className="w-5 h-5 shrink-0" />
+                    <span>Lender Dashboard</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setIsNotifMenuOpen(!isNotifMenuOpen);
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
+                  >
+                    <Bell className="w-5 h-5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" />
+                    <span>Notifications</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleShareApp();
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A] transition-colors"
+                  >
+                    <Share2 className="w-5 h-5 shrink-0" />
+                    <span>Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* ADMIN: Admin dashboard ONLY */}
+              {currentUser && activeRole === 'admin' && (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onNavigate('admin-dashboard');
+                  }}
+                  className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    currentView === 'admin-dashboard'
+                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
+                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
+                  }`}
+                >
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="9" />
+                    <rect x="14" y="3" width="7" height="5" />
+                    <rect x="14" y="12" width="7" height="9" />
+                    <rect x="3" y="16" width="7" height="5" />
+                  </svg>
+                  <span>Admin Console</span>
+                </button>
+              )}
+
+              {/* My Profile option for logged in users */}
               {currentUser && (
                 <button
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     onNavigate('profile');
                   }}
-                  className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold border-t border-slate-100 dark:border-[#24312C] mt-1 pt-2 transition-colors ${
                     currentView === 'profile'
                       ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
                       : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
                   }`}
                 >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                  <span>My Profile</span>
+                  <span className="w-6 h-6 rounded-full bg-[#0F5C3A] text-white flex items-center justify-center text-[10px] font-bold">
+                    {initials}
+                  </span>
+                  <span>My Profile ({currentUser.platformId || activeRole})</span>
                 </button>
               )}
-
-
-
-              {/* Merchant */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  if (!currentUser) onOpenAuth('merchant');
-                  else onNavigate('vendor-dashboard');
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'vendor-dashboard'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <Store className="w-5 h-5 shrink-0" />
-                <span>Merchant</span>
-              </button>
-
-              {/* Lender */}
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  if (!currentUser) onOpenAuth('lender');
-                  else onNavigate('lenders-dashboard');
-                }}
-                className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  currentView === 'lenders-dashboard'
-                    ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                    : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                }`}
-              >
-                <Landmark className="w-5 h-5 shrink-0" />
-                <span>Lender</span>
-              </button>
-
-              {/* Share App */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  handleShareApp();
-                }}
-                className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A] transition-colors"
-              >
-                <Share2 className="w-5 h-5 shrink-0" />
-                <span>Share App &amp; Invite Members</span>
-              </button>
             </nav>
           </div>
         )}

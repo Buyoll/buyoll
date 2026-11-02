@@ -10,7 +10,20 @@
       "coins": 200,
       "points": 500,
       "lastActive": 1792940798885,
-      "createdAt": 1790261094021
+      "createdAt": 1790261094021,
+      "activeRole": "admin",
+      "roles": [
+        "admin"
+      ],
+      "platformId": "BYL-A-10001",
+      "roleWallets": {
+        "admin": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 500
+        }
+      }
     },
     {
       "id": 2,
@@ -27,29 +40,68 @@
       "coins": 100,
       "points": 250,
       "lastActive": 1792853094021,
-      "createdAt": 1791125094021
+      "createdAt": 1791125094021,
+      "activeRole": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "platformId": "BYL-V-10002",
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 100,
+          "points": 250
+        }
+      }
     },
     {
       "id": 3,
       "name": "Samuel Mwangi",
       "phone": "0712345678",
-      "role": "buyer",
+      "role": "member",
       "credit": 0,
       "coins": 50,
       "points": 120,
-      "lastActive": 1792853094021,
-      "createdAt": 1791989094021
+      "lastActive": 1793634881286,
+      "createdAt": 1791989094021,
+      "activeRole": "member",
+      "roles": [
+        "member"
+      ],
+      "platformId": "BYL-M-10003",
+      "roleWallets": {
+        "member": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 50,
+          "points": 120
+        }
+      }
     },
     {
       "id": 4,
       "name": "Faith Chebet",
       "phone": "0723456789",
-      "role": "buyer",
+      "role": "member",
       "credit": 2040,
       "coins": 40,
       "points": 80,
       "lastActive": 1792853094021,
-      "createdAt": 1792161894021
+      "createdAt": 1792161894021,
+      "activeRole": "member",
+      "roles": [
+        "member"
+      ],
+      "platformId": "BYL-M-10004",
+      "roleWallets": {
+        "member": {
+          "credit": 2040,
+          "nonWithdrawableBalance": 0,
+          "coins": 40,
+          "points": 80
+        }
+      }
     },
     {
       "id": 30,
@@ -61,7 +113,20 @@
       "coins": 200,
       "points": 450,
       "lastActive": 1792940798885,
-      "createdAt": 1791989094021
+      "createdAt": 1791989094021,
+      "activeRole": "lender",
+      "roles": [
+        "lender"
+      ],
+      "platformId": "BYL-L-10030",
+      "roleWallets": {
+        "lender": {
+          "credit": 120000,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 450
+        }
+      }
     }
   ],
   "products": [
@@ -616,6 +681,30 @@
   ],
   "auditLogs": [
     {
+      "id": 18,
+      "timestamp": 1793634968295,
+      "actorId": 10,
+      "actorName": "Hacker Test",
+      "action": "ROLE_SWITCHED",
+      "details": "Switched active role to: member."
+    },
+    {
+      "id": 17,
+      "timestamp": 1793634961405,
+      "actorId": 10,
+      "actorName": "Hacker Test",
+      "action": "ROLE_REGISTERED",
+      "details": "Completed registration for role: merchant."
+    },
+    {
+      "id": 16,
+      "timestamp": 1793634956139,
+      "actorId": 10,
+      "actorName": "Hacker Test",
+      "action": "USER_REGISTERED",
+      "details": "New member account registered through portal."
+    },
+    {
       "id": 15,
       "timestamp": 1792853160087,
       "actorId": 1,
@@ -681,15 +770,173 @@
     }
   ],
   "nextIds": {
-    "user": 10,
+    "user": 11,
     "product": 20,
     "group": 201,
     "defaultRecord": 2,
     "refundRequest": 1,
     "payment": 10,
     "ledger": 2,
-    "audit": 16,
-    "peerLoan": 1
+    "audit": 19,
+    "peerLoan": 1,
+    "coinLedger": 1,
+    "moderation": 1
   },
-  "peerLoans": []
+  "peerLoans": [],
+  "helpChat": [],
+  "coinLedger": [],
+  "chatModerationLogs": [],
+  "walletDeposits": [],
+  "supportTickets": [],
+  "announcements": [
+    {
+      "id": 1,
+      "title": "Welcome to Buyoll Chama Marketplace!",
+      "body": "Kenya’s first social fintech marketplace combining rotating savings groups (Chamas), Lipa Mdogomdogo, and verified merchant deals.",
+      "category": "Platform Update",
+      "createdAt": 1793458542812,
+      "authorName": "Buyoll Platform Team"
+    },
+    {
+      "id": 2,
+      "title": "New: Lipa Mdogomdogo Solo Plans Live",
+      "body": "Save towards any appliance or smart electronics with single-member Lipa Mdogomdogo plans over 1 to 6 months. Zero interest, direct merchant fulfillment.",
+      "category": "Savings Plans",
+      "createdAt": 1793544942812,
+      "authorName": "Buyoll Savings Desk"
+    },
+    {
+      "id": 3,
+      "title": "Merchant & 3rd-Party Lender Portals Open",
+      "body": "Verified merchants can list inventory with 10-speed Chama groups. 3rd-party lenders can fund member wallets with guaranteed 3% platform commission.",
+      "category": "Merchant & Lending",
+      "createdAt": 1793616942812,
+      "authorName": "Buyoll Operations"
+    }
+  ],
+  "mpesaStatements": [
+    {
+      "code": "RFM9B3V5KT",
+      "amount": 2040,
+      "phone": "0711000000",
+      "payerName": "Faith Chebet",
+      "timestamp": 1793627742812,
+      "channel": "Till 196853"
+    },
+    {
+      "code": "QAD8912KLM",
+      "amount": 6800,
+      "phone": "0712345678",
+      "payerName": "Samuel Mwangi",
+      "timestamp": 1793624142812,
+      "channel": "Till 196853"
+    },
+    {
+      "code": "TX99281MNB",
+      "amount": 500,
+      "phone": "0722334455",
+      "payerName": "Grace Muthoni",
+      "timestamp": 1793616942812,
+      "channel": "Paybill 522533"
+    }
+  ],
+  "userNotifications": [
+    {
+      "id": 1,
+      "userId": 3,
+      "title": "Welcome to Buyoll Social Fintech",
+      "message": "Your personal member profile is ready. Browse verified merchant products and pick your rotating Chama savings group!",
+      "type": "system",
+      "read": false,
+      "timestamp": 1793544942812
+    },
+    {
+      "id": 2,
+      "userId": 3,
+      "title": "Platform Announcement: Lipa Mdogomdogo Live",
+      "message": "Official Buyoll update: Single-member Lipa Mdogomdogo solo plans are now active.",
+      "type": "broadcast",
+      "read": true,
+      "timestamp": 1793588142812
+    },
+    {
+      "id": 3,
+      "userId": 2,
+      "title": "Storefront Status: Verified Merchant Active",
+      "message": "Your merchant store is verified and your 30-day posting subscription is active.",
+      "type": "verification",
+      "read": true,
+      "timestamp": 1793199342812
+    }
+  ],
+  "deliveryAddresses": [
+    {
+      "id": "addr_1",
+      "userId": 3,
+      "fullName": "Faith Chebet",
+      "phone": "0711000000",
+      "county": "Nairobi",
+      "city": "Westlands",
+      "streetAddress": "Ring Road Parklands, Westgate Plaza Apt 4B",
+      "isDefault": true,
+      "createdAt": 1792767342812
+    }
+  ],
+  "memberOrders": [
+    {
+      "id": "ord_1",
+      "userId": 3,
+      "groupId": 1,
+      "groupName": "Samsung Crystal UHD 55\" Chama",
+      "productId": 1,
+      "productTitle": "Samsung 55\" Crystal UHD 4K Smart TV",
+      "productPrice": 58000,
+      "productImage": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=600&q=80",
+      "slotNumber": 1,
+      "speed": 10,
+      "status": "confirmed",
+      "totalPaid": 58000,
+      "targetAmount": 58000,
+      "expectedDeliveryDate": 1794063342812,
+      "createdAt": 1792335342812
+    }
+  ],
+  "merchantVerifications": [
+    {
+      "merchantId": 2,
+      "status": "verified",
+      "hasPhysicalShop": true,
+      "tradingLicenceNumber": "TL-NRB-2024-88319",
+      "nationalIdOrPassport": "29881234",
+      "yearsOperating": 4,
+      "businessType": "Consumer Electronics & Appliances",
+      "shopLocation": "Luthuli Avenue, Al-Noor Complex Shop G12, Nairobi CBD",
+      "shopVisitScheduledAt": 1790175342812,
+      "shopVisitCompletedAt": 1790348142812,
+      "shopVisitRepresentative": "Evans Kiprop (Buyoll Field Verification Team)",
+      "shopVisitNotes": "Physical shop verified. Adequate stock verified on shelves. Trading licence original inspected.",
+      "advertInstalledAt": 1790348142812,
+      "advertPhotoUrl": "https://images.unsplash.com/photo-1555421689-491a97ff2040?auto=format&fit=crop&w=600&q=80",
+      "submittedAt": 1789743342812,
+      "reviewedAt": 1790348142812
+    }
+  ],
+  "merchantSubscriptions": [
+    {
+      "id": "sub_active_2",
+      "merchantId": 2,
+      "tierId": "tier_500",
+      "tierName": "KES 500 Plan (Growing Merchant)",
+      "amount": 500,
+      "paymentMethod": "wallet_coins",
+      "status": "active",
+      "startDate": 1792767342812,
+      "expiresAt": 1795359342812,
+      "createdAt": 1792767342812
+    }
+  ],
+  "chatStrikes": [],
+  "savedItems": [],
+  "followedMerchants": [],
+  "recentlyViewed": []
 }

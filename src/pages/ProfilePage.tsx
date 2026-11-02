@@ -30,7 +30,9 @@ import {
   X,
   Check,
   Landmark,
+  Copy,
 } from 'lucide-react';
+import { getUserActiveRole, getUserRoles, getRoleHomeRoute } from '../utils/rbac.ts';
 
 interface ProfilePageProps {
   currentUser: User | null;
@@ -96,6 +98,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [smsEnabled, setSmsEnabled] = useState(true);
   const [pushEnabled, setPushEnabled] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Dedicated Role Registration Modal state
+  const [showRoleModal, setShowRoleModal] = useState<'merchant' | 'lender' | null>(null);
+  const [roleShopName, setRoleShopName] = useState('');
+  const [roleShopDesc, setRoleShopDesc] = useState('');
+  const [roleCategory, setRoleCategory] = useState('Electronics & Solar');
+  const [roleLenderType, setRoleLenderType] = useState('Individual Peer Lender');
+  const [submittingRole, setSubmittingRole] = useState(false);
+
+  async function handleRegisterRole(role: 'merchant' | 'lender') {
+    setSubmittingRole(true);
+    try {
+      const details =
+        role === 'merchant'
+          ? {
+              shopName: roleShopName || `${currentUser?.name}'s Shop`,
+              shopDescription: roleShopDesc || 'Verified Buyoll Merchant Store',
+              category: roleCategory,
+            }
+          : { lenderType: roleLenderType, location: 'Kenya' };
+      const res = await api.registerRole(role, details);
+      onNotify('success', res.message || `Registered as ${role}!`);
+      setShowRoleModal(null);
+      window.location.reload();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to register role');
+    } finally {
+      setSubmittingRole(false);
+    }
+  }
 
   useEffect(() => {
     if (initialTab) {
@@ -297,6 +329,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     return n.type === notifFilter;
   });
 
+  const activeRole = getUserActiveRole(currentUser);
+  const userRoles = getUserRoles(currentUser);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       {/* Top Banner / User Identification Bar */}
@@ -319,7 +354,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 {currentUser.name}
               </h1>
               <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-black uppercase rounded-full tracking-wider">
-                {currentUser.role}
+                {activeRole}
               </span>
               {currentUser.verified && (
                 <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold rounded-full flex items-center gap-1">
@@ -328,7 +363,61 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1 flex-wrap">
+
+            {/* Unique Permanent Customer Platform ID */}
+            {currentUser.platformId && (
+              <div className="mt-2 flex items-center gap-2 bg-slate-50 dark:bg-[#1A2622] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#24312C] text-xs font-mono text-slate-700 dark:text-slate-300 w-fit">
+                <span className="font-semibold text-slate-500">Customer ID:</span>
+                <span className="font-bold text-[#0E5A3C] dark:text-[#4ADE9A]">{currentUser.platformId}</span>
+                <span className="text-[10.5px] text-slate-400 font-sans hidden sm:inline">(Permanent Platform ID)</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(currentUser.platformId || '');
+                    onNotify('success', 'Permanent Customer ID copied to clipboard!');
+                  }}
+                  title="Copy Customer ID"
+                  className="p-1 text-slate-400 hover:text-[#0E5A3C] dark:hover:text-[#4ADE9A] transition-colors ml-1 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Active Role Switcher: Only shown if user holds more than one role */}
+            {userRoles.length > 1 && (
+              <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Switch Role:</span>
+                <div className="flex items-center gap-1.5">
+                  {userRoles.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={async () => {
+                        if (r !== activeRole) {
+                          try {
+                            await api.switchRole(r);
+                            onNotify('success', `Active role switched to ${r}`);
+                            window.location.reload();
+                          } catch (e: any) {
+                            onNotify('error', e.message || 'Failed to switch role');
+                          }
+                        }
+                      }}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${
+                        r === activeRole
+                          ? 'bg-[#0E5A3C] text-white shadow-xs ring-2 ring-emerald-500/50'
+                          : 'bg-slate-100 dark:bg-[#1A2622] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-2 flex-wrap">
               <span className="flex items-center gap-1">
                 <Phone className="w-3 h-3 text-slate-400" />
                 <span>{currentUser.phone}</span>
@@ -346,9 +435,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {/* Quick Balance & Space Shortcuts */}
         <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
           <div className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] rounded-xl px-4 py-2 text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Wallet Credit</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">{activeRole} Wallet</span>
             <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-              KSh {(currentUser.credit || 0).toLocaleString()}
+              KSh {((currentUser.roleWallets?.[activeRole]?.credit ?? currentUser.roleWallets?.[activeRole]?.balance ?? currentUser.credit) || 0).toLocaleString()}
             </span>
           </div>
 
@@ -359,7 +448,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </span>
           </div>
 
-          {currentUser.role === 'merchant' && (
+          {activeRole === 'merchant' && (
             <button
               onClick={() => onNavigate('vendor-dashboard')}
               className="px-3.5 py-2.5 bg-slate-900 hover:bg-[#FF6A00] text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
@@ -369,7 +458,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </button>
           )}
 
-          {currentUser.role === 'lender' && (
+          {activeRole === 'lender' && (
             <button
               onClick={() => onNavigate('lenders-dashboard')}
               className="px-3.5 py-2.5 bg-slate-900 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
@@ -691,6 +780,89 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Isolated Role Wallet Overview Card */}
+              <div className="bg-emerald-50/60 dark:bg-[#15231E] border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-[#0E5A3C] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Wallet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white capitalize">
+                        {activeRole} Isolated Wallet
+                      </h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded uppercase">
+                        Active Account
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Dedicated balance: <b className="text-emerald-700 dark:text-emerald-400 font-bold">KSh {((currentUser.roleWallets?.[activeRole]?.credit ?? currentUser.roleWallets?.[activeRole]?.balance ?? currentUser.credit) || 0).toLocaleString()}</b> · ID: <span className="font-mono">{currentUser.platformId}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('wallet')}
+                    className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                  >
+                    Manage Wallet &amp; Deposits
+                  </button>
+                </div>
+              </div>
+
+              {/* Role Expansion & Registration Cards (if not yet Merchant or Lender) */}
+              {(!userRoles.includes('merchant') || !userRoles.includes('lender')) && (
+                <div className="space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Expand Your Buyoll Account
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {!userRoles.includes('merchant') && (
+                      <div className="p-4 border border-slate-200 dark:border-[#24312C] rounded-xl bg-slate-50/50 dark:bg-[#16221E]/50 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Store className="w-4 h-4 text-[#FF6A00]" />
+                            <h4 className="text-xs font-bold text-slate-900 dark:text-white">Become a Verified Merchant</h4>
+                          </div>
+                          <p className="text-[11.5px] text-slate-500 leading-relaxed mb-3">
+                            Sell genuine products, organize community Chamas, and receive guaranteed payouts.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowRoleModal('merchant')}
+                          className="w-full py-2 bg-slate-900 hover:bg-[#FF6A00] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Register Merchant Store
+                        </button>
+                      </div>
+                    )}
+
+                    {!userRoles.includes('lender') && (
+                      <div className="p-4 border border-slate-200 dark:border-[#24312C] rounded-xl bg-slate-50/50 dark:bg-[#16221E]/50 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Landmark className="w-4 h-4 text-emerald-600" />
+                            <h4 className="text-xs font-bold text-slate-900 dark:text-white">Become a Group Lender</h4>
+                          </div>
+                          <p className="text-[11.5px] text-slate-500 leading-relaxed mb-3">
+                            Finance Chama savings groups with secured delivery cycles and earn a 3% platform return.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowRoleModal('lender')}
+                          className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Register as Group Lender
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Recent Orders Preview */}
               <div>
@@ -1572,6 +1744,134 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0a422c]"
                 >
                   {savingAddress ? 'Saving...' : 'Save Address'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Role Registration Modal for Merchant or Lender */}
+      {showRoleModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#24312C] mb-4">
+              <div className="flex items-center gap-2">
+                {showRoleModal === 'merchant' ? (
+                  <Store className="w-5 h-5 text-[#0E5A3C] dark:text-[#4ADE9A]" />
+                ) : (
+                  <Landmark className="w-5 h-5 text-[#0E5A3C] dark:text-[#4ADE9A]" />
+                )}
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  {showRoleModal === 'merchant' ? 'Register Merchant Account' : 'Register as Group Lender'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRoleModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+              {showRoleModal === 'merchant'
+                ? 'Create an isolated Merchant Wallet, list products, and organize community Chamas.'
+                : 'Accredit your profile as a Buyoll Group Lender. Earn 3% return on Chama micro-credit facility settlements.'}
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRegisterRole(showRoleModal);
+              }}
+              className="space-y-4 text-left"
+            >
+              {showRoleModal === 'merchant' ? (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Business / Store Name
+                    </label>
+                    <input
+                      type="text"
+                      value={roleShopName}
+                      onChange={(e) => setRoleShopName(e.target.value)}
+                      placeholder={`${currentUser.name}'s Direct Supplies`}
+                      required
+                      className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Store Category
+                    </label>
+                    <select
+                      value={roleCategory}
+                      onChange={(e) => setRoleCategory(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
+                    >
+                      <option value="Electronics & Solar">Electronics &amp; Solar</option>
+                      <option value="Home & Appliances">Home &amp; Appliances</option>
+                      <option value="Agri-inputs & Tools">Agri-inputs &amp; Tools</option>
+                      <option value="Hardware & Construction">Hardware &amp; Construction</option>
+                      <option value="Groceries & Foodstuffs">Groceries &amp; Foodstuffs</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Brief Store Description
+                    </label>
+                    <textarea
+                      value={roleShopDesc}
+                      onChange={(e) => setRoleShopDesc(e.target.value)}
+                      rows={2}
+                      placeholder="Verified merchant offering genuine products with fast Chama deliveries."
+                      className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Lending Accreditation Type
+                    </label>
+                    <select
+                      value={roleLenderType}
+                      onChange={(e) => setRoleLenderType(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
+                    >
+                      <option value="Individual Peer Lender">Individual Peer Lender</option>
+                      <option value="Chama Investment SACCO">Chama Investment SACCO</option>
+                      <option value="Licensed Micro-finance">Licensed Micro-finance Institution</option>
+                      <option value="Community Lending Circle">Community Lending Circle</option>
+                    </select>
+                  </div>
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-xs text-emerald-900 dark:text-emerald-200">
+                    <p className="font-semibold mb-1">Platform Rule Enforcement:</p>
+                    <p className="text-[11px] leading-relaxed">
+                      Lenders fund Chama groups through isolated capital wallets. Lenders and Admins are restricted from viewing or participating in general Member savings groups.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#24312C]">
+                <button
+                  type="button"
+                  onClick={() => setShowRoleModal(null)}
+                  className="px-4 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingRole}
+                  className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  {submittingRole ? 'Registering...' : `Activate ${showRoleModal === 'merchant' ? 'Merchant' : 'Lender'} Role`}
                 </button>
               </div>
             </form>

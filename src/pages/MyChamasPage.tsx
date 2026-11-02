@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, ChamaGroup } from '../types.ts';
 import { api } from '../api.ts';
-import { Users, ArrowRight, ShieldCheck, Clock, CheckCircle } from 'lucide-react';
+import { getUserActiveRole } from '../utils/rbac.ts';
+import { Users, ArrowRight, ShieldCheck, Clock, CheckCircle, Store } from 'lucide-react';
 
 interface MyChamasPageProps {
   currentUser: User | null;
@@ -22,6 +23,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
   const [quickJoinCode, setQuickJoinCode] = useState('');
   const [submittingJoin, setSubmittingJoin] = useState(false);
 
+  const activeRole = getUserActiveRole(currentUser);
   const currentUserId = currentUser?.id;
 
   useEffect(() => {
@@ -40,11 +42,8 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       setLoading(true);
     }
     try {
-      const res = await api.getGroups();
-      const my = res.groups.filter(g =>
-        g.slots.some(s => s.userId === currentUser.id && s.status === 'active')
-      );
-      setGroups(my);
+      const res = await api.getMyGroups();
+      setGroups(res.groups || []);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load your Chamas');
     } finally {
@@ -164,12 +163,15 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {groups.map((g) => {
+            const groupCapacity = g.totalSlots || g.size || 10;
             const slot = g.slots.find(s => s.userId === currentUser.id);
-            const deliveryDay = slot ? slot.slotNumber * g.cycleDays : 0;
-            const paid = slot?.paidAmount || 0;
-            const target = g.productPrice;
-            const progress = Math.min(100, Math.round((paid / target) * 100));
-            const isMod = g.moderators.includes(currentUser.id) || g.adminId === currentUser.id;
+            const deliveryDay = slot ? slot.slotNumber * g.cycleDays : (g.cycleDays * groupCapacity);
+            const totalCollected = g.slots.reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+            const paid = slot ? slot.paidAmount || 0 : totalCollected;
+            const target = slot ? g.productPrice : (g.productPrice * groupCapacity);
+            const progress = Math.min(100, Math.round((paid / (target || 1)) * 100));
+            const isMod = g.moderators?.includes(currentUser.id) || g.adminId === currentUser.id;
+            const isMerchant = activeRole === 'merchant' || g.vendorId === currentUser.id;
 
             return (
               <div
@@ -178,11 +180,18 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                      Member #{slot?.slotNumber}
-                    </span>
+                    {slot ? (
+                      <span className="text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                        Member #{slot.slotNumber}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded-md flex items-center gap-1">
+                        <Store className="w-3 h-3" />
+                        <span>Merchant Creator</span>
+                      </span>
+                    )}
                     <span className="text-xs text-slate-500 font-medium">
-                      Day {deliveryDay} Delivery
+                      {slot ? `Day ${deliveryDay} Delivery` : `${g.slots.filter(s => s.userId).length}/${groupCapacity} Slots Filled`}
                     </span>
                   </div>
 
@@ -192,7 +201,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                   {/* Progress */}
                   <div className="p-3.5 bg-slate-50 rounded-xl mb-4 space-y-1.5 text-xs text-slate-600">
                     <div className="flex justify-between">
-                      <span>Contribution Progress:</span>
+                      <span>{slot ? 'Contribution Progress:' : 'Chama Collection:'}</span>
                       <b className="text-slate-900">{progress}%</b>
                     </div>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -202,7 +211,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                       />
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-500 pt-1">
-                      <span>Paid: KSh {paid.toLocaleString()}</span>
+                      <span>{slot ? `Paid: KSh ${paid.toLocaleString()}` : `Collected: KSh ${paid.toLocaleString()}`}</span>
                       <span>Target: KSh {target.toLocaleString()}</span>
                     </div>
                   </div>
@@ -211,9 +220,11 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                     <div>
                       Daily rate: <b className="text-slate-900">KSh {g.dailyAmount.toLocaleString()} / day</b>
                     </div>
-                    <div>
-                      Your invite code: <b className="font-mono text-indigo-700">{slot?.inviteCode}</b>
-                    </div>
+                    {slot?.inviteCode && (
+                      <div>
+                        Your invite code: <b className="font-mono text-indigo-700">{slot.inviteCode}</b>
+                      </div>
+                    )}
                     {isMod && (
                       <div className="text-[11px] text-emerald-800 font-semibold">
                         You have Group Moderator privileges

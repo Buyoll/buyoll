@@ -162,7 +162,7 @@ export const Footer: React.FC<FooterProps> = ({
                     <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
                     </svg>
-                    <span>Serve as a 3rd-Party Group Lender (3% fee)</span>
+                    <span>Become group lender</span>
                   </button>
                 </li>
               </ul>
@@ -309,53 +309,7 @@ export const Footer: React.FC<FooterProps> = ({
             </details>
           </div>
 
-          {/* Section: Buyoll Partners & Ecosystem */}
-          <section className="mt-10 pt-8 border-t border-[#E5E7EB] dark:border-[#24312C]" aria-labelledby="pt">
-            <div className="flex items-baseline gap-3 flex-wrap mb-4">
-              <h3 id="pt" className="text-[12.5px] uppercase tracking-[0.08em] font-extrabold text-[#111827] dark:text-[#F3F4F6] m-0">
-                Buyoll partners &amp; ecosystem
-              </h3>
-              <span className="text-[13.5px] text-[#4B5563] dark:text-[#9CA3AF]">
-                Verified ecosystem partner platforms. Tap a partner to learn more.
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-              {partners.map((p, idx) => (
-                <details
-                  key={idx}
-                  open={openPartner === idx}
-                  className="border border-[#E5E7EB] dark:border-[#24312C] rounded-xl bg-[#F9FAFB] dark:bg-[#15201C] transition-all"
-                >
-                  <summary
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setOpenPartner(openPartner === idx ? null : idx);
-                    }}
-                    className="list-none cursor-pointer flex items-center gap-2.5 p-3 sm:px-3.5"
-                  >
-                    <span className="font-bold text-sm text-[#111827] dark:text-[#F3F4F6] flex-1">{p.name}</span>
-                    <span className="text-[11px] font-semibold text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#183125] px-2.5 py-0.5 rounded-full whitespace-nowrap">
-                      {p.tag}
-                    </span>
-                    <svg
-                      className={`w-4 h-4 shrink-0 text-[#4B5563] dark:text-[#9CA3AF] transition-transform ${
-                        openPartner === idx ? 'rotate-180' : ''
-                      }`}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </summary>
-                  <p className="m-0 px-3.5 pb-3.5 text-[13.5px] text-[#4B5563] dark:text-[#9CA3AF]">{p.desc}</p>
-                </details>
-              ))}
-            </div>
-          </section>
+
 
           {/* Section: Transparent Manual Payments */}
           <details className="mt-6 border border-[#E5E7EB] dark:border-[#24312C] rounded-xl bg-[#F9FAFB] dark:bg-[#15201C] group" open>

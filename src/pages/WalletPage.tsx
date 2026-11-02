@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, DefaultRecord, RefundRequest, PaymentRecord, StoreCreditLedgerEntry, CoinLedgerEntry, WalletDepositRequest } from '../types.ts';
 import { api } from '../api.ts';
+import { getUserActiveRole } from '../utils/rbac.ts';
 import {
   Wallet,
   Coins,
@@ -261,17 +262,33 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   }
 
   const userCoins = currentUser.coins || 0;
+  const activeRole = getUserActiveRole(currentUser);
+  const roleWallet = currentUser.roleWallets?.[activeRole];
+  const roleBalance = roleWallet ? (roleWallet.credit ?? roleWallet.balance ?? 0) : (currentUser.credit || 0);
+  const roleWalletName =
+    activeRole === 'merchant'
+      ? 'Merchant Operating Wallet'
+      : activeRole === 'lender'
+      ? 'Lender Capital Wallet'
+      : activeRole === 'admin'
+      ? 'System Admin Reserve Wallet'
+      : 'Member Shopping Wallet';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Title & Introduction */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-            Shopping Wallet & Applaud System
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Manage your verified shopping balance, deposit via M-Pesa Till or Paybill, reward the platform, and track your statement.
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              {roleWalletName}
+            </h1>
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+              {activeRole}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Isolated {activeRole} balance · Permanent Customer ID: <b className="font-mono text-slate-800">{currentUser.platformId}</b>
           </p>
         </div>
 
@@ -297,17 +314,17 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
       {/* 3 Main Balances */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* Store Credit */}
+        {/* Isolated Role Balance */}
         <div className="bg-white border-2 border-emerald-500/30 rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Store Credit Balance
+                {roleWalletName} Balance
               </span>
               <Wallet className="w-5 h-5 text-[#0E5A3C]" />
             </div>
             <div className="text-3xl font-black text-slate-900 tabular-nums mb-1">
-              KSh {currentUser.credit.toLocaleString()}
+              KSh {roleBalance.toLocaleString()}
             </div>
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
               <span>Locked Chama Balance:</span>

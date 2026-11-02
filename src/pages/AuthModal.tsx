@@ -27,21 +27,21 @@ export const ROLES = {
   merchant: {
     label: 'Merchant',
     nameLabel: 'Business name',
-    canRegister: true,
+    canRegister: false,
     loginTitle: 'Good to see you',
     loginText: 'Manage your store, orders and settlements in one place.',
-    regTitle: 'Grow your store',
-    regText: 'Register your business to accept members and get paid faster.',
+    regTitle: 'Merchant Application',
+    regText: 'Merchant roles are activated via dedicated verification in your customer profile.',
     defaultEmail: 'direct@buyoll.com',
   },
   lender: {
     label: 'Lender',
     nameLabel: 'Institution / Full name',
-    canRegister: true,
+    canRegister: false,
     loginTitle: 'Welcome back',
     loginText: 'Review applications, portfolio performance and repayments.',
-    regTitle: 'Fund with confidence',
-    regText: 'Register as a lender to reach verified members and merchants.',
+    regTitle: 'Lender Registration',
+    regText: 'Lender roles are accredited via dedicated verification in your customer profile.',
     defaultEmail: 'grace.lender@buyoll.com',
   },
   admin: {
@@ -59,7 +59,7 @@ export const ROLES = {
 export type RoleKey = keyof typeof ROLES;
 
 export const ROLE_ROUTES: Record<RoleKey, string> = {
-  member: 'my-chamas',
+  member: 'home',
   merchant: 'vendor-dashboard',
   lender: 'lenders-dashboard',
   admin: 'admin-dashboard',
@@ -172,7 +172,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       });
 
       onNotify('success', res.notice || `Welcome back, ${res.user.name}!`);
-      onSuccess(res.user, ROLE_ROUTES[role]);
+      const userActiveRole = (res.user.activeRole || res.user.role || role) as RoleKey;
+      onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Login failed. Please verify your credentials.');
@@ -189,7 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const referrer = typeof window !== 'undefined' ? localStorage.getItem('buyoll_referrer') : null;
       const res = await api.register({
-        role,
+        role: 'member',
         name: reg.name.trim(),
         email: reg.email.trim(),
         password: reg.password.trim(),
@@ -197,7 +198,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       });
 
       onNotify('success', res.notice || `Account created successfully! Welcome to Buyoll.`);
-      onSuccess(res.user, ROLE_ROUTES[role]);
+      const userActiveRole = (res.user.activeRole || res.user.role || 'member') as RoleKey;
+      onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Could not create account. Please try again.');

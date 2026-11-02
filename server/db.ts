@@ -914,6 +914,38 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.nextIds.coinLedger) dbCache!.nextIds.coinLedger = 1;
     if (!dbCache!.nextIds.moderation) dbCache!.nextIds.moderation = 1;
     if (!dbCache!.nextIds.peerLoan) dbCache!.nextIds.peerLoan = 1;
+
+    // Migrate all users: add roles, activeRole, unique platformId, and isolated roleWallets
+    for (const u of dbCache!.users) {
+      const active = u.activeRole || (u.role === 'buyer' ? 'member' : u.role) || 'member';
+      u.role = active;
+      u.activeRole = active;
+      if (!u.roles || !Array.isArray(u.roles) || u.roles.length === 0) {
+        u.roles = [active];
+      }
+      if (!u.platformId) {
+        const prefix = active === 'merchant' ? 'BYL-V' : active === 'lender' ? 'BYL-L' : active === 'admin' ? 'BYL-A' : 'BYL-M';
+        u.platformId = `${prefix}-${(10000 + u.id).toString()}`;
+      }
+      if (!u.roleWallets) {
+        u.roleWallets = {
+          [active]: {
+            credit: u.credit || 0,
+            nonWithdrawableBalance: u.nonWithdrawableBalance || 0,
+            coins: u.coins || 0,
+            points: u.points || 0,
+          },
+        };
+      } else if (!u.roleWallets[active]) {
+        u.roleWallets[active] = {
+          credit: u.credit || 0,
+          nonWithdrawableBalance: u.nonWithdrawableBalance || 0,
+          coins: u.coins || 0,
+          points: u.points || 0,
+        };
+      }
+    }
+
     return dbCache!;
   } catch {
     const initial = getInitialDatabase();

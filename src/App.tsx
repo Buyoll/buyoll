@@ -28,6 +28,8 @@ import {
   Landmark,
 } from 'lucide-react';
 
+import { RoleGuard } from './components/RoleGuard.tsx';
+import { getUserActiveRole, getRoleHomeRoute, isRouteAllowedForRole } from './utils/rbac.ts';
 import {
   registerServiceWorker,
   checkAndTriggerPaymentDueAlerts,
@@ -77,6 +79,8 @@ export default function App() {
 
   const handleNavigate = useCallback((view: string, arg?: any, options?: { forceScroll?: boolean }) => {
     const user = currentUserRef.current;
+    const activeRole = getUserActiveRole(user);
+
     // Protected private route check: redirect unauthenticated visitors to login, preserving destination
     if (!user && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard' || view === 'profile')) {
       setPendingTargetView(view);
@@ -84,6 +88,34 @@ export default function App() {
       const targetRole = view === 'vendor-dashboard' ? 'merchant' : view === 'lenders-dashboard' ? 'lender' : 'member';
       handleOpenAuth(targetRole);
       return;
+    }
+
+    // Role-Based Access Control check for logged-in users
+    if (user) {
+      if (view === 'vendor-dashboard' && activeRole !== 'merchant') {
+        handleNotify('error', "You don't have access to that page");
+        const home = getRoleHomeRoute(activeRole);
+        handleNavigate(home.view);
+        return;
+      }
+      if (view === 'lenders-dashboard' && activeRole !== 'lender') {
+        handleNotify('error', "You don't have access to that page");
+        const home = getRoleHomeRoute(activeRole);
+        handleNavigate(home.view);
+        return;
+      }
+      if (view === 'admin-dashboard' && activeRole !== 'admin') {
+        handleNotify('error', "You don't have access to that page");
+        const home = getRoleHomeRoute(activeRole);
+        handleNavigate(home.view);
+        return;
+      }
+      if (view === 'my-chamas' && (activeRole === 'lender' || activeRole === 'admin')) {
+        handleNotify('error', "You don't have access to that page");
+        const home = getRoleHomeRoute(activeRole);
+        handleNavigate(home.view);
+        return;
+      }
     }
 
     const prev = currentViewRef.current;
@@ -135,11 +167,12 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       const search = new URLSearchParams(window.location.search);
       const user = currentUserRef.current;
+      const activeRole = getUserActiveRole(user);
 
       if (path === '/admin/login' || hash === '#admin' || hash === '#admin-login' || search.get('admin') === 'login') {
         handleNavigate('admin-login');
       } else if (path === '/admin/dashboard' || path === '/admin' || hash === '#admin-dashboard' || search.get('admin') === 'dashboard') {
-        if (!user || user.role !== 'admin') {
+        if (!user || activeRole !== 'admin') {
           handleNavigate('admin-login');
         } else {
           handleNavigate('admin-dashboard');
@@ -151,6 +184,9 @@ export default function App() {
           setPendingTargetView('my-chamas');
           handleOpenAuth('member');
           handleNavigate('home');
+        } else if (activeRole === 'lender' || activeRole === 'admin') {
+          handleNotify('error', "You don't have access to that page");
+          handleNavigate(getRoleHomeRoute(activeRole).view);
         } else {
           handleNavigate('my-chamas');
         }
@@ -167,6 +203,9 @@ export default function App() {
           setPendingTargetView('vendor-dashboard');
           handleOpenAuth('merchant');
           handleNavigate('home');
+        } else if (activeRole !== 'merchant') {
+          handleNotify('error', "You don't have access to that page");
+          handleNavigate(getRoleHomeRoute(activeRole).view);
         } else {
           handleNavigate('vendor-dashboard');
         }
@@ -175,6 +214,9 @@ export default function App() {
           setPendingTargetView('lenders-dashboard');
           handleOpenAuth('lender');
           handleNavigate('home');
+        } else if (activeRole !== 'lender') {
+          handleNotify('error', "You don't have access to that page");
+          handleNavigate(getRoleHomeRoute(activeRole).view);
         } else {
           handleNavigate('lenders-dashboard');
         }
@@ -349,34 +391,40 @@ export default function App() {
         )}
 
         {currentView === 'my-chamas' && (
-          <MyChamasPage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onOpenAuth={() => handleOpenAuth('member')}
-            onNotify={handleNotify}
-          />
+          <RoleGuard allow={['member', 'merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+            <MyChamasPage
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onOpenAuth={() => handleOpenAuth('member')}
+              onNotify={handleNotify}
+            />
+          </RoleGuard>
         )}
 
         {currentView === 'wallet' && (
-          <WalletPage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onOpenAuth={() => handleOpenAuth('member')}
-            onNotify={handleNotify}
-            onUserUpdate={() => {
-              if (currentUser) {
-                api.getMe().then(r => setCurrentUser(r.user)).catch(() => {});
-              }
-            }}
-          />
+          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+            <WalletPage
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onOpenAuth={() => handleOpenAuth('member')}
+              onNotify={handleNotify}
+              onUserUpdate={() => {
+                if (currentUser) {
+                  api.getMe().then(r => setCurrentUser(r.user)).catch(() => {});
+                }
+              }}
+            />
+          </RoleGuard>
         )}
 
         {currentView === 'vendor-dashboard' && (
-          <VendorDashboardPage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onNotify={handleNotify}
-          />
+          <RoleGuard allow={['merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+            <VendorDashboardPage
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onNotify={handleNotify}
+            />
+          </RoleGuard>
         )}
 
         {currentView === 'admin-login' && (
@@ -391,20 +439,24 @@ export default function App() {
         )}
 
         {currentView === 'admin-dashboard' && (
-          <AdminDashboardPage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onNotify={handleNotify}
-          />
+          <RoleGuard allow={['admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+            <AdminDashboardPage
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onNotify={handleNotify}
+            />
+          </RoleGuard>
         )}
 
         {currentView === 'lenders-dashboard' && (
-          <LendersDashboardPage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onOpenAuth={() => handleOpenAuth('lender')}
-            onNotify={handleNotify}
-          />
+          <RoleGuard allow={['lender']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+            <LendersDashboardPage
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onOpenAuth={() => handleOpenAuth('lender')}
+              onNotify={handleNotify}
+            />
+          </RoleGuard>
         )}
 
         {currentView === 'profile' && currentUser && (
@@ -425,52 +477,163 @@ export default function App() {
         onOpenAuth={handleOpenAuth}
       />
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar: strictly role-specific, NO wallet icon */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-[#111A17] border-t border-slate-200 dark:border-[#24312C] z-40 flex items-center justify-around h-16 px-2 shadow-lg transition-colors">
-        <button
-          onClick={() => handleNavigate('home')}
-          className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-            currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-          }`}
-        >
-          <Home className="w-5 h-5 mb-0.5" />
-          <span>Home</span>
-        </button>
-
-        {currentUser && (
-          <button
-            onClick={() => handleNavigate('my-chamas')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-              currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
-            <Users className="w-5 h-5 mb-0.5" />
-            <span>Chamas</span>
-          </button>
+        {!currentUser && (
+          <>
+            <button
+              onClick={() => handleNavigate('home')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Home className="w-5 h-5 mb-0.5" />
+              <span>Home</span>
+            </button>
+            <button
+              onClick={() => handleOpenAuth('member')}
+              className="flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium text-[#0E5A3C] dark:text-[#4ADE9A]"
+            >
+              <Users className="w-5 h-5 mb-0.5" />
+              <span>Sign In / Join</span>
+            </button>
+          </>
         )}
 
-        {currentUser && (
-          <button
-            onClick={() => handleNavigate('wallet')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-              currentView === 'wallet' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
-            <WalletIcon className="w-5 h-5 mb-0.5" />
-            <span>Wallet</span>
-          </button>
+        {currentUser && getUserActiveRole(currentUser) === 'member' && (
+          <>
+            <button
+              onClick={() => handleNavigate('home')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Home className="w-5 h-5 mb-0.5" />
+              <span>Announcements</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('my-chamas')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Users className="w-5 h-5 mb-0.5" />
+              <span>My Chamas</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('profile')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+                {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'M'}
+              </span>
+              <span>Profile</span>
+            </button>
+          </>
         )}
 
-        {currentUser?.role === 'merchant' && (
-          <button
-            onClick={() => handleNavigate('vendor-dashboard')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-              currentView === 'vendor-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
-            <Store className="w-5 h-5 mb-0.5" />
-            <span>Shop</span>
-          </button>
+        {currentUser && getUserActiveRole(currentUser) === 'merchant' && (
+          <>
+            <button
+              onClick={() => handleNavigate('vendor-dashboard')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'vendor-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Store className="w-5 h-5 mb-0.5" />
+              <span>Merchant</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('my-chamas')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Users className="w-5 h-5 mb-0.5" />
+              <span>My Chamas</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('home')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Home className="w-5 h-5 mb-0.5" />
+              <span>Announce</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('profile')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+                {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'M'}
+              </span>
+              <span>Profile</span>
+            </button>
+          </>
+        )}
+
+        {currentUser && getUserActiveRole(currentUser) === 'lender' && (
+          <>
+            <button
+              onClick={() => handleNavigate('lenders-dashboard')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'lenders-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Landmark className="w-5 h-5 mb-0.5" />
+              <span>Lender</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('home')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Home className="w-5 h-5 mb-0.5" />
+              <span>Home</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('profile')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+                {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'L'}
+              </span>
+              <span>Profile</span>
+            </button>
+          </>
+        )}
+
+        {currentUser && getUserActiveRole(currentUser) === 'admin' && (
+          <>
+            <button
+              onClick={() => handleNavigate('admin-dashboard')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'admin-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <Shield className="w-5 h-5 mb-0.5" />
+              <span>Admin</span>
+            </button>
+            <button
+              onClick={() => handleNavigate('profile')}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
+                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+                A
+              </span>
+              <span>Profile</span>
+            </button>
+          </>
         )}
       </nav>
 

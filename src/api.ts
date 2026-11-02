@@ -895,6 +895,40 @@ export const api = {
     setStoredUser(null);
   },
 
+  async registerRole(
+    payloadOrRole: 'merchant' | 'lender' | 'member' | {
+      role: 'merchant' | 'lender' | 'member';
+      shopName?: string;
+      shopDescription?: string;
+      category?: string;
+      merchantCategory?: string;
+      lenderType?: string;
+      location?: string;
+      lenderLocation?: string;
+    },
+    extraDetails?: any
+  ): Promise<{ success: boolean; user: User; message: string }> {
+    const payload =
+      typeof payloadOrRole === 'string'
+        ? { role: payloadOrRole, ...(extraDetails || {}) }
+        : payloadOrRole;
+    const data = await fetchApi<{ success: boolean; user: User; message: string }>('/user/roles/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    setStoredUser(data.user);
+    return data;
+  },
+
+  async switchRole(role: string): Promise<{ success: boolean; user: User; message: string }> {
+    const data = await fetchApi<{ success: boolean; user: User; message: string }>('/user/roles/switch', {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    });
+    setStoredUser(data.user);
+    return data;
+  },
+
   // Products
   async getProducts(params?: { category?: string; search?: string; vendorId?: number }): Promise<{ products: Product[] }> {
     try {
@@ -1053,6 +1087,26 @@ export const api = {
   },
 
   // Groups
+  async getMyGroups(): Promise<{ groups: ChamaGroup[] }> {
+    try {
+      return await fetchApi<{ groups: ChamaGroup[] }>('/groups/my');
+    } catch {
+      const user = getStoredUser();
+      if (!user) return { groups: [] };
+      const db = getClientDb();
+      const activeRole = user.activeRole || user.role;
+      if (activeRole === 'merchant') {
+        const myProdIds = db.products.filter(p => p.vendorId === user.id).map(p => p.id);
+        const myMerchant = db.groups.filter(g => g.adminId === user.id || myProdIds.includes(g.productId));
+        return { groups: myMerchant };
+      }
+      const my = db.groups.filter(g =>
+        g.slots.some(s => s.userId === user.id && s.status === 'active')
+      );
+      return { groups: my };
+    }
+  },
+
   async getGroups(params?: { productId?: number; status?: string }): Promise<{ groups: ChamaGroup[] }> {
     try {
       const q = new URLSearchParams();

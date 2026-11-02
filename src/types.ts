@@ -1,5 +1,21 @@
 export type UserRole = 'buyer' | 'member' | 'merchant' | 'admin' | 'lender';
 
+export interface RoleWallet {
+  credit: number;
+  balance?: number;
+  nonWithdrawableBalance?: number;
+  coins: number;
+  points: number;
+}
+
+export type RoleWallets = {
+  member?: RoleWallet;
+  merchant?: RoleWallet;
+  lender?: RoleWallet;
+  admin?: RoleWallet;
+  [key: string]: RoleWallet | undefined;
+};
+
 export interface MerchantReview {
   id: string;
   userId: number;
@@ -16,6 +32,10 @@ export interface User {
   email?: string;
   password?: string;
   role: UserRole;
+  roles?: UserRole[];
+  activeRole?: UserRole;
+  platformId?: string; // Unique customer permanent platform ID (e.g. BYL-M-30003)
+  roleWallets?: RoleWallets;
   avatar?: string;
   avatarUrl?: string;
   shopName?: string;
@@ -214,6 +234,8 @@ export interface ChamaGroup {
   productImage?: string;
   name: string;
   size: number;
+  totalSlots?: number;
+  vendorId?: number;
   adminId: number; // initial creator and moderator
   moderators: number[]; // array of userIds
   status: 'active' | 'full' | 'completed' | 'cancelled';
