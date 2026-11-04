@@ -276,11 +276,16 @@ export default function App() {
             prev.coins === res.user.coins &&
             prev.points === res.user.points &&
             prev.role === res.user.role &&
+            prev.activeRole === res.user.activeRole &&
+            prev.platformId === res.user.platformId &&
             prev.name === res.user.name &&
             prev.phone === res.user.phone
           ) {
             return prev;
           }
+          try {
+            localStorage.setItem('alibaird_current_user', JSON.stringify(res.user));
+          } catch {}
           return res.user;
         });
 

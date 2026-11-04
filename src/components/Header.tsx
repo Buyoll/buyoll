@@ -293,8 +293,8 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="Main Navigation"
               className="hidden md:flex flex-1 items-center justify-center gap-1.5 lg:gap-2.5 mx-2"
             >
-              {/* MEMBER & GUEST: Announcements, My Chamas, Share (No Merchant, No Lender, No Wallet) */}
-              {(!currentUser || activeRole === 'member') && (
+              {/* GUEST: Announcements, My Chamas, Merchant, Lender, Share */}
+              {!currentUser && (
                 <>
                   <button
                     onClick={() => onNavigate('home')}
@@ -313,10 +313,67 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   <button
-                    onClick={() => {
-                      if (!currentUser) onOpenAuth('member');
-                      else onNavigate('my-chamas');
-                    }}
+                    onClick={() => onOpenAuth('member')}
+                    className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="9" cy="8" r="3" />
+                      <path d="M3 20a6 6 0 0 1 12 0" />
+                      <circle cx="17" cy="9" r="2.5" />
+                      <path d="M17 14a5 5 0 0 1 4 5" />
+                    </svg>
+                    <span className="leading-tight text-center">My Chamas</span>
+                  </button>
+
+                  <button
+                    onClick={() => onOpenAuth('merchant')}
+                    className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Store className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                    <span className="leading-tight text-center">Merchant</span>
+                  </button>
+
+                  <button
+                    onClick={() => onOpenAuth('lender')}
+                    className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Landmark className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
+                    <span className="leading-tight text-center">Lender</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareApp}
+                    aria-label="Share App with friends"
+                    className="flex flex-col items-center justify-center min-w-[64px] lg:min-w-[76px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
+                  >
+                    <Share2 className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+                    <span className="leading-tight text-center">Share</span>
+                  </button>
+                </>
+              )}
+
+              {/* MEMBER ONLY: Announcements, My Chamas, Share */}
+              {currentUser && activeRole === 'member' && (
+                <>
+                  <button
+                    onClick={() => onNavigate('home')}
+                    aria-current={currentView === 'home' ? 'page' : undefined}
+                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
+                      currentView === 'home'
+                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
+                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
+                      <path d="M15 9a4 4 0 0 1 0 6" />
+                    </svg>
+                    <span className="leading-tight text-center">Announcements</span>
+                  </button>
+
+                  <button
+                    onClick={() => onNavigate('my-chamas')}
                     aria-current={currentView === 'my-chamas' ? 'page' : undefined}
                     className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
                       currentView === 'my-chamas'
@@ -735,6 +792,40 @@ export const Header: React.FC<HeaderProps> = ({
                     <Megaphone className="w-5 h-5 shrink-0" />
                     <span>Announcements</span>
                   </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onOpenAuth('member');
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
+                  >
+                    <Users className="w-5 h-5 shrink-0" />
+                    <span>My Chamas</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onOpenAuth('merchant');
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
+                  >
+                    <Store className="w-5 h-5 shrink-0" />
+                    <span>Merchant Entrance</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onOpenAuth('lender');
+                    }}
+                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
+                  >
+                    <Landmark className="w-5 h-5 shrink-0" />
+                    <span>Lender Desk</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {

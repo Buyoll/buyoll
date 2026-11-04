@@ -815,6 +815,7 @@ export const api = {
     phone?: string;
     shopName?: string;
     shopDescription?: string;
+    adminPasskey?: string;
     referredBy?: string;
   }): Promise<{ user: User; notice?: string }> {
     try {
@@ -829,7 +830,10 @@ export const api = {
         throw err;
       }
       if (payload.role === 'admin') {
-        throw new Error('Admin accounts cannot be registered publicly. Access is strictly by invitation only.');
+        const validKeys = ['BUYOLL_ADMIN_2026', 'ADMIN2026', 'buyoll_admin'];
+        if (!payload.adminPasskey || !validKeys.includes(payload.adminPasskey.trim())) {
+          throw new Error('Invalid Admin Security Key. Administrator accounts require a valid system security passkey.');
+        }
       }
       if (!payload.name?.trim()) throw new Error('Please enter your full or business name.');
       if (!payload.email?.trim()) throw new Error('Please provide a valid email address.');
@@ -2792,6 +2796,12 @@ export const api = {
 
   async approveAdminMerchantSubscription(subscriptionId: string): Promise<any> {
     return await fetchApi<any>(`/admin/merchant-subscriptions/${subscriptionId}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async declineAdminMerchantSubscription(subscriptionId: string): Promise<any> {
+    return await fetchApi<any>(`/admin/merchant-subscriptions/${subscriptionId}/decline`, {
       method: 'POST',
     });
   },

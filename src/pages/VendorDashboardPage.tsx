@@ -93,7 +93,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     try {
       if (subPaymentMethod === 'wallet_coins') {
         const res = await api.paySubscriptionCoins(selectedTierId);
-        onNotify('success', res.message || 'Subscription paid successfully using wallet coins!');
+        onNotify('success', res.message || 'Subscription payment submitted using wallet credit! Pending admin approval.');
         setIsSubscriptionModalOpen(false);
         loadVendorData();
       } else {
@@ -684,10 +684,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 >
                   <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
                     <Coins className="w-4 h-4 text-amber-500" />
-                    <span>Wallet Coins (Instant)</span>
+                    <span>Wallet Balance / Coins</span>
                   </div>
                   <p className="text-[10px] text-slate-500">
-                    Automatic atomic transfer. Your balance: {currentUser?.coins || 0} coins.
+                    Wallet credit payment. Requires Admin approval. Your coins: {currentUser?.coins || 0}.
                   </p>
                 </button>
 

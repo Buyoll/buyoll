@@ -13,7 +13,18 @@ import { X, CheckCircle2, Shield, Store, Users, Landmark } from 'lucide-react';
      initialRole?: 'member' | 'merchant' | 'lender' | 'admin'
 ------------------------------------------------------------------- */
 
-export const ROLES = {
+export interface RoleConfig {
+  label: string;
+  nameLabel: string;
+  canRegister: boolean;
+  loginTitle: string;
+  loginText: string;
+  regTitle: string;
+  regText: string;
+  defaultEmail: string;
+}
+
+export const ROLES: Record<string, RoleConfig> = {
   member: {
     label: 'Member',
     nameLabel: 'Full name',
@@ -26,37 +37,37 @@ export const ROLES = {
   },
   merchant: {
     label: 'Merchant',
-    nameLabel: 'Business name',
-    canRegister: false,
+    nameLabel: 'Business / Shop name',
+    canRegister: true,
     loginTitle: 'Good to see you',
     loginText: 'Manage your store, orders and settlements in one place.',
-    regTitle: 'Merchant Application',
-    regText: 'Merchant roles are activated via dedicated verification in your customer profile.',
+    regTitle: 'Merchant registration',
+    regText: 'Register your merchant business on Buyoll to launch product Chamas and accept buyer orders.',
     defaultEmail: 'direct@buyoll.com',
   },
   lender: {
     label: 'Lender',
     nameLabel: 'Institution / Full name',
-    canRegister: false,
+    canRegister: true,
     loginTitle: 'Welcome back',
     loginText: 'Review applications, portfolio performance and repayments.',
-    regTitle: 'Lender Registration',
-    regText: 'Lender roles are accredited via dedicated verification in your customer profile.',
+    regTitle: 'Lender registration',
+    regText: 'Accredit your lending profile on Buyoll to fund Chama emergency advances and earn interest.',
     defaultEmail: 'grace.lender@buyoll.com',
   },
   admin: {
     label: 'Admin',
-    nameLabel: '',
-    canRegister: false,
+    nameLabel: 'Admin full name',
+    canRegister: true,
     loginTitle: 'Admin console',
-    loginText: 'Restricted access. Admin accounts are created by invitation only.',
-    regTitle: '',
-    regText: '',
+    loginText: 'Restricted access. Sign in with administrative credentials.',
+    regTitle: 'Admin registration',
+    regText: 'Register authorized system administrator account using security verification key.',
     defaultEmail: 'cityandcountyre@gmail.com',
   },
-} as const;
+};
 
-export type RoleKey = keyof typeof ROLES;
+export type RoleKey = 'member' | 'merchant' | 'lender' | 'admin';
 
 export const ROLE_ROUTES: Record<RoleKey, string> = {
   member: 'home',
@@ -130,7 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [login, setLogin] = useState({ identifier: '', password: '' });
-  const [reg, setReg] = useState({ name: '', email: '', password: '' });
+  const [reg, setReg] = useState({ name: '', email: '', password: '', phone: '', adminPasskey: 'BUYOLL_ADMIN_2026' });
 
   const cfg = ROLES[role];
   const active = mode === 'register' && cfg.canRegister;
@@ -139,7 +150,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setRole(r);
     setError('');
     setNotice('');
-    if (!ROLES[r].canRegister) setMode('login');
   };
 
   const switchMode = (m: 'login' | 'register') => {
@@ -190,15 +200,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const referrer = typeof window !== 'undefined' ? localStorage.getItem('buyoll_referrer') : null;
       const res = await api.register({
-        role: 'member',
+        role,
         name: reg.name.trim(),
         email: reg.email.trim(),
         password: reg.password.trim(),
+        phone: reg.phone.trim() || undefined,
+        shopName: role === 'merchant' ? reg.name.trim() : undefined,
+        adminPasskey: role === 'admin' ? (reg.adminPasskey.trim() || 'BUYOLL_ADMIN_2026') : undefined,
         referredBy: referrer || undefined,
       });
 
-      onNotify('success', res.notice || `Account created successfully! Welcome to Buyoll.`);
-      const userActiveRole = (res.user.activeRole || res.user.role || 'member') as RoleKey;
+      onNotify('success', res.notice || `Account created successfully as ${cfg.label}! Welcome to Buyoll.`);
+      const userActiveRole = (res.user.activeRole || res.user.role || role) as RoleKey;
       onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
     } catch (err: any) {
@@ -367,9 +380,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               />
             </div>
 
+            {role === 'admin' && (
+              <div className="ax-anim" style={{ '--li': 3 } as React.CSSProperties}>
+                <Field
+                  id="r-admin-key"
+                  label="Admin Security Passkey"
+                  type="text"
+                  icon={<Shield className="w-4 h-4" />}
+                  value={reg.adminPasskey}
+                  onChange={(e) => setReg({ ...reg, adminPasskey: e.target.value })}
+                />
+              </div>
+            )}
+
             <div className="ax-anim" style={{ '--li': 4 } as React.CSSProperties}>
               <button className="ax-btn" disabled={busy} type="submit">
-                {busy && active ? 'Creating account…' : 'Create account'}
+                {busy && active ? 'Creating account…' : `Register as ${cfg.label}`}
               </button>
             </div>
 

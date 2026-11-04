@@ -7,7 +7,7 @@
       "email": "cityandcountyre@gmail.com",
       "role": "admin",
       "credit": 0,
-      "coins": 200,
+      "coins": 450,
       "points": 500,
       "lastActive": 1792940798885,
       "createdAt": 1790261094021,
@@ -127,6 +127,118 @@
           "points": 450
         }
       }
+    },
+    {
+      "id": 11,
+      "name": "New Store Merchant",
+      "email": "newstore@buyoll.com",
+      "phone": "0769710560",
+      "password": "password123",
+      "role": "member",
+      "roles": [
+        "member"
+      ],
+      "activeRole": "member",
+      "platformId": "BYL-M-10011",
+      "credit": 0,
+      "coins": 100,
+      "points": 25,
+      "roleWallets": {
+        "member": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 100,
+          "points": 25
+        }
+      },
+      "lastActive": 1793805194245,
+      "createdAt": 1793805194245
+    },
+    {
+      "id": 12,
+      "name": "Amani Electronics",
+      "email": "amani.merchant@buyoll.com",
+      "phone": "0751761018",
+      "password": "password123",
+      "role": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "activeRole": "merchant",
+      "platformId": "BYL-V-10012",
+      "shopName": "Amani Electronics",
+      "shopDescription": "Verified seller on Buyoll",
+      "verified": false,
+      "merchantSubscriptionStatus": "active",
+      "credit": 0,
+      "coins": 250,
+      "points": 50,
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 500,
+          "points": 50
+        }
+      },
+      "lastActive": 1793805215674,
+      "createdAt": 1793805215674,
+      "merchantSubscriptionPlan": "tier_250",
+      "merchantSubscriptionExpiresAt": 1796397262531
+    },
+    {
+      "id": 13,
+      "name": "Apex Microfinance",
+      "email": "apex.lender@buyoll.com",
+      "phone": "0712457318",
+      "password": "password123",
+      "role": "lender",
+      "roles": [
+        "lender"
+      ],
+      "activeRole": "lender",
+      "platformId": "BYL-L-10013",
+      "verified": false,
+      "credit": 0,
+      "coins": 300,
+      "points": 50,
+      "roleWallets": {
+        "lender": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 300,
+          "points": 50
+        }
+      },
+      "lastActive": 1793805219548,
+      "createdAt": 1793805219548
+    },
+    {
+      "id": 14,
+      "name": "System Admin Two",
+      "email": "admin2@buyoll.com",
+      "phone": "0712086312",
+      "password": "password123",
+      "role": "admin",
+      "roles": [
+        "admin"
+      ],
+      "activeRole": "admin",
+      "platformId": "BYL-A-10014",
+      "verified": true,
+      "credit": 0,
+      "coins": 500,
+      "points": 50,
+      "roleWallets": {
+        "admin": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 500,
+          "points": 50
+        }
+      },
+      "lastActive": 1793805223668,
+      "createdAt": 1793805223668
     }
   ],
   "products": [
@@ -637,6 +749,21 @@
   "refundRequests": [],
   "payments": [
     {
+      "id": 10,
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "code": "WALLET-ER_250",
+      "amount": 250,
+      "status": "pending",
+      "type": "merchant_subscription",
+      "channel": "Merchant Wallet Balance",
+      "createdAt": 1793805255546,
+      "verifiedAt": null,
+      "verifiedBy": null,
+      "notes": "Wallet payment of 250 coins for Micro-Merchant (KES 250). Requires Admin Approval."
+    },
+    {
       "id": 1,
       "type": "group_installment",
       "userId": 3,
@@ -680,6 +807,54 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": 24,
+      "timestamp": 1793805262583,
+      "actorId": 1,
+      "actorName": "Buyoll System Admin",
+      "action": "MERCHANT_SUBSCRIPTION_APPROVED",
+      "details": "Approved wallet_coins subscription for merchant #12 (Micro-Merchant (KES 250))"
+    },
+    {
+      "id": 23,
+      "timestamp": 1793805255546,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED",
+      "details": "Submitted 250 wallet coins for Micro-Merchant (KES 250) (Pending Admin Approval)"
+    },
+    {
+      "id": 22,
+      "timestamp": 1793805223668,
+      "actorId": 14,
+      "actorName": "System Admin Two",
+      "action": "USER_REGISTERED",
+      "details": "New admin account registered (BYL-A-10014)."
+    },
+    {
+      "id": 21,
+      "timestamp": 1793805219548,
+      "actorId": 13,
+      "actorName": "Apex Microfinance",
+      "action": "USER_REGISTERED",
+      "details": "New lender account registered (BYL-L-10013)."
+    },
+    {
+      "id": 20,
+      "timestamp": 1793805215674,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "USER_REGISTERED",
+      "details": "New merchant account registered (BYL-V-10012)."
+    },
+    {
+      "id": 19,
+      "timestamp": 1793805194245,
+      "actorId": 11,
+      "actorName": "New Store Merchant",
+      "action": "USER_REGISTERED",
+      "details": "New member account registered through portal."
+    },
     {
       "id": 18,
       "timestamp": 1793634968295,
@@ -770,21 +945,34 @@
     }
   ],
   "nextIds": {
-    "user": 11,
+    "user": 15,
     "product": 20,
     "group": 201,
     "defaultRecord": 2,
     "refundRequest": 1,
-    "payment": 10,
+    "payment": 11,
     "ledger": 2,
-    "audit": 19,
+    "audit": 25,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1
   },
   "peerLoans": [],
   "helpChat": [],
-  "coinLedger": [],
+  "coinLedger": [
+    {
+      "id": 1,
+      "senderId": 12,
+      "senderName": "Amani Electronics",
+      "recipientId": 1,
+      "recipientName": "Buyoll System Admin",
+      "amount": 250,
+      "type": "transfer",
+      "reason": "subscription",
+      "note": "Wallet coins payment of 250 for Micro-Merchant (KES 250) (Pending Admin Approval)",
+      "timestamp": 1793805255546
+    }
+  ],
   "chatModerationLogs": [],
   "walletDeposits": [],
   "supportTickets": [],
@@ -841,6 +1029,24 @@
     }
   ],
   "userNotifications": [
+    {
+      "id": "notif_1793805262532",
+      "userId": 12,
+      "title": "🎉 Subscription Approved: Micro-Merchant (KES 250)",
+      "message": "Your Wallet Payment has been approved by Admin! Your store catalog limits are now active for 30 days until 12/4/2026.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1793805262531
+    },
+    {
+      "id": "notif_1793805255546",
+      "userId": 12,
+      "title": "⏳ Subscription Payment Submitted: Micro-Merchant (KES 250)",
+      "message": "Payment of 250 wallet coins held. Subscription will be reviewed and activated by Admin shortly.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1793805255546
+    },
     {
       "id": 1,
       "userId": 3,
@@ -922,6 +1128,18 @@
     }
   ],
   "merchantSubscriptions": [
+    {
+      "id": "sub_wallet_1793805255546_tier_250",
+      "merchantId": 12,
+      "tierId": "tier_250",
+      "tierName": "Micro-Merchant (KES 250)",
+      "amount": 250,
+      "paymentMethod": "wallet_coins",
+      "status": "active",
+      "createdAt": 1793805255546,
+      "startDate": 1793805262531,
+      "expiresAt": 1796397262531
+    },
     {
       "id": "sub_active_2",
       "merchantId": 2,

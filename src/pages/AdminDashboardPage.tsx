@@ -428,6 +428,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
+  async function handleDeclineSubscription(subId: string) {
+    setProcessingId(subId);
+    try {
+      const res = await api.declineAdminMerchantSubscription(subId);
+      onNotify('success', res.message || 'Subscription declined.');
+      loadAllAdminData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to decline subscription');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
   // Handle Enterprise Price Agreement (Part C & D)
   async function handleSetEnterprisePriceSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1716,13 +1729,22 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         <td className="py-3 px-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {sub.status === 'pending' && (
-                              <button
-                                onClick={() => handleApproveSubscription(sub.id)}
-                                disabled={processingId === sub.id}
-                                className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
-                              >
-                                Approve & Activate (30d)
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => handleApproveSubscription(sub.id)}
+                                  disabled={processingId === sub.id}
+                                  className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                                >
+                                  Approve &amp; Activate (30d)
+                                </button>
+                                <button
+                                  onClick={() => handleDeclineSubscription(sub.id)}
+                                  disabled={processingId === sub.id}
+                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                                >
+                                  Decline
+                                </button>
+                              </>
                             )}
 
                             {sub.tierId === 'enterprise' && (

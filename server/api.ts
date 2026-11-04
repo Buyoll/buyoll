@@ -548,10 +548,10 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
 // CORE RULE 1: Signup creates a Member by default. Role is NEVER writable by client at signup.
 apiRouter.post('/auth/register', async (req: Request, res: Response) => {
-  const { name, email, password, phone } = req.body;
+  const { name, email, password, phone, role, shopName, lenderType, adminPasskey } = req.body;
 
   if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Please enter your full name.' });
+    return res.status(400).json({ error: 'Please enter your full name or entity name.' });
   }
 
   if (!email || !email.trim()) {
@@ -560,6 +560,18 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
 
   if (!password || password.length < 4) {
     return res.status(400).json({ error: 'Password must be at least 4 characters long.' });
+  }
+
+  const cleanRole = (role === 'merchant' || role === 'lender' || role === 'admin') ? role : 'member';
+
+  // If registering as admin, verify admin passkey
+  if (cleanRole === 'admin') {
+    const validKeys = ['BUYOLL_ADMIN_2026', 'ADMIN2026', 'buyoll_admin'];
+    if (!adminPasskey || !validKeys.includes(String(adminPasskey).trim())) {
+      return res.status(403).json({
+        error: 'Invalid Admin Security Key. Administrator accounts require a valid system security passkey.',
+      });
+    }
   }
 
   const db = await getDatabase();
@@ -579,26 +591,35 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
   const newId = db.nextIds.user++;
   const autoPhone = phone ? phone.trim() : '07' + Math.floor(10000000 + Math.random() * 90000000).toString();
 
-  // Strict: Public signup creates ONLY a Member
+  const prefix = cleanRole === 'merchant' ? 'BYL-V' : cleanRole === 'lender' ? 'BYL-L' : cleanRole === 'admin' ? 'BYL-A' : 'BYL-M';
+  const platformId = `${prefix}-${(10000 + newId).toString()}`;
+
+  const startingCoins = cleanRole === 'member' ? 100 : cleanRole === 'merchant' ? 200 : cleanRole === 'lender' ? 300 : 500;
+  const startingPoints = cleanRole === 'member' ? 25 : 50;
+
   const newUser: User = {
     id: newId,
     name: name.trim(),
     email: cleanEmail,
     phone: autoPhone,
     password: password.trim(),
-    role: 'member',
-    roles: ['member'],
-    activeRole: 'member',
-    platformId: `BYL-M-${(10000 + newId).toString()}`,
+    role: cleanRole,
+    roles: [cleanRole],
+    activeRole: cleanRole,
+    platformId,
+    shopName: cleanRole === 'merchant' ? (shopName?.trim() || name.trim()) : undefined,
+    shopDescription: cleanRole === 'merchant' ? 'Verified seller on Buyoll' : undefined,
+    verified: cleanRole === 'admin' ? true : false,
+    merchantSubscriptionStatus: cleanRole === 'merchant' ? 'inactive' : undefined,
     credit: 0,
-    coins: 100,
-    points: 25,
+    coins: startingCoins,
+    points: startingPoints,
     roleWallets: {
-      member: {
+      [cleanRole]: {
         credit: 0,
         nonWithdrawableBalance: 0,
-        coins: 100,
-        points: 25,
+        coins: startingCoins,
+        points: startingPoints,
       },
     },
     lastActive: Date.now(),
@@ -606,12 +627,13 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
   };
 
   db.users.push(newUser);
-  logAudit(db, newUser.id, newUser.name, 'USER_REGISTERED', `New member account registered through portal.`);
+  logAudit(db, newUser.id, newUser.name, 'USER_REGISTERED', `New ${cleanRole} account registered (${platformId}).`);
   await saveDatabase(db);
 
+  const displayRole = cleanRole.charAt(0).toUpperCase() + cleanRole.slice(1);
   res.json({
     user: newUser,
-    notice: 'Account created successfully as Member! Welcome to Buyoll.',
+    notice: `Account created successfully as ${displayRole}! Welcome to Buyoll.`,
   });
 });
 
