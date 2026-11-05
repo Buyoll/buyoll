@@ -26,8 +26,9 @@ import {
   LogIn,
   Plus,
   Trash2,
+  ExternalLink,
 } from 'lucide-react';
-import { User, Announcement } from '../types.ts';
+import { User, Announcement, PlatformAnnouncementSlot } from '../types.ts';
 import { useSearchHistory } from '../hooks/useSearchHistory.ts';
 
 interface HomePageProps {
@@ -53,6 +54,95 @@ const CATEGORIES = [
 ];
 
 type DayFilter = 'all' | 0 | 1 | 2 | 3 | 5 | 6 | 7;
+
+const DEFAULT_HERO_SLOTS: PlatformAnnouncementSlot[] = [
+  {
+    slot: 1,
+    title: 'Chama Groups Are Strictly Referral-Only',
+    message: 'Strangers cannot join. Every member must be vouched for by an active member and verified by phone by a moderator.',
+    badge: 'RULE',
+    accent: 'emerald',
+    ctaLabel: 'Read Chama Rules',
+    ctaUrl: '/chamas',
+    status: 'published',
+    isPublished: true,
+    startsAt: undefined,
+    endsAt: undefined,
+    updatedAt: Date.now(),
+    updatedBy: 'System',
+    version: 1,
+  },
+  {
+    slot: 2,
+    title: 'Scheduled System Maintenance',
+    message: 'M-Pesa reconciliation batch runs nightly from 02:00 to 02:30 EAT. Instant payouts will queue during this window.',
+    badge: 'MAINTENANCE',
+    accent: 'amber',
+    ctaLabel: 'View Status',
+    ctaUrl: '/announcements',
+    status: 'published',
+    isPublished: true,
+    startsAt: undefined,
+    endsAt: undefined,
+    updatedAt: Date.now(),
+    updatedBy: 'System',
+    version: 1,
+  },
+  {
+    slot: 3,
+    title: 'Merchant Payout Policy',
+    message: 'Funds are released to merchants only after the chama group moderator and buyer confirm receipt.',
+    badge: 'POLICY',
+    accent: 'sky',
+    ctaLabel: 'Merchant Handbook',
+    ctaUrl: '/merchant',
+    status: 'published',
+    isPublished: true,
+    startsAt: undefined,
+    endsAt: undefined,
+    updatedAt: Date.now(),
+    updatedBy: 'System',
+    version: 1,
+  },
+];
+
+const ACCENT_CARD_STYLES: Record<string, {
+  card: string;
+  badge: string;
+  dot: string;
+  cta: string;
+}> = {
+  emerald: {
+    card: 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-[#11241C] hover:border-emerald-500/80',
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800',
+    dot: 'bg-emerald-500',
+    cta: 'bg-emerald-700 hover:bg-emerald-800 text-white dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-emerald-900/20',
+  },
+  pink: {
+    card: 'border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-[#251218] hover:border-pink-500/80',
+    badge: 'bg-pink-100 text-pink-800 dark:bg-pink-950/80 dark:text-pink-300 border-pink-300 dark:border-pink-800',
+    dot: 'bg-pink-500',
+    cta: 'bg-pink-700 hover:bg-pink-800 text-white dark:bg-pink-600 dark:hover:bg-pink-500 shadow-pink-900/20',
+  },
+  violet: {
+    card: 'border-violet-200 dark:border-violet-900/60 bg-violet-50/40 dark:bg-[#1D142A] hover:border-violet-500/80',
+    badge: 'bg-violet-100 text-violet-800 dark:bg-violet-950/80 dark:text-violet-300 border-violet-300 dark:border-violet-800',
+    dot: 'bg-violet-500',
+    cta: 'bg-violet-700 hover:bg-violet-800 text-white dark:bg-violet-600 dark:hover:bg-violet-500 shadow-violet-900/20',
+  },
+  amber: {
+    card: 'border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-[#261C10] hover:border-amber-500/80',
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+    dot: 'bg-amber-500',
+    cta: 'bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-500 shadow-amber-900/20',
+  },
+  sky: {
+    card: 'border-sky-200 dark:border-sky-900/60 bg-sky-50/40 dark:bg-[#101F29] hover:border-sky-500/80',
+    badge: 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border-sky-300 dark:border-sky-800',
+    dot: 'bg-sky-500',
+    cta: 'bg-sky-700 hover:bg-sky-800 text-white dark:bg-sky-600 dark:hover:bg-sky-500 shadow-sky-900/20',
+  },
+};
 
 export const HomePage: React.FC<HomePageProps> = ({
   currentUser,
@@ -81,6 +171,37 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [jumpIndexInput, setJumpIndexInput] = useState('');
   const [isFeaturedPaused, setIsFeaturedPaused] = useState(false);
+
+  // Admin-controlled 3 Hero Announcement Cards (Feature B)
+  const [heroSlots, setHeroSlots] = useState<PlatformAnnouncementSlot[]>(DEFAULT_HERO_SLOTS);
+  const [heroLoading, setHeroLoading] = useState(true);
+
+  async function loadHeroSlots() {
+    try {
+      const res = await api.getHeroAnnouncementCards();
+      const list = res.cards || res.announcements || [];
+      const merged: PlatformAnnouncementSlot[] = [1, 2, 3].map((s) => {
+        const found = list.find((c) => c.slot === s);
+        return found || DEFAULT_HERO_SLOTS[s - 1];
+      });
+      setHeroSlots(merged);
+    } catch {
+      setHeroSlots(DEFAULT_HERO_SLOTS);
+    } finally {
+      setHeroLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadHeroSlots();
+    const interval = setInterval(loadHeroSlots, 60000);
+    const handleFocus = () => loadHeroSlots();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   // Newly posted announcements state
   const [selectedDayFilter, setSelectedDayFilter] = useState<DayFilter>('all');
@@ -302,8 +423,8 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       )}
 
-      {/* Official Buyoll Announcements Feed (Public, read-only for visitors, admin-managed) */}
-      {!searchQuery && selectedCategory === 'All' && announcements.length > 0 && (
+      {/* Platform Announcements & Notices (3 Admin-Controlled Hero Slots - Feature B) */}
+      {!searchQuery && selectedCategory === 'All' && (
         <section className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl sm:rounded-3xl p-5 sm:p-6 mb-8 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#1E2B26] mb-5">
             <div className="flex items-center gap-2.5">
@@ -315,122 +436,118 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                     Platform Announcements & Notices
                   </h2>
-                  <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded-full">
-                    {announcements.length} Verified
+                  <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-extrabold rounded-full uppercase tracking-wider">
+                    Verified
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Official notices, regulatory updates, and Chama platform news from Buyoll Administration.
+                  Official rules, operational schedules, and policy updates verified by Buyoll Administration.
                 </p>
               </div>
             </div>
 
             {currentUser?.role === 'admin' && (
-              <button
-                onClick={() => setShowAnnForm(!showAnnForm)}
-                className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{showAnnForm ? 'Close Form' : 'Post Announcement'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onNavigate?.('admin-dashboard')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Manage Hero Cards</span>
+                </button>
+              </div>
             )}
           </div>
 
-          {/* Admin Announcement Creator Form */}
-          {currentUser?.role === 'admin' && showAnnForm && (
-            <form onSubmit={handleCreateAnnouncement} className="bg-slate-50 dark:bg-[#16221E] p-4 rounded-xl border border-slate-200 dark:border-[#24312C] mb-5 space-y-3">
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Create Official Announcement (Admin Only)
-              </h3>
-              <input
-                type="text"
-                placeholder="Announcement Title"
-                value={annTitle}
-                onChange={e => setAnnTitle(e.target.value)}
-                required
-                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
-              />
-              <textarea
-                placeholder="Announcement Body Details..."
-                rows={3}
-                value={annBody}
-                onChange={e => setAnnBody(e.target.value)}
-                required
-                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
-              />
-              <input
-                type="url"
-                placeholder="Optional Image URL (https://...)"
-                value={annImageUrl}
-                onChange={e => setAnnImageUrl(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#0B1210] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAnnForm(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"
+          {/* 3 Hero Cards Grid (Feature B) */}
+          {heroLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  className="h-48 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#16221E] animate-pulse p-5 flex flex-col justify-between"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingAnn}
-                  className="px-4 py-1.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0a422c] disabled:opacity-50"
-                >
-                  {submittingAnn ? 'Publishing...' : 'Publish Announcement'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Announcements Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {announcements.map((ann) => (
-              <div
-                key={ann.id}
-                className="bg-slate-50 dark:bg-[#16221E] border border-slate-200/80 dark:border-[#24312C] rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-700/50 transition-all shadow-2xs"
-              >
-                <div>
-                  {ann.imageUrl && (
-                    <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-slate-200 dark:bg-slate-800">
-                      <img
-                        src={resolveImageUrl(ann.imageUrl)}
-                        alt={ann.title}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-black rounded-md uppercase tracking-wider">
-                      Official Notice
-                    </span>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                      {new Date(ann.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                    </span>
+                  <div className="space-y-3">
+                    <div className="h-4 w-20 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                    <div className="h-5 w-3/4 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                    <div className="h-4 w-full bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                    <div className="h-4 w-2/3 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
                   </div>
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mb-1.5 line-clamp-2">
-                    {ann.title}
-                  </h3>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
-                    {ann.body}
-                  </p>
+                  <div className="h-8 w-28 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {heroSlots.map((card) => {
+                const style = ACCENT_CARD_STYLES[card.accent] || ACCENT_CARD_STYLES.emerald;
+                return (
+                  <div
+                    key={card.slot}
+                    className={`rounded-2xl border p-5 flex flex-col justify-between transition-all duration-200 shadow-2xs hover:shadow-md ${style.card}`}
+                  >
+                    <div>
+                      {/* Badge Pill & Slot Identifier */}
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-black tracking-wider uppercase rounded-md border ${style.badge}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                          {card.badge || `NOTICE ${card.slot}`}
+                        </span>
+                        <span className="text-[10px] font-mono font-medium text-slate-400 dark:text-slate-500">
+                          Slot #{card.slot}
+                        </span>
+                      </div>
 
-                {currentUser?.role === 'admin' && (
-                  <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex justify-end">
-                    <button
-                      onClick={() => handleDeleteAnnouncement(ann.id)}
-                      className="text-red-500 hover:text-red-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Delete</span>
-                    </button>
+                      {/* Card Title */}
+                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mb-2 leading-snug">
+                        {card.title}
+                      </h3>
+
+                      {/* Card Message */}
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {card.message}
+                      </p>
+                    </div>
+
+                    {/* Optional CTA Button */}
+                    {card.ctaLabel && (
+                      <div className="mt-4 pt-3 border-t border-slate-200/50 dark:border-slate-800/60 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!card.ctaUrl) return;
+                            if (card.ctaUrl.startsWith('http')) {
+                              window.open(card.ctaUrl, '_blank', 'noopener,noreferrer');
+                            } else if (card.ctaUrl === '/chamas' || card.ctaUrl.startsWith('/chama')) {
+                              onNavigate?.('my-chamas');
+                            } else if (card.ctaUrl === '/merchant') {
+                              onNavigate?.('vendor-dashboard');
+                            } else if (card.ctaUrl === '/lender') {
+                              onNavigate?.('lenders-dashboard');
+                            } else if (card.ctaUrl === '/announcements') {
+                              onNavigate?.('home');
+                            } else {
+                              window.location.href = card.ctaUrl;
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all active:scale-95 ${style.cta}`}
+                        >
+                          <span>{card.ctaLabel}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                          Official
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

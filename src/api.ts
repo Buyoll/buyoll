@@ -2822,6 +2822,209 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // -------------------------------------------------------------
+  // FEATURE A: CHAMA GROUPS (TRUST & VETTING)
+  // -------------------------------------------------------------
+  async createTrustGroup(data: {
+    name: string;
+    description: string;
+    contributionAmount?: number;
+    cycleType?: 'weekly' | 'biweekly' | 'monthly' | string;
+    rules?: string;
+    contributionNote?: string;
+    maxMembers?: number;
+    workplace?: string;
+    residence?: string;
+  }): Promise<any> {
+    return await fetchApi<any>('/groups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getMyTrustGroups(): Promise<{ groups: any[] }> {
+    return await fetchApi<{ groups: any[] }>('/groups/mine');
+  },
+
+  async getTrustGroup(id: string): Promise<{ group: any }> {
+    return await fetchApi<{ group: any }>(`/groups/${id}`);
+  },
+
+  async getMyGroupCode(groupId: string): Promise<{ memberCode: string; groupId: string; status: string; code?: string }> {
+    return await fetchApi<any>(`/groups/${groupId}/my-code`);
+  },
+
+  async submitJoinRequest(data: {
+    referralCode?: string;
+    memberCode?: string;
+    workplace?: string;
+    employer?: string;
+    workplaceAddress?: string;
+    residence?: string;
+    residentialAddress?: string;
+    residentialLandmark?: string;
+    phone?: string;
+    applicantPhone?: string;
+    applicantName?: string;
+    relationship: string;
+    yearsKnown: number;
+    consentGiven?: boolean;
+    consentSigned?: boolean;
+  }): Promise<any> {
+    return await fetchApi<any>('/groups/join-requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...data,
+        referralCode: data.memberCode || data.referralCode,
+        phone: data.applicantPhone || data.phone,
+        workplace: data.workplace || `${data.employer || ''} - ${data.workplaceAddress || ''}`,
+        residence: data.residence || `${data.residentialAddress || ''} (Landmark: ${data.residentialLandmark || ''})`,
+        consentGiven: data.consentSigned !== undefined ? data.consentSigned : (data.consentGiven !== undefined ? data.consentGiven : true),
+      }),
+    });
+  },
+
+  async getMyJoinRequests(): Promise<{ requests: any[] }> {
+    return await fetchApi<{ requests: any[] }>('/groups/join-requests/mine');
+  },
+
+  async withdrawJoinRequest(requestId: string): Promise<any> {
+    return await fetchApi<any>(`/groups/join-requests/${requestId}/withdraw`, {
+      method: 'POST',
+    });
+  },
+
+  async getPendingReferrals(): Promise<{ pendingRequests: any[]; referrals: any[]; totalVouchedMembersCount: number }> {
+    const res = await fetchApi<any>('/groups/referrals/pending');
+    return {
+      pendingRequests: res.pendingRequests || res.referrals || [],
+      referrals: res.referrals || res.pendingRequests || [],
+      totalVouchedMembersCount: res.totalVouchedMembersCount || 0,
+    };
+  },
+
+  async respondToReferral(requestId: string, responseOrObj: 'yes' | 'no' | { action: 'confirm' | 'deny'; note?: string }): Promise<any> {
+    const resp = typeof responseOrObj === 'string'
+      ? responseOrObj
+      : (responseOrObj.action === 'confirm' ? 'yes' : 'no');
+    return await fetchApi<any>(`/groups/join-requests/${requestId}/referrer-response`, {
+      method: 'POST',
+      body: JSON.stringify({ response: resp }),
+    });
+  },
+
+  async getGroupVettingQueue(groupId: string): Promise<{ requests: any[]; queue: any[] }> {
+    const res = await fetchApi<any>(`/groups/${groupId}/join-requests`);
+    return {
+      requests: res.requests || res.queue || [],
+      queue: res.queue || res.requests || [],
+    };
+  },
+
+  async logVettingCall(
+    groupIdOrRequestId: string,
+    requestIdOrData: any,
+    maybeData?: any
+  ): Promise<any> {
+    let groupId = groupIdOrRequestId;
+    let requestId = typeof requestIdOrData === 'string' ? requestIdOrData : groupIdOrRequestId;
+    let data = maybeData || requestIdOrData;
+
+    return await fetchApi<any>(`/groups/${groupId}/join-requests/${requestId}/log-call`, {
+      method: 'POST',
+      body: JSON.stringify({
+        referrerKnowsWorkplaceOrResidence: data.confirmedWorkplaceResidence !== undefined ? data.confirmedWorkplaceResidence : data.referrerKnowsWorkplaceOrResidence,
+        referrerAcceptsResponsibility: data.spokeWithReferrer !== undefined ? data.spokeWithReferrer : data.referrerAcceptsResponsibility,
+        notes: data.notes || '',
+        phoneCalled: data.phoneCalled,
+        ...data,
+      }),
+    });
+  },
+
+  async approveJoinRequest(groupIdOrRequestId: string, maybeRequestId?: string): Promise<any> {
+    const groupId = maybeRequestId ? groupIdOrRequestId : 'any';
+    const requestId = maybeRequestId || groupIdOrRequestId;
+    return await fetchApi<any>(`/groups/${groupId}/join-requests/${requestId}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectJoinRequest(groupIdOrRequestId: string, reqIdOrObj?: any, maybeReason?: string): Promise<any> {
+    const groupId = (maybeReason !== undefined || (typeof reqIdOrObj === 'string' && maybeReason !== undefined))
+      ? groupIdOrRequestId
+      : 'any';
+    const requestId = (typeof reqIdOrObj === 'string') ? reqIdOrObj : groupIdOrRequestId;
+    const reason = typeof reqIdOrObj === 'object' ? reqIdOrObj.reason : (maybeReason || 'Rejected');
+    return await fetchApi<any>(`/groups/${groupId}/join-requests/${requestId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getGroupMembers(groupId: string): Promise<{ members: any[]; isModerator: boolean }> {
+    return await fetchApi<{ members: any[]; isModerator: boolean }>(`/groups/${groupId}/members`);
+  },
+
+  async updateGroupMemberStatus(
+    groupId: string,
+    memberId: string,
+    data: { status?: string; role?: string; reason?: string }
+  ): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/members/${memberId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getMemberTraceCard(groupId: string, memberId: string): Promise<{ traceCard: any }> {
+    return await fetchApi<{ traceCard: any }>(`/groups/${groupId}/members/${memberId}/trace`);
+  },
+
+  // -------------------------------------------------------------
+  // FEATURE B: 3 HERO PLATFORM ANNOUNCEMENT CARDS
+  // -------------------------------------------------------------
+  async getHeroAnnouncementCards(): Promise<{ announcements: import('./types.ts').PlatformAnnouncementSlot[]; cards: import('./types.ts').PlatformAnnouncementSlot[] }> {
+    return await fetchApi<{ announcements: import('./types.ts').PlatformAnnouncementSlot[]; cards: import('./types.ts').PlatformAnnouncementSlot[] }>('/announcement-cards');
+  },
+
+  async getAdminHeroAnnouncementCards(): Promise<{ cards: import('./types.ts').PlatformAnnouncementSlot[] }> {
+    return await fetchApi<{ cards: import('./types.ts').PlatformAnnouncementSlot[] }>('/admin/announcement-cards');
+  },
+
+  async updateAdminHeroAnnouncementCard(
+    slot: number,
+    data: Partial<import('./types.ts').PlatformAnnouncementSlot>
+  ): Promise<any> {
+    return await fetchApi<any>(`/admin/announcement-cards/${slot}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async publishAdminHeroAnnouncementCard(slot: number): Promise<any> {
+    return await fetchApi<any>(`/admin/announcement-cards/${slot}/publish`, {
+      method: 'POST',
+    });
+  },
+
+  async unpublishAdminHeroAnnouncementCard(slot: number): Promise<any> {
+    return await fetchApi<any>(`/admin/announcement-cards/${slot}/unpublish`, {
+      method: 'POST',
+    });
+  },
+
+  async getAdminHeroAnnouncementHistory(slot: number): Promise<{ history: import('./types.ts').PlatformAnnouncementRevision[]; revisions: import('./types.ts').PlatformAnnouncementRevision[] }> {
+    return await fetchApi<{ history: import('./types.ts').PlatformAnnouncementRevision[]; revisions: import('./types.ts').PlatformAnnouncementRevision[] }>(`/admin/announcement-cards/${slot}/history`);
+  },
+
+  async revertAdminHeroAnnouncementCard(slot: number, revisionId: string): Promise<any> {
+    return await fetchApi<any>(`/admin/announcement-cards/${slot}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ revisionId }),
+    });
+  },
 };
 
 

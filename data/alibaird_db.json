@@ -808,6 +808,126 @@
   ],
   "auditLogs": [
     {
+      "id": 39,
+      "timestamp": 1793881166299,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_TRACE_CARD_ACCESSED",
+      "details": "Moderator Samuel Mwangi opened private Trace Card for member Faith Chebet (gm_1793881166293_vkx60). Vouched by Samuel Mwangi."
+    },
+    {
+      "id": 38,
+      "timestamp": 1793881166293,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_MEMBER_ADMITTED",
+      "details": "Admitted Faith Chebet (0723456789@buyoll.com) to group #grp_1793881166259_9atn. Vouched by member #gm_1793881166259_creator. Issued code CH-FEKE-VGM5."
+    },
+    {
+      "id": 37,
+      "timestamp": 1793881166289,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_VETTING_CALL_LOGGED",
+      "details": "Moderator Samuel Mwangi logged phone verification call for request #req_1793881166274_f1631. Knows location: true, Accepts responsibility: true."
+    },
+    {
+      "id": 36,
+      "timestamp": 1793881166283,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "REFERRER_CONFIRMED",
+      "details": "Referrer Samuel Mwangi confirmed vouching for Faith Chebet. Moved to awaiting_moderator_call."
+    },
+    {
+      "id": 35,
+      "timestamp": 1793881166275,
+      "actorId": 4,
+      "actorName": "Faith Chebet",
+      "action": "CHAMA_JOIN_REQUESTED",
+      "details": "Applicant Faith Chebet submitted join request for Chama \"Westlands Elite Circle\" using code of Samuel Mwangi. Status: awaiting_referrer."
+    },
+    {
+      "id": 34,
+      "timestamp": 1793881166259,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_GROUP_CREATED",
+      "details": "Created trust Chama group \"Westlands Elite Circle\" (grp_1793881166259_9atn). Creator assigned moderator role with code CH-4R6C-JJZM."
+    },
+    {
+      "id": 33,
+      "timestamp": 1793881148938,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_TRACE_CARD_ACCESSED",
+      "details": "Moderator Samuel Mwangi opened private Trace Card for member Samuel Mwangi (gm_1793881148893_creator). Vouched by Direct."
+    },
+    {
+      "id": 32,
+      "timestamp": 1793881148930,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_MEMBER_ADMITTED",
+      "details": "Admitted Faith Chebet (0723456789@buyoll.com) to group #grp_1793881148893_cxbe. Vouched by member #gm_1793881148893_creator. Issued code CH-VRLC-QL94."
+    },
+    {
+      "id": 31,
+      "timestamp": 1793881148926,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_VETTING_CALL_LOGGED",
+      "details": "Moderator Samuel Mwangi logged phone verification call for request #req_1793881148908_08pfx. Knows location: true, Accepts responsibility: true."
+    },
+    {
+      "id": 30,
+      "timestamp": 1793881148917,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "REFERRER_CONFIRMED",
+      "details": "Referrer Samuel Mwangi confirmed vouching for Faith Chebet. Moved to awaiting_moderator_call."
+    },
+    {
+      "id": 29,
+      "timestamp": 1793881148909,
+      "actorId": 4,
+      "actorName": "Faith Chebet",
+      "action": "CHAMA_JOIN_REQUESTED",
+      "details": "Applicant Faith Chebet submitted join request for Chama \"Kilimani Tech Savings Circle\" using code of Samuel Mwangi. Status: awaiting_referrer."
+    },
+    {
+      "id": 28,
+      "timestamp": 1793881148893,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "CHAMA_GROUP_CREATED",
+      "details": "Created trust Chama group \"Kilimani Tech Savings Circle\" (grp_1793881148893_cxbe). Creator assigned moderator role with code CH-KXKF-8Q6U."
+    },
+    {
+      "id": 27,
+      "timestamp": 1793881148886,
+      "actorId": 1,
+      "actorName": "Buyoll System Admin",
+      "action": "ANNOUNCEMENT_HERO_REVERTED",
+      "details": "Reverted Hero Card Slot #1 to revision from 11/5/2026, 12:19:08 PM."
+    },
+    {
+      "id": 26,
+      "timestamp": 1793881148855,
+      "actorId": 1,
+      "actorName": "Buyoll System Admin",
+      "action": "ANNOUNCEMENT_HERO_EDITED",
+      "details": "Admin edited Hero Card Slot #1 \"Updated Trusted Community Chamas 2026\" (v3, status: published)."
+    },
+    {
+      "id": 25,
+      "timestamp": 1793881033014,
+      "actorId": 1,
+      "actorName": "Buyoll System Admin",
+      "action": "ANNOUNCEMENT_HERO_EDITED",
+      "details": "Admin edited Hero Card Slot #1 \"Updated Trusted Community Chamas 2026\" (v2, status: published)."
+    },
+    {
       "id": 24,
       "timestamp": 1793805262583,
       "actorId": 1,
@@ -952,7 +1072,7 @@
     "refundRequest": 1,
     "payment": 11,
     "ledger": 2,
-    "audit": 25,
+    "audit": 40,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1
@@ -1156,5 +1276,246 @@
   "chatStrikes": [],
   "savedItems": [],
   "followedMerchants": [],
-  "recentlyViewed": []
+  "recentlyViewed": [],
+  "trustGroups": [
+    {
+      "id": "grp_1793881166259_9atn",
+      "name": "Westlands Elite Circle",
+      "description": "Business networking and savings",
+      "contributionAmount": 5000,
+      "cycleType": "monthly",
+      "createdBy": "0712345678@buyoll.com",
+      "moderatorEmails": [
+        "0712345678@buyoll.com"
+      ],
+      "status": "active",
+      "maxMembers": 15,
+      "createdAt": 1793881166259
+    },
+    {
+      "id": "grp_1793881148893_cxbe",
+      "name": "Kilimani Tech Savings Circle",
+      "description": "Neighborhood technology and entrepreneurship revolving fund",
+      "contributionAmount": 10000,
+      "cycleType": "monthly",
+      "rules": "Monthly contribution KES 10,000, vetted neighbors only",
+      "createdBy": "0712345678@buyoll.com",
+      "moderatorEmails": [
+        "0712345678@buyoll.com"
+      ],
+      "status": "active",
+      "maxMembers": 15,
+      "createdAt": 1793881148893
+    }
+  ],
+  "trustGroupMembers": [
+    {
+      "id": "gm_1793881148893_creator",
+      "groupId": "grp_1793881148893_cxbe",
+      "userEmail": "0712345678@buyoll.com",
+      "userName": "Samuel Mwangi",
+      "phone": "0712345678",
+      "role": "moderator",
+      "status": "active",
+      "memberCode": "CH-KXKF-8Q6U",
+      "referredByMemberId": null,
+      "workplace": "Kilimani Business Park",
+      "residence": "Kilimani, Argwings Kodhek",
+      "joinedAt": 1793881148893
+    },
+    {
+      "id": "gm_1793881148930_uwktl",
+      "groupId": "grp_1793881148893_cxbe",
+      "userEmail": "0723456789@buyoll.com",
+      "userName": "Faith Chebet",
+      "phone": "+254711223344",
+      "role": "member",
+      "status": "active",
+      "memberCode": "CH-VRLC-QL94",
+      "referredByMemberId": "gm_1793881148893_creator",
+      "workplace": "Safaricom PLC, Waiyaki Way Nairobi",
+      "residence": "Kileleshwa, Dennis Pritt Rd Apt 4B",
+      "joinedAt": 1793881148930
+    },
+    {
+      "id": "gm_1793881166259_creator",
+      "groupId": "grp_1793881166259_9atn",
+      "userEmail": "0712345678@buyoll.com",
+      "userName": "Samuel Mwangi",
+      "phone": "0712345678",
+      "role": "moderator",
+      "status": "active",
+      "memberCode": "CH-4R6C-JJZM",
+      "referredByMemberId": null,
+      "workplace": "Westlands",
+      "residence": "Westlands",
+      "joinedAt": 1793881166259
+    },
+    {
+      "id": "gm_1793881166293_vkx60",
+      "groupId": "grp_1793881166259_9atn",
+      "userEmail": "0723456789@buyoll.com",
+      "userName": "Faith Chebet",
+      "phone": "+254711223344",
+      "role": "member",
+      "status": "active",
+      "memberCode": "CH-FEKE-VGM5",
+      "referredByMemberId": "gm_1793881166259_creator",
+      "workplace": "Safaricom PLC HQ",
+      "residence": "Kileleshwa, Dennis Pritt",
+      "joinedAt": 1793881166293
+    }
+  ],
+  "trustJoinRequests": [
+    {
+      "id": "req_1793881166274_f1631",
+      "groupId": "grp_1793881166259_9atn",
+      "applicantEmail": "0723456789@buyoll.com",
+      "applicantName": "Faith Chebet",
+      "applicantPhone": "+254711223344",
+      "applicantWorkplace": "Safaricom PLC HQ",
+      "applicantResidence": "Kileleshwa, Dennis Pritt",
+      "referralCode": "CH-4R6C-JJZM",
+      "referrerMemberId": "gm_1793881166259_creator",
+      "relationship": "colleague",
+      "yearsKnown": 4,
+      "referrerConfirmed": "yes",
+      "status": "approved",
+      "createdAt": 1793881166274,
+      "vetting": {
+        "calledAt": 1793881166289,
+        "calledByEmail": "0712345678@buyoll.com",
+        "referrerKnowsWorkplaceOrResidence": true,
+        "referrerAcceptsResponsibility": true,
+        "notes": "Confirmed workplace at Safaricom HQ and residence in Kileleshwa."
+      },
+      "decidedAt": 1793881166293,
+      "decidedBy": "0712345678@buyoll.com"
+    },
+    {
+      "id": "req_1793881148908_08pfx",
+      "groupId": "grp_1793881148893_cxbe",
+      "applicantEmail": "0723456789@buyoll.com",
+      "applicantName": "Faith Chebet",
+      "applicantPhone": "+254711223344",
+      "applicantWorkplace": "Safaricom PLC, Waiyaki Way Nairobi",
+      "applicantResidence": "Kileleshwa, Dennis Pritt Rd Apt 4B",
+      "referralCode": "CH-KXKF-8Q6U",
+      "referrerMemberId": "gm_1793881148893_creator",
+      "relationship": "colleague",
+      "yearsKnown": 3,
+      "referrerConfirmed": "yes",
+      "status": "approved",
+      "createdAt": 1793881148908,
+      "vetting": {
+        "calledAt": 1793881148926,
+        "calledByEmail": "0712345678@buyoll.com",
+        "referrerKnowsWorkplaceOrResidence": true,
+        "referrerAcceptsResponsibility": true,
+        "notes": "Called Samuel at 14:30. Verified applicant has worked with him for 3 years at Safaricom HQ and he has visited her residence in Kileleshwa."
+      },
+      "decidedAt": 1793881148930,
+      "decidedBy": "0712345678@buyoll.com"
+    }
+  ],
+  "announcementRevisions": [
+    {
+      "id": "rev_1793881148877_before_revert",
+      "slot": 1,
+      "snapshot": {
+        "slot": 1,
+        "title": "Updated Trusted Community Chamas 2026",
+        "message": "Safe, vetted community savings circles with zero default record.",
+        "badge": "Verified",
+        "accent": "emerald",
+        "ctaLabel": "Explore Circles",
+        "ctaUrl": "/chamas",
+        "status": "published",
+        "updatedBy": "cityandcountyre@gmail.com",
+        "updatedAt": 1793881148855,
+        "version": 3
+      },
+      "changedBy": "cityandcountyre@gmail.com",
+      "changedAt": 1793881148877
+    },
+    {
+      "id": "rev_1793881148855_slot1",
+      "slot": 1,
+      "snapshot": {
+        "slot": 1,
+        "title": "Updated Trusted Community Chamas 2026",
+        "message": "Safe, vetted community savings circles with zero default record.",
+        "badge": "Verified",
+        "accent": "emerald",
+        "ctaLabel": "Explore Circles",
+        "ctaUrl": "/chamas",
+        "status": "published",
+        "updatedBy": "cityandcountyre@gmail.com",
+        "updatedAt": 1793881033014,
+        "version": 2
+      },
+      "changedBy": "cityandcountyre@gmail.com",
+      "changedAt": 1793881148855
+    },
+    {
+      "id": "rev_1793881033014_slot1",
+      "slot": 1,
+      "snapshot": {
+        "slot": 1,
+        "title": "Welcome to Buyoll Community Chamas",
+        "message": "Safe, vetted community savings circles. Join trusted circles with verified member referrals and moderator vetting.",
+        "badge": "Notice",
+        "accent": "emerald",
+        "ctaLabel": "Explore Chamas",
+        "ctaUrl": "/chamas",
+        "status": "published",
+        "updatedBy": "cityandcountyre@gmail.com",
+        "updatedAt": 1793794585157,
+        "version": 1
+      },
+      "changedBy": "cityandcountyre@gmail.com",
+      "changedAt": 1793881033014
+    }
+  ],
+  "announcementCards": [
+    {
+      "slot": 1,
+      "title": "Updated Trusted Community Chamas 2026",
+      "message": "Safe, vetted community savings circles with zero default record.",
+      "badge": "Verified",
+      "accent": "emerald",
+      "ctaLabel": "Explore Circles",
+      "ctaUrl": "/chamas",
+      "status": "published",
+      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedAt": 1793881148877,
+      "version": 4
+    },
+    {
+      "slot": 2,
+      "title": "Know Someone to Join: Trust & Vetting",
+      "message": "Every new Chama member must be vouched for by an active member and verified via moderator phone check before admission.",
+      "badge": "Update",
+      "accent": "violet",
+      "ctaLabel": "How It Works",
+      "ctaUrl": "/chamas",
+      "status": "published",
+      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedAt": 1793837785157,
+      "version": 1
+    },
+    {
+      "slot": 3,
+      "title": "Direct Merchant Escrow & Safe Payouts",
+      "message": "Zero defaults, guaranteed rotating payouts, and Lipa Mdogomdogo fulfillment backed by official M-Pesa statements.",
+      "badge": "Promo",
+      "accent": "amber",
+      "ctaLabel": "Browse Deals",
+      "ctaUrl": "/announcements",
+      "status": "published",
+      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedAt": 1793859385157,
+      "version": 1
+    }
+  ]
 }

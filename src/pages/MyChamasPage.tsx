@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User, ChamaGroup } from '../types.ts';
 import { api } from '../api.ts';
 import { getUserActiveRole } from '../utils/rbac.ts';
-import { Users, ArrowRight, ShieldCheck, Clock, CheckCircle, Store } from 'lucide-react';
+import { Users, ArrowRight, ShieldCheck, Clock, CheckCircle, Store, Shield } from 'lucide-react';
+import { TrustChamaSection } from '../components/TrustChamaSection.tsx';
 
 interface MyChamasPageProps {
   currentUser: User | null;
@@ -17,6 +18,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
   onOpenAuth,
   onNotify,
 }) => {
+  const [activeTab, setActiveTab] = useState<'trust' | 'product'>('trust');
   const [groups, setGroups] = useState<ChamaGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -106,37 +108,78 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            My Chama Groups
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Store Credit: <b>KSh {currentUser.credit.toLocaleString()}</b> · Points: <b>{currentUser.points}</b>
-          </p>
-        </div>
+      {/* Primary Category Selector */}
+      <div className="flex items-center gap-2 mb-6 p-1 bg-slate-100 rounded-2xl w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('trust')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            activeTab === 'trust'
+              ? 'bg-[#0E5A3C] text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Shield className="w-4 h-4" />
+          <span>Community Trust Chamas (Referral Vetting)</span>
+        </button>
 
-        {/* Quick Join With Member Code Box */}
-        <form onSubmit={handleQuickJoin} className="flex gap-2 max-w-sm w-full">
-          <input
-            type="text"
-            value={quickJoinCode}
-            onChange={(e) => setQuickJoinCode(e.target.value.toUpperCase())}
-            placeholder="Enter Chama Code (e.g. SOLAR9X1)"
-            className="flex-1 px-3 py-2 text-xs uppercase font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white"
-          />
-          <button
-            type="submit"
-            disabled={submittingJoin || !quickJoinCode.trim()}
-            className="px-4 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs"
-          >
-            {submittingJoin ? 'Joining...' : 'Join Chama'}
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={() => setActiveTab('product')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            activeTab === 'product'
+              ? 'bg-[#0E5A3C] text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Store className="w-4 h-4" />
+          <span>Product Purchase Chamas ({groups.length})</span>
+        </button>
       </div>
 
-      {loading && !hasLoaded ? (
+      {/* Trust Chamas View */}
+      {activeTab === 'trust' && (
+        <TrustChamaSection
+          currentUser={currentUser}
+          onNavigate={onNavigate}
+          onNotify={onNotify}
+        />
+      )}
+
+      {/* Product Chamas View */}
+      {activeTab === 'product' && (
+        <>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                Product Purchase Chamas
+              </h1>
+              <p className="text-xs text-slate-500 mt-1">
+                Store Credit: <b>KSh {currentUser.credit.toLocaleString()}</b> · Points: <b>{currentUser.points}</b>
+              </p>
+            </div>
+
+            {/* Quick Join With Member Code Box */}
+            <form onSubmit={handleQuickJoin} className="flex gap-2 max-w-sm w-full">
+              <input
+                type="text"
+                value={quickJoinCode}
+                onChange={(e) => setQuickJoinCode(e.target.value.toUpperCase())}
+                placeholder="Enter Chama Code (e.g. SOLAR9X1)"
+                className="flex-1 px-3 py-2 text-xs uppercase font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white"
+              />
+              <button
+                type="submit"
+                disabled={submittingJoin || !quickJoinCode.trim()}
+                className="px-4 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs"
+              >
+                {submittingJoin ? 'Joining...' : 'Join Chama'}
+              </button>
+            </form>
+          </div>
+
+          {loading && !hasLoaded ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-xs min-h-[380px] flex flex-col items-center justify-center">
           <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4" />
           <h3 className="text-base font-bold text-slate-900 mb-1">Loading your groups...</h3>
@@ -245,6 +288,8 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
           })}
         </div>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };

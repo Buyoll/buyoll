@@ -85,9 +85,11 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
 ];
 
 import { prompt2Router } from './prompt2_api.js';
+import { chamaTrustRouter } from './chama_trust_api.js';
 
 export const apiRouter = Router();
 apiRouter.use(prompt2Router);
+apiRouter.use(chamaTrustRouter);
 
 function generateCode(length = 6): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

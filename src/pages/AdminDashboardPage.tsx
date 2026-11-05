@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent, WalletDepositRequest } from '../types.ts';
+import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent, WalletDepositRequest, PlatformAnnouncementSlot, PlatformAnnouncementRevision } from '../types.ts';
 import { api } from '../api.ts';
 import {
   Shield,
@@ -26,6 +26,12 @@ import {
   Trash2,
   Wallet,
   Tag,
+  Megaphone,
+  History,
+  Save,
+  Eye,
+  ArrowRight,
+  ExternalLink,
 } from 'lucide-react';
 
 interface AdminDashboardPageProps {
@@ -51,7 +57,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured'>('payments');
+  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured' | 'announcements'>('payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
 
   // Wallet deposits data
@@ -138,6 +144,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   // Featured Products state (Part E & G)
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
   const [allProductsList, setAllProductsList] = useState<any[]>([]);
+
+  // Hero Announcements Editor State (Feature B)
+  const [adminHeroCards, setAdminHeroCards] = useState<PlatformAnnouncementSlot[]>([]);
+  const [loadingHeroCards, setLoadingHeroCards] = useState(false);
+  const [savingSlot, setSavingSlot] = useState<number | null>(null);
+  const [historySlot, setHistorySlot] = useState<number | null>(null);
+  const [historyRevisions, setHistoryRevisions] = useState<PlatformAnnouncementRevision[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     loadAllAdminData();
@@ -471,6 +485,114 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
+  // Hero Announcements Handlers (Feature B)
+  async function loadAdminHeroCards() {
+    setLoadingHeroCards(true);
+    try {
+      const res = await api.getAdminHeroAnnouncementCards();
+      setAdminHeroCards(res.cards || []);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to load announcement cards');
+    } finally {
+      setLoadingHeroCards(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'announcements') {
+      loadAdminHeroCards();
+    }
+  }, [activeTab]);
+
+  function handleCardFieldChange(slot: number, field: keyof PlatformAnnouncementSlot, value: any) {
+    setAdminHeroCards(prev => prev.map(c => c.slot === slot ? { ...c, [field]: value } : c));
+  }
+
+  async function handleSaveCard(slot: number, publishDirect = false) {
+    const card = adminHeroCards.find(c => c.slot === slot);
+    if (!card) return;
+    if (!card.title.trim()) {
+      onNotify('error', 'Title is required');
+      return;
+    }
+    if (!card.message.trim()) {
+      onNotify('error', 'Message is required');
+      return;
+    }
+    setSavingSlot(slot);
+    try {
+      const res = await api.updateAdminHeroAnnouncementCard(slot, {
+        title: card.title.trim(),
+        message: card.message.trim(),
+        badge: card.badge?.trim() || '',
+        accent: card.accent,
+        ctaLabel: card.ctaLabel?.trim() || undefined,
+        ctaUrl: card.ctaUrl?.trim() || undefined,
+        status: publishDirect ? 'published' : (card.status || (card.isPublished ? 'published' : 'draft')),
+        startsAt: card.startsAt || undefined,
+        endsAt: card.endsAt || undefined,
+        version: card.version,
+      });
+      onNotify('success', res.message || `Hero Card Slot #${slot} updated successfully!`);
+      setAdminHeroCards(prev => prev.map(c => c.slot === slot ? res.card : c));
+    } catch (err: any) {
+      if (err.message && err.message.includes('Conflict')) {
+        onNotify('error', 'Another admin updated this card while you were editing. Reloading latest version...');
+        loadAdminHeroCards();
+      } else {
+        onNotify('error', err.message || 'Failed to update hero card');
+      }
+    } finally {
+      setSavingSlot(null);
+    }
+  }
+
+  async function handleTogglePublish(slot: number, currentlyPublished: boolean) {
+    setSavingSlot(slot);
+    try {
+      if (currentlyPublished) {
+        const res = await api.unpublishAdminHeroAnnouncementCard(slot);
+        onNotify('info', res.message || `Slot #${slot} set to draft.`);
+        setAdminHeroCards(prev => prev.map(c => c.slot === slot ? res.card : c));
+      } else {
+        const res = await api.publishAdminHeroAnnouncementCard(slot);
+        onNotify('success', res.message || `Slot #${slot} published to public hero.`);
+        setAdminHeroCards(prev => prev.map(c => c.slot === slot ? res.card : c));
+      }
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to toggle published status');
+    } finally {
+      setSavingSlot(null);
+    }
+  }
+
+  async function openHistoryDrawer(slot: number) {
+    setHistorySlot(slot);
+    setLoadingHistory(true);
+    try {
+      const res = await api.getAdminHeroAnnouncementHistory(slot);
+      setHistoryRevisions(res.revisions || res.history || []);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to load card history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  async function handleRevert(slot: number, revId: string) {
+    setSavingSlot(slot);
+    try {
+      const res = await api.revertAdminHeroAnnouncementCard(slot, revId);
+      onNotify('success', res.message || `Slot #${slot} successfully reverted!`);
+      setAdminHeroCards(prev => prev.map(c => c.slot === slot ? res.card : c));
+      setHistorySlot(null);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to revert card version');
+    } finally {
+      setSavingSlot(null);
+    }
+  }
+
   if (currentUser?.role !== 'admin') {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-center">
@@ -640,6 +762,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         >
           <Tag className="w-4 h-4" />
           <span>Featured Products ({featuredProducts.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('announcements')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
+            activeTab === 'announcements' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Megaphone className="w-4 h-4" />
+          <span>Hero Announcements (3 Cards)</span>
         </button>
 
         <button
@@ -1400,6 +1532,437 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB: HERO ANNOUNCEMENTS & NOTICES (3 SLOTS) - FEATURE B */}
+      {activeTab === 'announcements' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="p-2 bg-emerald-50 text-[#0E5A3C] rounded-xl">
+                  <Megaphone className="w-4 h-4" />
+                </span>
+                <h2 className="text-base font-extrabold text-slate-900">
+                  Platform Announcements & Notices (3 Hero Slots)
+                </h2>
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">
+                  Hero Section
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 max-w-2xl">
+                Edit the 3 high-visibility announcement slots on the marketplace hero. Changes support instant live previews, optimistic locking (409 protection), and full version history with one-click restore.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={loadAdminHeroCards}
+                disabled={loadingHeroCards}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingHeroCards ? 'animate-spin' : ''}`} />
+                <span>Reload Cards</span>
+              </button>
+            </div>
+          </div>
+
+          {loadingHeroCards && adminHeroCards.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-xs">
+              <div className="w-8 h-8 border-3 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              Loading Hero Announcement Slots...
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {[1, 2, 3].map((slotNumber) => {
+                const card = adminHeroCards.find((c) => c.slot === slotNumber) || {
+                  slot: slotNumber as 1 | 2 | 3,
+                  title: '',
+                  message: '',
+                  badge: 'NOTICE',
+                  accent: 'emerald' as const,
+                  ctaLabel: '',
+                  ctaUrl: '',
+                  isPublished: true,
+                  startsAt: null,
+                  endsAt: null,
+                  updatedAt: new Date().toISOString(),
+                  updatedBy: 'admin',
+                  version: 1,
+                };
+
+                const accentPreviewStyles: Record<string, { card: string; badge: string; dot: string; cta: string }> = {
+                  emerald: {
+                    card: 'border-emerald-300 bg-emerald-50/50 text-slate-900',
+                    badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                    dot: 'bg-emerald-500',
+                    cta: 'bg-emerald-700 hover:bg-emerald-800 text-white',
+                  },
+                  pink: {
+                    card: 'border-pink-300 bg-pink-50/50 text-slate-900',
+                    badge: 'bg-pink-100 text-pink-800 border-pink-300',
+                    dot: 'bg-pink-500',
+                    cta: 'bg-pink-700 hover:bg-pink-800 text-white',
+                  },
+                  violet: {
+                    card: 'border-violet-300 bg-violet-50/50 text-slate-900',
+                    badge: 'bg-violet-100 text-violet-800 border-violet-300',
+                    dot: 'bg-violet-500',
+                    cta: 'bg-violet-700 hover:bg-violet-800 text-white',
+                  },
+                  amber: {
+                    card: 'border-amber-300 bg-amber-50/50 text-slate-900',
+                    badge: 'bg-amber-100 text-amber-800 border-amber-300',
+                    dot: 'bg-amber-500',
+                    cta: 'bg-amber-600 hover:bg-amber-700 text-white',
+                  },
+                  sky: {
+                    card: 'border-sky-300 bg-sky-50/50 text-slate-900',
+                    badge: 'bg-sky-100 text-sky-800 border-sky-300',
+                    dot: 'bg-sky-500',
+                    cta: 'bg-sky-700 hover:bg-sky-800 text-white',
+                  },
+                };
+
+                const currentAccentStyle = accentPreviewStyles[card.accent] || accentPreviewStyles.emerald;
+                const isSaving = savingSlot === slotNumber;
+
+                return (
+                  <div
+                    key={slotNumber}
+                    className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4"
+                  >
+                    <div>
+                      {/* Slot Header */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-slate-900 text-white text-xs font-black flex items-center justify-center">
+                            #{slotNumber}
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">
+                            Slot {slotNumber}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            v{card.version}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {(card.status === 'published' || card.isPublished) ? (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">
+                              Published
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-full">
+                              Draft
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openHistoryDrawer(slotNumber)}
+                            className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-md transition-colors cursor-pointer"
+                            title="View Revision History"
+                          >
+                            <History className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Preview Box */}
+                      <div className="mb-4">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">
+                          Live Hero Card Preview
+                        </label>
+                        <div className={`p-4 rounded-xl border shadow-2xs transition-all ${currentAccentStyle.card}`}>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${currentAccentStyle.badge}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${currentAccentStyle.dot}`} />
+                              {card.badge || 'NOTICE'}
+                            </span>
+                            <span className="text-[9px] font-mono text-slate-400">Preview</span>
+                          </div>
+                          <h4 className="text-xs font-extrabold text-slate-900 mb-1 leading-snug line-clamp-2">
+                            {card.title || 'Untitled Card'}
+                          </h4>
+                          <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-3">
+                            {card.message || 'No description provided.'}
+                          </p>
+                          {card.ctaLabel && (
+                            <div className="mt-2 pt-2 border-t border-slate-200/50 flex items-center justify-between">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded ${currentAccentStyle.cta}`}>
+                                {card.ctaLabel}
+                                <ArrowRight className="w-2.5 h-2.5" />
+                              </span>
+                              <span className="text-[9px] text-slate-400 font-mono">
+                                {card.ctaUrl || '#'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Form Fields */}
+                      <div className="space-y-3">
+                        {/* Title with Character Counter (max 80) */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-700">
+                              Title <span className="text-red-500">*</span>
+                            </label>
+                            <span className={`text-[10px] font-mono ${card.title.length > 70 ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>
+                              {card.title.length}/80
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            maxLength={80}
+                            value={card.title}
+                            onChange={(e) => handleCardFieldChange(slotNumber, 'title', e.target.value)}
+                            placeholder="e.g. Scheduled System Maintenance"
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                          />
+                        </div>
+
+                        {/* Message with Character Counter (max 280) */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-700">
+                              Message <span className="text-red-500">*</span>
+                            </label>
+                            <span className={`text-[10px] font-mono ${card.message.length > 250 ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>
+                              {card.message.length}/280
+                            </span>
+                          </div>
+                          <textarea
+                            rows={3}
+                            maxLength={280}
+                            value={card.message}
+                            onChange={(e) => handleCardFieldChange(slotNumber, 'message', e.target.value)}
+                            placeholder="e.g. Details regarding this notice..."
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                          />
+                        </div>
+
+                        {/* Badge with Character Counter (max 20) */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-700">
+                              Badge Pill
+                            </label>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {(card.badge || '').length}/20
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            maxLength={20}
+                            value={card.badge}
+                            onChange={(e) => handleCardFieldChange(slotNumber, 'badge', e.target.value.toUpperCase())}
+                            placeholder="e.g. RULE, MAINTENANCE, POLICY"
+                            className="w-full px-3 py-2 text-xs uppercase font-mono font-bold border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                          />
+                        </div>
+
+                        {/* Accent Color Picker */}
+                        <div>
+                          <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                            Accent Color
+                          </label>
+                          <div className="flex items-center gap-2">
+                            {(['emerald', 'pink', 'violet', 'amber', 'sky'] as const).map((acc) => {
+                              const colorMap: Record<string, string> = {
+                                emerald: 'bg-emerald-500 hover:bg-emerald-600',
+                                pink: 'bg-pink-500 hover:bg-pink-600',
+                                violet: 'bg-violet-500 hover:bg-violet-600',
+                                amber: 'bg-amber-500 hover:bg-amber-600',
+                                sky: 'bg-sky-500 hover:bg-sky-600',
+                              };
+                              const isSelected = card.accent === acc;
+                              return (
+                                <button
+                                  key={acc}
+                                  type="button"
+                                  onClick={() => handleCardFieldChange(slotNumber, 'accent', acc)}
+                                  className={`w-7 h-7 rounded-lg ${colorMap[acc]} text-white flex items-center justify-center transition-transform cursor-pointer ${
+                                    isSelected ? 'ring-2 ring-slate-900 ring-offset-2 scale-110' : 'opacity-80 hover:opacity-100'
+                                  }`}
+                                  title={acc}
+                                >
+                                  {isSelected && <Check className="w-3.5 h-3.5" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* CTA Label & URL */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                              CTA Label (max 24)
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={24}
+                              value={card.ctaLabel || ''}
+                              onChange={(e) => handleCardFieldChange(slotNumber, 'ctaLabel', e.target.value)}
+                              placeholder="e.g. Read Rules"
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                              CTA URL / Path
+                            </label>
+                            <input
+                              type="text"
+                              value={card.ctaUrl || ''}
+                              onChange={(e) => handleCardFieldChange(slotNumber, 'ctaUrl', e.target.value)}
+                              placeholder="e.g. /chamas"
+                              className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions Row */}
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                        <span>Updated by {card.updatedBy || 'admin'}</span>
+                        <span>{card.updatedAt ? new Date(card.updatedAt).toLocaleDateString() : ''}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveCard(slotNumber)}
+                          disabled={isSaving}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePublish(slotNumber, card.status === 'published' || !!card.isPublished)}
+                          disabled={isSaving}
+                          className={`px-3 py-2 text-xs font-bold rounded-xl transition-colors cursor-pointer border ${
+                            (card.status === 'published' || card.isPublished)
+                              ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {(card.status === 'published' || card.isPublished) ? 'Unpublish' : 'Publish'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* REVISION HISTORY DRAWER / MODAL */}
+      {historySlot !== null && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
+                  <History className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Slot #{historySlot} Revision History
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Audit log of previous content revisions and quick rollback.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistorySlot(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-3 flex-1 pr-1">
+              {loadingHistory ? (
+                <div className="text-center py-10 text-xs text-slate-500">
+                  <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  Loading revisions...
+                </div>
+              ) : historyRevisions.length === 0 ? (
+                <div className="text-center py-10 text-xs text-slate-500">
+                  No revisions recorded for Slot #{historySlot} yet.
+                </div>
+              ) : (
+                historyRevisions.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 hover:border-indigo-300 transition-colors"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-700 font-bold">
+                          v{rev.version || rev.snapshot?.version || 1}
+                        </span>
+                        <span className="font-bold text-slate-900">
+                          {rev.updatedBy || rev.changedBy || rev.snapshot?.updatedBy || 'admin'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(rev.timestamp || rev.changedAt || Date.now()).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">{rev.title || rev.snapshot?.title || 'Notice'}</p>
+                      <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5">{rev.message || rev.snapshot?.message || ''}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 text-[10px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 font-mono font-bold rounded">
+                          {rev.badge || rev.snapshot?.badge || 'NOTICE'}
+                        </span>
+                        <span className="capitalize text-slate-500 font-mono">
+                          {rev.accent || rev.snapshot?.accent || 'emerald'}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRevert(historySlot, rev.id)}
+                        disabled={savingSlot === historySlot}
+                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Revert to this
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end shrink-0 mt-3">
+              <button
+                type="button"
+                onClick={() => setHistorySlot(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Close History
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

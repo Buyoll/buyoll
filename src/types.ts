@@ -654,3 +654,155 @@ export interface ChatStrikeRecord {
   lastViolationAt: number;
   warnings?: Array<{ reason: string; timestamp: number }>;
 }
+
+// -------------------------------------------------------------
+// FEATURE A: CHAMA TRUST & VETTED REFERRAL GROUPS
+// -------------------------------------------------------------
+// FEATURE A: CHAMA TRUST & VETTED REFERRAL GROUPS
+// -------------------------------------------------------------
+export interface TrustChamaGroup {
+  id: string;
+  name: string;
+  description: string;
+  contributionAmount: number;
+  cycleType: 'weekly' | 'biweekly' | 'monthly';
+  rules?: string;
+  contributionNote?: string;
+  createdBy: string; // creator user email
+  moderatorEmails: string[];
+  status: 'active' | 'closed';
+  maxMembers: number;
+  createdAt: number;
+}
+
+export type GroupMemberRole = 'moderator' | 'member';
+export type GroupMemberStatus = 'active' | 'suspended' | 'defaulted' | 'removed';
+
+export interface TrustGroupMember {
+  id: string;
+  groupId: string;
+  userEmail: string;
+  userName: string;
+  name?: string;
+  phone: string;
+  role: GroupMemberRole;
+  status: GroupMemberStatus;
+  memberCode: string; // CH-XXXX-XXXX
+  referredByMemberId: string | null;
+  workplace: string;
+  residence: string;
+  joinedAt: number;
+}
+
+export type JoinRelationship =
+  | 'family'
+  | 'close_friend'
+  | 'coworker'
+  | 'colleague'
+  | 'neighbor'
+  | 'neighbour'
+  | 'church_or_community'
+  | 'church_mosque';
+
+export type ReferrerConfirmation = 'pending' | 'yes' | 'no';
+export type JoinRequestStatus =
+  | 'awaiting_referrer'
+  | 'awaiting_moderator_call'
+  | 'approved'
+  | 'rejected'
+  | 'withdrawn';
+
+export interface VettingCallLog {
+  calledAt: number;
+  calledByEmail: string;
+  phoneCalled?: string;
+  spokeWithReferrer?: boolean;
+  confirmedWorkplaceResidence?: boolean;
+  referrerKnowsWorkplaceOrResidence?: boolean;
+  referrerAcceptsResponsibility?: boolean;
+  notes: string;
+}
+
+export interface TrustJoinRequest {
+  id: string;
+  groupId: string;
+  applicantEmail: string;
+  applicantName: string;
+  applicantPhone: string;
+  employer?: string;
+  workplaceAddress?: string;
+  applicantWorkplace?: string;
+  residentialAddress?: string;
+  residentialLandmark?: string;
+  applicantResidence?: string;
+  referralCode: string;
+  referrerMemberId: string;
+  relationship: JoinRelationship | string;
+  yearsKnown: number;
+  referrerConfirmed: ReferrerConfirmation | string;
+  status: JoinRequestStatus | string;
+  vetting?: VettingCallLog;
+  vettingCallLog?: VettingCallLog;
+  rejectionReason?: string;
+  decidedBy?: string;
+  decidedAt?: number;
+  createdAt: number;
+}
+
+export interface MemberTraceCard {
+  memberId: string;
+  memberName: string;
+  memberPhone: string;
+  memberCode: string;
+  memberStatus: GroupMemberStatus;
+  joinedAt: number;
+  referrerName: string;
+  referrerPhone: string;
+  vouchedAt: number;
+  employer: string;
+  workplaceAddress: string;
+  residentialAddress: string;
+  residentialLandmark: string;
+  vettingModeratorName: string;
+  vettedAt: number;
+  vettingNotes?: string;
+}
+
+// -------------------------------------------------------------
+// FEATURE B: ADMIN-EDITABLE PLATFORM ANNOUNCEMENTS (3 CARDS)
+// -------------------------------------------------------------
+export type AnnouncementBadge = 'Notice' | 'Update' | 'Promo' | string;
+export type AnnouncementAccent = 'pink' | 'violet' | 'emerald' | 'amber' | 'sky';
+export type AnnouncementStatus = 'draft' | 'published';
+
+export interface PlatformAnnouncementSlot {
+  slot: 1 | 2 | 3;
+  title: string;
+  message: string;
+  badge: AnnouncementBadge;
+  accent: AnnouncementAccent;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  status?: AnnouncementStatus;
+  isPublished?: boolean;
+  startsAt?: number | null;
+  endsAt?: number | null;
+  updatedBy: string;
+  updatedAt: number | string;
+  version: number;
+}
+
+export interface PlatformAnnouncementRevision {
+  id: string;
+  slot: 1 | 2 | 3;
+  snapshot?: PlatformAnnouncementSlot;
+  version?: number;
+  title?: string;
+  message?: string;
+  badge?: string;
+  accent?: string;
+  changedBy?: string;
+  changedAt?: number;
+  updatedBy?: string;
+  timestamp?: number;
+}

@@ -57,6 +57,13 @@ export interface DatabaseSchema {
   savedItems: Array<{ id: string; userId: number; productId: number; addedAt: number }>;
   followedMerchants: Array<{ id: string; userId: number; merchantId: number; followedAt: number }>;
   recentlyViewed: Array<{ id: string; userId: number; productId: number; viewedAt: number }>;
+  // FEATURE A: Trust Chama Groups & Referrals
+  trustGroups: import('../src/types.js').TrustChamaGroup[];
+  trustGroupMembers: import('../src/types.js').TrustGroupMember[];
+  trustJoinRequests: import('../src/types.js').TrustJoinRequest[];
+  // FEATURE B: 3-Card Platform Hero Announcements & Revisions
+  announcementCards: import('../src/types.js').PlatformAnnouncementSlot[];
+  announcementRevisions: import('../src/types.js').PlatformAnnouncementRevision[];
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -714,6 +721,11 @@ function getInitialDatabase(): DatabaseSchema {
     savedItems: [],
     followedMerchants: [],
     recentlyViewed: [],
+    trustGroups: [],
+    trustGroupMembers: [],
+    trustJoinRequests: [],
+    announcementCards: [],
+    announcementRevisions: [],
   };
 }
 
@@ -944,6 +956,54 @@ export async function getDatabase(): Promise<DatabaseSchema> {
           points: u.points || 0,
         };
       }
+    }
+
+    if (!dbCache!.trustGroups) dbCache!.trustGroups = [];
+    if (!dbCache!.trustGroupMembers) dbCache!.trustGroupMembers = [];
+    if (!dbCache!.trustJoinRequests) dbCache!.trustJoinRequests = [];
+    if (!dbCache!.announcementRevisions) dbCache!.announcementRevisions = [];
+    if (!dbCache!.announcementCards || dbCache!.announcementCards.length === 0) {
+      dbCache!.announcementCards = [
+        {
+          slot: 1,
+          title: 'Welcome to Buyoll Community Chamas',
+          message: 'Safe, vetted community savings circles. Join trusted circles with verified member referrals and moderator vetting.',
+          badge: 'Notice',
+          accent: 'emerald',
+          ctaLabel: 'Explore Chamas',
+          ctaUrl: '/chamas',
+          status: 'published',
+          updatedBy: 'cityandcountyre@gmail.com',
+          updatedAt: Date.now() - 86400000,
+          version: 1,
+        },
+        {
+          slot: 2,
+          title: 'Know Someone to Join: Trust & Vetting',
+          message: 'Every new Chama member must be vouched for by an active member and verified via moderator phone check before admission.',
+          badge: 'Update',
+          accent: 'violet',
+          ctaLabel: 'How It Works',
+          ctaUrl: '/chamas',
+          status: 'published',
+          updatedBy: 'cityandcountyre@gmail.com',
+          updatedAt: Date.now() - 43200000,
+          version: 1,
+        },
+        {
+          slot: 3,
+          title: 'Direct Merchant Escrow & Safe Payouts',
+          message: 'Zero defaults, guaranteed rotating payouts, and Lipa Mdogomdogo fulfillment backed by official M-Pesa statements.',
+          badge: 'Promo',
+          accent: 'amber',
+          ctaLabel: 'Browse Deals',
+          ctaUrl: '/announcements',
+          status: 'published',
+          updatedBy: 'cityandcountyre@gmail.com',
+          updatedAt: Date.now() - 21600000,
+          version: 1,
+        },
+      ];
     }
 
     return dbCache!;
