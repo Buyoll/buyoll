@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /admin-portal-k7x2q9
+Disallow: /api/admin/
+Disallow: /admin
+Disallow: /admin/
+Allow: /
+
+Sitemap: https://buyoll.vercel.app/sitemap.xml

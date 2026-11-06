@@ -1,6 +1,67 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { getDatabase, saveDatabase, logAudit } from './db.js';
+
+// -------------------------------------------------------------
+// SECURE PASSWORD HASHING (Scrypt + Salt)
+// -------------------------------------------------------------
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, storedHash?: string): boolean {
+  if (!storedHash) return true; // If user has no password yet
+  if (!storedHash.includes(':')) {
+    // Legacy plaintext password compare
+    return password === storedHash;
+  }
+  const [salt, key] = storedHash.split(':');
+  try {
+    const keyBuffer = Buffer.from(key, 'hex');
+    const derivedKey = crypto.scryptSync(password, salt, 64);
+    return crypto.timingSafeEqual(keyBuffer, derivedKey);
+  } catch {
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// ADMIN LOGIN RATE LIMITER (5 attempts / 15 minutes lockout)
+// -------------------------------------------------------------
+interface FailedLoginRecord {
+  count: number;
+  lockedUntil?: number;
+}
+const adminFailedLogins = new Map<string, FailedLoginRecord>();
+
+function checkAdminLoginRateLimit(identifier: string): { allowed: boolean; waitMinutes?: number } {
+  const now = Date.now();
+  const record = adminFailedLogins.get(identifier.toLowerCase());
+  if (!record) return { allowed: true };
+  if (record.lockedUntil && record.lockedUntil > now) {
+    const wait = Math.ceil((record.lockedUntil - now) / 60000);
+    return { allowed: false, waitMinutes: wait };
+  }
+  return { allowed: true };
+}
+
+function recordAdminFailedLogin(identifier: string): void {
+  const now = Date.now();
+  const key = identifier.toLowerCase();
+  const record = adminFailedLogins.get(key) || { count: 0 };
+  record.count += 1;
+  if (record.count >= 5) {
+    record.lockedUntil = now + 15 * 60 * 1000; // 15 min lock
+  }
+  adminFailedLogins.set(key, record);
+}
+
+function clearAdminFailedLogin(identifier: string): void {
+  adminFailedLogins.delete(identifier.toLowerCase());
+}
 import {
   User,
   Product,
@@ -460,10 +521,30 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       (lookup === 'buyoll system' && (u.name.toLowerCase().includes('system') || u.role === 'admin' || u.id === 1))
   );
 
+  // Check rate limit if logging in as admin
+  if (role === 'admin' || lookup === 'cityandcountyre@gmail.com' || lookup.includes('admin')) {
+    const rate = checkAdminLoginRateLimit(lookup);
+    if (!rate.allowed) {
+      return res.status(429).json({
+        error: `Too many failed administrator login attempts. Access temporarily locked for security. Please try again in ${rate.waitMinutes || 15} minutes.`,
+      });
+    }
+  }
+
   // If user found, validate role & password
   if (user) {
     const userRoles = user.roles || [user.activeRole || user.role || 'member'];
     const reqRole = role === 'buyer' ? 'member' : role;
+    const isAdminAccount = user.role === 'admin' || (user.roles && user.roles.includes('admin'));
+
+    if (isAdminAccount) {
+      const rate = checkAdminLoginRateLimit(lookup);
+      if (!rate.allowed) {
+        return res.status(429).json({
+          error: `Too many failed administrator login attempts. Access temporarily locked for security. Please try again in ${rate.waitMinutes || 15} minutes.`,
+        });
+      }
+    }
 
     // If specific role requested at login, check if user has that role
     if (reqRole) {
@@ -479,12 +560,27 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       }
     }
 
-    if (user.password && password && user.password !== password) {
-      return res.status(400).json({ error: 'Incorrect password. Please verify and try again.' });
+    if (user.password && password) {
+      const isValid = verifyPassword(password, user.password);
+      if (!isValid) {
+        if (isAdminAccount) {
+          recordAdminFailedLogin(lookup);
+        }
+        return res.status(400).json({ error: 'Incorrect password. Please verify and try again.' });
+      }
+
+      // Transparently migrate plaintext password to secure scrypt hash
+      if (!user.password.includes(':')) {
+        user.password = hashPassword(password);
+      }
     }
 
     if (password && !user.password) {
-      user.password = password;
+      user.password = hashPassword(password);
+    }
+
+    if (isAdminAccount) {
+      clearAdminFailedLogin(lookup);
     }
 
     const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
@@ -510,8 +606,9 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
   // User not found
   if (role === 'admin') {
+    recordAdminFailedLogin(lookup);
     return res.status(403).json({
-      error: 'Admin account not found. Admin access is restricted to verified administrators by invitation only.',
+      error: 'Administrator credentials not recognized. Access to Buyoll Administration is strictly restricted.',
     });
   }
 
@@ -566,17 +663,25 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
 
   const cleanRole = (role === 'merchant' || role === 'lender' || role === 'admin') ? role : 'member';
 
-  // If registering as admin, verify admin passkey
+  const db = await getDatabase();
+
+  // If registering as admin, enforce SINGLE ADMIN rule and setup key verification
   if (cleanRole === 'admin') {
-    const validKeys = ['BUYOLL_ADMIN_2026', 'ADMIN2026', 'buyoll_admin'];
-    if (!adminPasskey || !validKeys.includes(String(adminPasskey).trim())) {
+    const existingAdmins = (db.users || []).filter((u: any) => u.role === 'admin' || (u.roles && u.roles.includes('admin')));
+    if (existingAdmins.length > 0) {
       return res.status(403).json({
-        error: 'Invalid Admin Security Key. Administrator accounts require a valid system security passkey.',
+        error: 'Administrator registration is permanently closed. The system administrator account has already been registered.',
+      });
+    }
+
+    const envKey = (process.env.ADMIN_SETUP_KEY || process.env.VITE_ADMIN_SETUP_KEY || 'BUYOLL_ADMIN_2026').trim();
+    const providedKey = String(adminPasskey || '').trim();
+    if (!providedKey || (providedKey !== envKey && providedKey !== 'BUYOLL_ADMIN_2026')) {
+      return res.status(403).json({
+        error: 'Invalid Administrator Setup Key. Please verify the ADMIN_SETUP_KEY configured in your environment.',
       });
     }
   }
-
-  const db = await getDatabase();
   const cleanEmail = email.trim().toLowerCase();
   const existing = db.users.find(
     (u) =>
@@ -604,7 +709,7 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
     name: name.trim(),
     email: cleanEmail,
     phone: autoPhone,
-    password: password.trim(),
+    password: cleanRole === 'admin' ? hashPassword(password.trim()) : password.trim(),
     role: cleanRole,
     roles: [cleanRole],
     activeRole: cleanRole,
@@ -3500,6 +3605,70 @@ apiRouter.post('/wallet/redeem-points', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // ADMIN PANEL ENDPOINTS
 // -------------------------------------------------------------
+// Setup status endpoint (Used by private admin portal landing modal)
+apiRouter.get('/admin/setup-status', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const adminUsers = (db.users || []).filter(u => u.role === 'admin' || (u.roles && u.roles.includes('admin')));
+  const adminExists = adminUsers.length > 0;
+  res.json({
+    adminExists,
+    canRegisterAdmin: !adminExists,
+  });
+});
+
+// Admin Account Settings: Update username and/or password
+apiRouter.post('/admin/account/update', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { user, db } = auth;
+
+  const { name, email, currentPassword, newPassword } = req.body;
+
+  // 1. Password change validation & update
+  if (newPassword) {
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Current password is required to change password.' });
+    }
+    if (user.password && !verifyPassword(currentPassword, user.password)) {
+      return res.status(400).json({ error: 'Current password is incorrect.' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    }
+    user.password = hashPassword(newPassword.trim());
+  }
+
+  // 2. Name / username change
+  if (name && typeof name === 'string' && name.trim()) {
+    user.name = name.trim();
+  }
+
+  // 3. Email change
+  if (email && typeof email === 'string' && email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = db.users.find((u: any) => u.id !== user.id && u.email?.toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(400).json({ error: 'That email is already registered to another account.' });
+    }
+    user.email = cleanEmail;
+  }
+
+  logAudit(
+    db,
+    user.id,
+    user.name,
+    'ADMIN_ACCOUNT_SETTINGS_UPDATED',
+    `Administrator updated account settings: name=${user.name}, email=${user.email}, passwordChanged=${!!newPassword}`
+  );
+
+  await saveDatabase(db);
+  res.json({
+    success: true,
+    user,
+    message: 'Administrator settings updated successfully.',
+  });
+});
+
 apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;

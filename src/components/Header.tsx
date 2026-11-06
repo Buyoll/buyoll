@@ -16,7 +16,7 @@ interface HeaderProps {
   currentUser: User | null;
   currentView: string;
   onNavigate: (view: string, arg?: any) => void;
-  onOpenAuth: (role?: 'member' | 'merchant' | 'lender' | 'admin') => void;
+  onOpenAuth: (role?: 'member' | 'merchant' | 'lender') => void;
   onLogout: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -500,27 +500,6 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </>
               )}
-
-              {/* ADMIN: Admin dashboard ONLY */}
-              {currentUser && activeRole === 'admin' && (
-                <button
-                  onClick={() => onNavigate('admin-dashboard')}
-                  aria-current={currentView === 'admin-dashboard' ? 'page' : undefined}
-                  className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                    currentView === 'admin-dashboard'
-                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                  }`}
-                >
-                  <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="9" />
-                    <rect x="14" y="3" width="7" height="5" />
-                    <rect x="14" y="12" width="7" height="9" />
-                    <rect x="3" y="16" width="7" height="5" />
-                  </svg>
-                  <span className="leading-tight text-center">Admin Console</span>
-                </button>
-              )}
             </nav>
 
             {/* Right section: User Profile / Sign In Button */}
@@ -674,18 +653,6 @@ export const Header: React.FC<HeaderProps> = ({
                           className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
                         >
                           Lenders Desk
-                        </button>
-                      )}
-
-                      {activeRole === 'admin' && (
-                        <button
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            onNavigate('admin-dashboard');
-                          }}
-                          className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[#111827] dark:text-[#F3F4F6] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
-                        >
-                          Admin Console &amp; Logs
                         </button>
                       )}
 
@@ -990,29 +957,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Share</span>
                   </button>
                 </>
-              )}
-
-              {/* ADMIN: Admin dashboard ONLY */}
-              {currentUser && activeRole === 'admin' && (
-                <button
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    onNavigate('admin-dashboard');
-                  }}
-                  className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                    currentView === 'admin-dashboard'
-                      ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                      : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                  }`}
-                >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="9" />
-                    <rect x="14" y="3" width="7" height="5" />
-                    <rect x="14" y="12" width="7" height="9" />
-                    <rect x="3" y="16" width="7" height="5" />
-                  </svg>
-                  <span>Admin Console</span>
-                </button>
               )}
 
               {/* My Profile option for logged in users */}

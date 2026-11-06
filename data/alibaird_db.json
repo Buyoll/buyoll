@@ -2,14 +2,14 @@
   "users": [
     {
       "id": 1,
-      "name": "Buyoll System Admin",
+      "name": "Buyoll Primary Administrator",
       "phone": "0700000000",
       "email": "cityandcountyre@gmail.com",
       "role": "admin",
       "credit": 0,
-      "coins": 450,
+      "coins": 200,
       "points": 500,
-      "lastActive": 1792940798885,
+      "lastActive": 1793980467816,
       "createdAt": 1790261094021,
       "activeRole": "admin",
       "roles": [
@@ -23,7 +23,8 @@
           "coins": 200,
           "points": 500
         }
-      }
+      },
+      "password": "8f2bb5ad1a1d5c3376efbd35f17e06a2:c0aa5ef23b441c7095008353f8defa1763fee6dcfa64cfb80dc51d0a129b346183e3c819e42fac903f6fd4e141360ca53eb61826691f8337eaf01f2abe17f990"
     },
     {
       "id": 2,
@@ -808,6 +809,22 @@
   ],
   "auditLogs": [
     {
+      "id": 41,
+      "timestamp": 1793980467755,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "ADMIN_ACCOUNT_SETTINGS_UPDATED",
+      "details": "Administrator updated account settings: name=Buyoll Primary Administrator, email=cityandcountyre@gmail.com, passwordChanged=true"
+    },
+    {
+      "id": 40,
+      "timestamp": 1793980467559,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "ADMIN_ACCOUNT_SETTINGS_UPDATED",
+      "details": "Administrator updated account settings: name=Buyoll Primary Administrator, email=cityandcountyre@gmail.com, passwordChanged=false"
+    },
+    {
       "id": 39,
       "timestamp": 1793881166299,
       "actorId": 3,
@@ -1072,7 +1089,7 @@
     "refundRequest": 1,
     "payment": 11,
     "ledger": 2,
-    "audit": 40,
+    "audit": 42,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1

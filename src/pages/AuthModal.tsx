@@ -127,6 +127,7 @@ interface AuthModalProps {
   onSuccess: (user: User, targetRoute?: string) => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
   initialRole?: RoleKey;
+  portalMode?: boolean;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -134,25 +135,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onSuccess,
   onNotify,
   initialRole = 'member',
+  portalMode = false,
 }) => {
-  const [role, setRole] = useState<RoleKey>(initialRole);
+  // Public modal can ONLY access member, merchant, lender. Portal mode is locked to admin.
+  const effectiveInitialRole: RoleKey = portalMode ? 'admin' : (initialRole === 'admin' ? 'member' : initialRole);
+  const [role, setRole] = useState<RoleKey>(effectiveInitialRole);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [login, setLogin] = useState({ identifier: '', password: '' });
-  const [reg, setReg] = useState({ name: '', email: '', password: '', phone: '', adminPasskey: 'BUYOLL_ADMIN_2026' });
+  const [adminCanRegister, setAdminCanRegister] = useState(false);
+  const [login, setLogin] = useState({ identifier: portalMode ? 'cityandcountyre@gmail.com' : '', password: '' });
+  const [reg, setReg] = useState({ name: '', email: '', password: '', phone: '', adminPasskey: '' });
+
+  // On mount in portalMode, check if admin already exists
+  useEffect(() => {
+    if (portalMode) {
+      setRole('admin');
+      api.getAdminSetupStatus().then((status) => {
+        setAdminCanRegister(status.canRegisterAdmin);
+        if (!status.canRegisterAdmin) {
+          setMode('login');
+        }
+      }).catch(() => {});
+    }
+  }, [portalMode]);
 
   const cfg = ROLES[role];
-  const active = mode === 'register' && cfg.canRegister;
+  const canRegisterEffective = role === 'admin' ? (portalMode && adminCanRegister) : cfg.canRegister;
+  const active = mode === 'register' && canRegisterEffective;
 
   const pickRole = (r: RoleKey) => {
+    if (!portalMode && r === 'admin') return; // Forbid selecting admin on public site
+    if (portalMode && r !== 'admin') return;  // Forbid selecting non-admin in portal mode
     setRole(r);
     setError('');
     setNotice('');
   };
 
   const switchMode = (m: 'login' | 'register') => {
+    if (m === 'register' && role === 'admin' && !adminCanRegister) {
+      setError('Administrator registration is permanently closed.');
+      return;
+    }
     setError('');
     setNotice('');
     setMode(m);
@@ -240,23 +265,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="ax-diagonal" aria-hidden="true" />
 
           {/* Role picker tabs */}
-          <div className="ax-roles" role="tablist" aria-label="Account type">
-            {(Object.keys(ROLES) as RoleKey[]).map((key) => {
-              const r = ROLES[key];
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={role === key}
-                  className={role === key ? 'on' : ''}
-                  onClick={() => pickRole(key)}
-                >
-                  {r.label}
-                </button>
-              );
-            })}
-          </div>
+          {!portalMode ? (
+            <div className="ax-roles" role="tablist" aria-label="Account type">
+              {(['member', 'merchant', 'lender'] as RoleKey[]).map((key) => {
+                const r = ROLES[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={role === key}
+                    className={role === key ? 'on' : ''}
+                    onClick={() => pickRole(key)}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="ax-roles" role="tablist" aria-label="Account type">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={true}
+                className="on !w-full !flex-1"
+                disabled
+              >
+                Buyoll Administrator Portal
+              </button>
+            </div>
+          )}
 
           {/* LOGIN FORM */}
           <form className="ax-form ax-login" onSubmit={handleLoginSubmit} aria-hidden={active}>
@@ -277,7 +316,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
               <Field
                 id="l-id"
-                label="Email or Phone number"
+                label={portalMode ? "Administrator Email" : "Email or Phone number"}
                 type="text"
                 icon={<MailIcon />}
                 autoComplete="email"
@@ -316,15 +355,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
 
             <p className="ax-alt ax-anim" style={{ '--li': 4 } as React.CSSProperties}>
-              {cfg.canRegister ? (
+              {canRegisterEffective ? (
                 <>
                   No account yet?{' '}
                   <button type="button" onClick={() => switchMode('register')}>
                     Sign up
                   </button>
                 </>
+              ) : portalMode ? (
+                <span className="text-xs text-slate-400">
+                  Administrator registration is permanently closed.
+                </span>
               ) : (
-                'Admin accounts are created by invitation.'
+                'Merchant & Lender accounts are subject to review.'
               )}
             </p>
           </form>
@@ -424,41 +467,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </aside>
         </div>
 
-        {/* Demo Fast-Login Pills for Seamless Testing */}
+        {/* Demo Fast-Login Pills for Testing */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 text-[11px] text-slate-300">
           <span className="font-semibold text-slate-400">Quick Demo Logins:</span>
-          <button
-            type="button"
-            onClick={() => handleUseDemo('member')}
-            className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <Users className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Member (Samuel)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleUseDemo('merchant')}
-            className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <Store className="w-3.5 h-3.5 text-teal-300" />
-            <span>Merchant (Buyoll Direct)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleUseDemo('lender')}
-            className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <Landmark className="w-3.5 h-3.5 text-amber-300" />
-            <span>Lender (Grace)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleUseDemo('admin')}
-            className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <Shield className="w-3.5 h-3.5 text-purple-300" />
-            <span>Admin (Buyoll System)</span>
-          </button>
+          {!portalMode ? (
+            <>
+              <button
+                type="button"
+                onClick={() => handleUseDemo('member')}
+                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Member (Samuel)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUseDemo('merchant')}
+                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Store className="w-3.5 h-3.5 text-teal-300" />
+                <span>Merchant (Buyoll Direct)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUseDemo('lender')}
+                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Landmark className="w-3.5 h-3.5 text-amber-300" />
+                <span>Lender (Grace)</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleUseDemo('admin')}
+              className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <Shield className="w-3.5 h-3.5 text-purple-300" />
+              <span>Admin (Buyoll System)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

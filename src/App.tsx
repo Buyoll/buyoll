@@ -8,13 +8,18 @@ import { GroupDetailPage } from './pages/GroupDetailPage.tsx';
 import { MyChamasPage } from './pages/MyChamasPage.tsx';
 import { WalletPage } from './pages/WalletPage.tsx';
 import { VendorDashboardPage } from './pages/VendorDashboardPage.tsx';
-import { AdminDashboardPage } from './pages/AdminDashboardPage.tsx';
-import { AdminLoginPage } from './pages/AdminLoginPage.tsx';
+import { AdminPortalPage } from './pages/AdminPortalPage.tsx';
 import { LendersDashboardPage } from './pages/LendersDashboardPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { AuthModal } from './pages/AuthModal.tsx';
 import { Footer } from './components/Footer.tsx';
 import { HelpSupportModal } from './pages/HelpSupportModal.tsx';
+import { ADMIN_PORTAL_PATH, isAdminPortalPath } from './config/adminPortal.ts';
+
+// Lazy-load Admin Dashboard to prevent shipping administrative bundle to public visitors (Requirement 1)
+const AdminDashboardPage = React.lazy(() =>
+  import('./pages/AdminDashboardPage.tsx').then((m) => ({ default: m.AdminDashboardPage }))
+);
 import {
   Home,
   Users,
@@ -38,11 +43,11 @@ import {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser());
-  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-login' | 'lenders-dashboard' | 'profile'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-portal' | 'lenders-dashboard' | 'profile'>('home');
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [authInitialRole, setAuthInitialRole] = useState<'member' | 'merchant' | 'lender' | 'admin'>('member');
+  const [authInitialRole, setAuthInitialRole] = useState<'member' | 'merchant' | 'lender'>('member');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [helpCategory, setHelpCategory] = useState<string>('inquiry');
 
@@ -63,7 +68,7 @@ export default function App() {
     message: string;
   } | null>(null);
 
-  const handleOpenAuth = useCallback((role?: 'member' | 'merchant' | 'lender' | 'admin') => {
+  const handleOpenAuth = useCallback((role?: 'member' | 'merchant' | 'lender') => {
     if (role) {
       setAuthInitialRole(role);
     } else {
@@ -134,8 +139,7 @@ export default function App() {
       else if (view === 'vendor-dashboard') targetPath = '/merchant';
       else if (view === 'lenders-dashboard') targetPath = '/lender';
       else if (view === 'group' && arg) targetPath = `/chama/${arg}`;
-      else if (view === 'admin-login') targetPath = '/admin/login';
-      else if (view === 'admin-dashboard') targetPath = '/admin/dashboard';
+      else if (view === 'admin-portal' || view === 'admin-dashboard') targetPath = ADMIN_PORTAL_PATH;
       if (window.location.pathname !== targetPath) {
         window.history.pushState(null, '', targetPath);
       }
@@ -160,7 +164,7 @@ export default function App() {
       navigator.serviceWorker.addEventListener('message', swListener);
     }
 
-    // 3. Dedicated URL & Hash routing for /announcements, /chamas, /wallet, /merchant, /lender, /admin/login
+    // 3. Dedicated URL & Hash routing for /announcements, /chamas, /wallet, /merchant, /lender, and private admin portal
     const syncRouteFromUrl = () => {
       if (typeof window === 'undefined') return;
       const path = window.location.pathname;
@@ -169,14 +173,23 @@ export default function App() {
       const user = currentUserRef.current;
       const activeRole = getUserActiveRole(user);
 
-      if (path === '/admin/login' || hash === '#admin' || hash === '#admin-login' || search.get('admin') === 'login') {
-        handleNavigate('admin-login');
-      } else if (path === '/admin/dashboard' || path === '/admin' || hash === '#admin-dashboard' || search.get('admin') === 'dashboard') {
-        if (!user || activeRole !== 'admin') {
-          handleNavigate('admin-login');
-        } else {
+      if (isAdminPortalPath(path)) {
+        if (user && activeRole === 'admin') {
           handleNavigate('admin-dashboard');
+        } else {
+          handleNavigate('admin-portal');
         }
+      } else if (
+        path === '/admin' ||
+        path.startsWith('/admin/') ||
+        hash.startsWith('#admin') ||
+        search.has('admin')
+      ) {
+        // Silently cleanse URL and show normal public marketplace (Requirements 1 & 2)
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', '/announcements');
+        }
+        handleNavigate('home');
       } else if (path === '/announcements' || path === '/home' || path === '/') {
         handleNavigate('home');
       } else if (path === '/chamas' || path === '/my-chamas') {
@@ -432,8 +445,9 @@ export default function App() {
           </RoleGuard>
         )}
 
-        {currentView === 'admin-login' && (
-          <AdminLoginPage
+        {currentView === 'admin-portal' && (
+          <AdminPortalPage
+            currentUser={currentUser}
             onSuccess={(user) => {
               setCurrentUser(user);
               handleNavigate('admin-dashboard');
@@ -445,11 +459,20 @@ export default function App() {
 
         {currentView === 'admin-dashboard' && (
           <RoleGuard allow={['admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
-            <AdminDashboardPage
-              currentUser={currentUser}
-              onNavigate={handleNavigate}
-              onNotify={handleNotify}
-            />
+            <React.Suspense
+              fallback={
+                <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+                  <div className="w-10 h-10 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-xs font-semibold text-slate-600">Loading Secure Admin Console...</p>
+                </div>
+              }
+            >
+              <AdminDashboardPage
+                currentUser={currentUser}
+                onNavigate={handleNavigate}
+                onNotify={handleNotify}
+              />
+            </React.Suspense>
           </RoleGuard>
         )}
 
@@ -482,8 +505,9 @@ export default function App() {
         onOpenAuth={handleOpenAuth}
       />
 
-      {/* Mobile Bottom Navigation Bar: strictly role-specific, NO wallet icon */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-[#111A17] border-t border-slate-200 dark:border-[#24312C] z-40 flex items-center justify-around h-16 px-2 shadow-lg transition-colors">
+      {/* Mobile Bottom Navigation Bar: strictly role-specific, hidden on admin dashboard & portal */}
+      {currentView !== 'admin-dashboard' && currentView !== 'admin-portal' && (
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-[#111A17] border-t border-slate-200 dark:border-[#24312C] z-40 flex items-center justify-around h-16 px-2 shadow-lg transition-colors">
         {!currentUser && (
           <>
             <button
@@ -619,13 +643,13 @@ export default function App() {
         {currentUser && getUserActiveRole(currentUser) === 'admin' && (
           <>
             <button
-              onClick={() => handleNavigate('admin-dashboard')}
+              onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'admin-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              <Shield className="w-5 h-5 mb-0.5" />
-              <span>Admin</span>
+              <Home className="w-5 h-5 mb-0.5" />
+              <span>Announcements</span>
             </button>
             <button
               onClick={() => handleNavigate('profile')}
@@ -634,13 +658,14 @@ export default function App() {
               }`}
             >
               <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
-                A
+                {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'A'}
               </span>
               <span>Profile</span>
             </button>
           </>
         )}
       </nav>
+      )}
 
       {/* Auth Modal */}
       {isAuthOpen && (

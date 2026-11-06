@@ -32,6 +32,9 @@ import {
   Eye,
   ArrowRight,
   ExternalLink,
+  KeyRound,
+  LogOut,
+  Lock,
 } from 'lucide-react';
 
 interface AdminDashboardPageProps {
@@ -57,8 +60,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured' | 'announcements'>('payments');
+  const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured' | 'announcements' | 'settings'>('payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
+
+  // Settings State
+  const [adminName, setAdminName] = useState(currentUser?.name || 'Administrator');
+  const [adminEmail, setAdminEmail] = useState(currentUser?.email || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Wallet deposits data
   const [walletDeposits, setWalletDeposits] = useState<WalletDepositRequest[]>([]);
@@ -593,6 +605,82 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
+  // Password strength calculator helper
+  const getPasswordStrength = (pw: string) => {
+    if (!pw) return { score: 0, label: 'Not entered', color: 'bg-slate-200', textCol: 'text-slate-400', width: '0%' };
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+    if (/\d/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+    if (pw.length < 6) {
+      return { score: 1, label: 'Too short (min 6 chars)', color: 'bg-red-500', textCol: 'text-red-600', width: '20%' };
+    }
+    if (score === 1) return { score: 1, label: 'Weak', color: 'bg-red-500', textCol: 'text-red-600', width: '25%' };
+    if (score === 2) return { score: 2, label: 'Fair', color: 'bg-amber-500', textCol: 'text-amber-600', width: '50%' };
+    if (score === 3) return { score: 3, label: 'Good', color: 'bg-sky-500', textCol: 'text-sky-600', width: '75%' };
+    return { score: 4, label: 'Strong', color: 'bg-emerald-600', textCol: 'text-emerald-700', width: '100%' };
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsNotice(null);
+    try {
+      const res = await api.updateAdminAccount({
+        name: adminName.trim(),
+        email: adminEmail.trim(),
+      });
+      setSettingsNotice({ type: 'success', text: res.message || 'Profile information updated successfully.' });
+      onNotify('success', 'Administrator username/email updated.');
+    } catch (err: any) {
+      setSettingsNotice({ type: 'error', text: err.message || 'Failed to update administrator profile.' });
+      onNotify('error', err.message || 'Profile update error.');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsNotice(null);
+
+    if (!currentPassword) {
+      setSettingsNotice({ type: 'error', text: 'Please enter your current password to authorize this change.' });
+      setSavingSettings(false);
+      return;
+    }
+    if (newPassword.length < 6) {
+      setSettingsNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      setSavingSettings(false);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSettingsNotice({ type: 'error', text: 'New password and confirmation do not match.' });
+      setSavingSettings(false);
+      return;
+    }
+
+    try {
+      const res = await api.updateAdminAccount({
+        currentPassword,
+        newPassword,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setSettingsNotice({ type: 'success', text: 'Administrator password changed successfully! Your session remains active.' });
+      onNotify('success', 'Administrator password updated successfully.');
+    } catch (err: any) {
+      setSettingsNotice({ type: 'error', text: err.message || 'Could not update password. Please check your current password.' });
+      onNotify('error', err.message || 'Password update failed.');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   if (currentUser?.role !== 'admin') {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-center">
@@ -661,13 +749,42 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
+              activeTab === 'settings'
+                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>Settings</span>
+          </button>
+
           <button
             onClick={loadAllAdminData}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
+          </button>
+
+          <button
+            onClick={async () => {
+              if (window.confirm('Are you sure you want to log out of the Buyoll Admin Console?')) {
+                try {
+                  await api.logout();
+                } catch {}
+                localStorage.removeItem('buyoll_auth_user');
+                onNavigate('admin-portal');
+                onNotify('info', 'Logged out of administrator session.');
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Log Out</span>
           </button>
         </div>
       </div>
@@ -782,6 +899,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         >
           <FileText className="w-4 h-4" />
           <span>Audit Log</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+            activeTab === 'settings' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <KeyRound className="w-4 h-4" />
+          <span>Account Settings</span>
         </button>
       </div>
 
@@ -2593,6 +2720,227 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* TAB 12: ACCOUNT SETTINGS */}
+      {activeTab === 'settings' && (
+        <div className="space-y-6 max-w-4xl">
+          {/* Header Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#E7F3EC] text-[#0F5C3A] flex items-center justify-center font-bold">
+                <KeyRound className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                  Administrator Account & Security Settings
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Update your display name, administrative username, and secure password.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-emerald-100 text-[#0F5C3A] text-xs font-extrabold rounded-full">
+                Single Platform Administrator
+              </span>
+            </div>
+          </div>
+
+          {/* Feedback Notice */}
+          {settingsNotice && (
+            <div
+              className={`p-4 rounded-xl text-xs flex items-start gap-3 border ${
+                settingsNotice.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-red-50 border-red-200 text-red-800'
+              }`}
+            >
+              {settingsNotice.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              )}
+              <p className="font-medium leading-relaxed">{settingsNotice.text}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Card 1: Administrator Profile Details */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                  <UserCheck className="w-4 h-4 text-[#0E5A3C]" />
+                  <h3 className="text-sm font-bold text-slate-900">Administrator Identity</h3>
+                </div>
+
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Display Name / Username
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={adminName}
+                      onChange={(e) => setAdminName(e.target.value)}
+                      placeholder="e.g. Buyoll Lead Admin"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Appears on audit records, announcement revisions, and system notices.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Administrator Email
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      placeholder="e.g. admin@buyoll.com"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Used for signing in to the private administrator portal.
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={savingSettings}
+                      className="w-full py-2.5 px-4 bg-[#0E5A3C] hover:bg-[#0a452d] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{savingSettings ? 'Saving...' : 'Save Profile Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-100 text-[11px] text-slate-500">
+                <p className="font-semibold text-slate-700">Account Security Note:</p>
+                <p className="mt-0.5">
+                  Platform policy strictly guarantees exactly one administrator account. Registration cannot be reopened.
+                </p>
+              </div>
+            </div>
+
+            {/* Card 2: Password Update with Live Strength Meter */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+                  <Lock className="w-4 h-4 text-[#0E5A3C]" />
+                  <h3 className="text-sm font-bold text-slate-900">Change Password</h3>
+                </div>
+
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Current Password <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      New Password <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 6 characters"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+
+                    {/* Live Strength Meter */}
+                    {newPassword && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">Password strength:</span>
+                          <span className={`font-bold ${getPasswordStrength(newPassword).textCol}`}>
+                            {getPasswordStrength(newPassword).label}
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${getPasswordStrength(newPassword).color}`}
+                            style={{ width: getPasswordStrength(newPassword).width }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Confirm New Password <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter new password"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    />
+                    {confirmPassword && confirmPassword !== newPassword && (
+                      <p className="text-[11px] text-red-500 mt-1">Passwords do not match.</p>
+                    )}
+                    {confirmPassword && confirmPassword === newPassword && (
+                      <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Passwords match!
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={savingSettings || !currentPassword || !newPassword || newPassword !== confirmPassword}
+                      className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>{savingSettings ? 'Changing Password...' : 'Update Password'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">End active session:</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm('Log out of administrator session?')) {
+                      try { await api.logout(); } catch {}
+                      localStorage.removeItem('buyoll_auth_user');
+                      onNavigate('admin-portal');
+                      onNotify('info', 'Logged out.');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Log Out</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

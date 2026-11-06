@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 interface FooterProps {
   onNavigate?: (view: string, arg?: any) => void;
   onOpenHelp?: (tab?: string) => void;
-  onOpenAuth?: (role?: 'member' | 'merchant' | 'lender' | 'admin') => void;
+  onOpenAuth?: (role?: 'member' | 'merchant' | 'lender') => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({

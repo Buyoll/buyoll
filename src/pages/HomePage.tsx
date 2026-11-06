@@ -445,18 +445,6 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </p>
               </div>
             </div>
-
-            {currentUser?.role === 'admin' && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onNavigate?.('admin-dashboard')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Manage Hero Cards</span>
-                </button>
-              </div>
-            )}
           </div>
 
           {/* 3 Hero Cards Grid (Feature B) */}

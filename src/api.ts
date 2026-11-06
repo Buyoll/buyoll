@@ -3025,6 +3025,36 @@ export const api = {
       body: JSON.stringify({ revisionId }),
     });
   },
+
+  // -------------------------------------------------------------
+  // PRIVATE ADMIN PORTAL & ACCOUNT SETTINGS
+  // -------------------------------------------------------------
+  async getAdminSetupStatus(): Promise<{ adminExists: boolean; canRegisterAdmin: boolean }> {
+    try {
+      return await fetchApi<{ adminExists: boolean; canRegisterAdmin: boolean }>('/admin/setup-status');
+    } catch {
+      // In static / fallback mode, check localStorage
+      const user = getStoredUser();
+      const hasAdmin = user?.role === 'admin';
+      return { adminExists: true, canRegisterAdmin: !hasAdmin };
+    }
+  },
+
+  async updateAdminAccount(payload: {
+    name?: string;
+    email?: string;
+    currentPassword?: string;
+    newPassword?: string;
+  }): Promise<{ success: boolean; user: User; message: string }> {
+    const res = await fetchApi<{ success: boolean; user: User; message: string }>('/admin/account/update', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (res?.user) {
+      setStoredUser(res.user);
+    }
+    return res;
+  },
 };
 
 

@@ -1,4 +1,5 @@
 import { User, UserRole } from '../types.ts';
+import { ADMIN_PORTAL_PATH } from '../config/adminPortal.ts';
 
 export const VALID_ROLES: UserRole[] = ['member', 'merchant', 'lender', 'admin'];
 
@@ -33,7 +34,7 @@ export function getRoleHomeRoute(role: UserRole): { view: string; path: string }
     case 'lender':
       return { view: 'lenders-dashboard', path: '/lender' };
     case 'admin':
-      return { view: 'admin-dashboard', path: '/admin/dashboard' };
+      return { view: 'admin-dashboard', path: ADMIN_PORTAL_PATH };
     case 'member':
     default:
       return { view: 'home', path: '/announcements' };
@@ -45,6 +46,7 @@ export function getRoleHomeRoute(role: UserRole): { view: string; path: string }
  * - vendor-dashboard: ['merchant']
  * - lenders-dashboard: ['lender']
  * - admin-dashboard: ['admin']
+ * - admin-portal: ['admin']
  * - my-chamas: ['member', 'merchant'] (Lenders and Admins forbidden)
  * - home / product: ['member', 'merchant'] (Admin restricted to admin dashboard)
  * - profile: all authenticated users
@@ -58,15 +60,16 @@ export const ROUTE_ACCESS: Record<string, UserRole[]> = {
   'vendor-dashboard': ['merchant'],
   'lenders-dashboard': ['lender'],
   'admin-dashboard': ['admin'],
+  'admin-portal': ['admin'],
   'admin-login': ['admin'],
   'wallet': ['member', 'merchant', 'lender', 'admin'],
   'profile': ['member', 'merchant', 'lender', 'admin'],
 };
 
 export function canAccessView(role: UserRole, view: string): boolean {
-  // Admin must see ONLY admin dashboard (and profile/login)
+  // Admin must see ONLY admin dashboard and portal (and profile/wallet)
   if (role === 'admin') {
-    return view === 'admin-dashboard' || view === 'admin-login' || view === 'profile' || view === 'wallet';
+    return view === 'admin-dashboard' || view === 'admin-portal' || view === 'profile' || view === 'wallet';
   }
 
   const allowedRoles = ROUTE_ACCESS[view];
