@@ -542,6 +542,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 1. FEATURED DEAL SECTION ON HERO (Moving right-to-left at 2.5s interval, KSh 500/image merchant fee, 100k scale) */}
       {!searchQuery && selectedCategory === 'All' && currentFeatured && (
         <section
+          id="featured-deals"
           onMouseEnter={() => setIsFeaturedPaused(true)}
           onMouseLeave={() => setIsFeaturedPaused(false)}
           className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-[#072418] via-[#0E5A3C] to-[#0a422c] text-white p-6 sm:p-10 mb-10 shadow-xl border border-emerald-900/40"
@@ -720,6 +721,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 2. NEWLY POSTED ANNOUNCEMENTS SECTION (Stays for 1 week / 7 days, 2.5s auto & manual slide right-to-left) */}
       {!searchQuery && selectedCategory === 'All' && (
         <section
+          id="newly-posted-announcements"
           onMouseEnter={() => setIsNewPaused(true)}
           onMouseLeave={() => setIsNewPaused(false)}
           className="bg-white border border-slate-200 rounded-3xl p-6 mb-10 shadow-sm"

@@ -7,9 +7,23 @@ import { apiRouter } from './server/api.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function resolvePort(): number {
+  const portArgIdx = process.argv.indexOf('--port');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    const p = parseInt(process.argv[portArgIdx + 1], 10);
+    if (!isNaN(p) && p > 0) return p;
+  }
+  const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  // In the container environment, port 8080 is occupied by nginx reverse proxy; app must listen on 3000
+  if (envPort === 8080 || isNaN(envPort)) {
+    return 3000;
+  }
+  return envPort;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = resolvePort();
 
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));

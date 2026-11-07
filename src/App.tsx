@@ -16,6 +16,10 @@ import { Footer } from './components/Footer.tsx';
 import { HelpSupportModal } from './pages/HelpSupportModal.tsx';
 import { ADMIN_PORTAL_PATH, isAdminPortalPath } from './config/adminPortal.ts';
 
+import { PromoPopup } from './components/PromoPopup.tsx';
+import { usePromoTrigger } from './hooks/usePromoTrigger.ts';
+import type { PromoCTA } from './config/promoConfig.ts';
+
 // Lazy-load Admin Dashboard to prevent shipping administrative bundle to public visitors (Requirement 1)
 const AdminDashboardPage = React.lazy(() =>
   import('./pages/AdminDashboardPage.tsx').then((m) => ({ default: m.AdminDashboardPage }))
@@ -67,6 +71,15 @@ export default function App() {
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
+
+  // 3D Bundle Deals Promotional Pop-up trigger & rotation
+  const {
+    isOpen: isPromoOpen,
+    triggerType: promoTriggerType,
+    messageIndex: promoMessageIndex,
+    closePopup: closePromoPopup,
+    handleCtaClick: handlePromoCtaClick,
+  } = usePromoTrigger(currentUser);
 
   const handleOpenAuth = useCallback((role?: 'member' | 'merchant' | 'lender') => {
     if (role) {
@@ -149,6 +162,52 @@ export default function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [handleOpenAuth]);
+
+  // Promotional CTA Navigation handler
+  const handlePromoAction = useCallback((cta: PromoCTA) => {
+    handlePromoCtaClick(cta.id);
+    if (cta.id === 'buy') {
+      handleNavigate('home');
+      setTimeout(() => {
+        const el = document.getElementById('featured-deals') || document.querySelector('[data-products-grid]');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (cta.id === 'group') {
+      if (!currentUserRef.current) {
+        setPendingTargetView('my-chamas');
+        handleOpenAuth('member');
+      } else {
+        handleNavigate('my-chamas');
+      }
+    } else if (cta.id === 'merchant') {
+      if (!currentUserRef.current) {
+        setPendingTargetView('vendor-dashboard');
+        handleOpenAuth('merchant');
+      } else {
+        handleNavigate('vendor-dashboard');
+      }
+    } else if (cta.id === 'lender') {
+      if (!currentUserRef.current) {
+        setPendingTargetView('lenders-dashboard');
+        handleOpenAuth('lender');
+      } else {
+        handleNavigate('lenders-dashboard');
+      }
+    } else if (cta.id === 'lipa') {
+      handleNavigate('home');
+      setTimeout(() => {
+        const el = document.getElementById('newly-posted-announcements') || document.getElementById('featured-deals');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (cta.href) {
+      if (cta.href.startsWith('/')) {
+        const route = cta.href.replace('/', '').split('#')[0];
+        handleNavigate(route || 'home');
+      } else {
+        window.location.href = cta.href;
+      }
+    }
+  }, [handlePromoCtaClick, handleNavigate, handleOpenAuth]);
 
   useEffect(() => {
     // 1. Register Service Worker for Push Notifications
@@ -693,6 +752,16 @@ export default function App() {
           onOpenAuth={() => setIsAuthOpen(true)}
         />
       )}
+
+      {/* 3D Bundle Deals Promotional Pop-up */}
+      <PromoPopup
+        isOpen={isPromoOpen}
+        messageIndex={promoMessageIndex}
+        triggerType={promoTriggerType}
+        currentUser={currentUser}
+        onClose={closePromoPopup}
+        onCtaClick={handlePromoAction}
+      />
     </div>
   );
 }

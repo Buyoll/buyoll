@@ -208,6 +208,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       onNotify('success', res.notice || `Welcome back, ${res.user.name}!`);
       const userActiveRole = (res.user.activeRole || res.user.role || role) as RoleKey;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('user:login'));
+      }
       onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
     } catch (err: any) {
@@ -237,6 +240,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       onNotify('success', res.notice || `Account created successfully as ${cfg.label}! Welcome to Buyoll.`);
       const userActiveRole = (res.user.activeRole || res.user.role || role) as RoleKey;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('user:signin'));
+      }
       onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
     } catch (err: any) {
