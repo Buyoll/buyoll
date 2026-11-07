@@ -629,6 +629,27 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
           100% { transform: scale(0.6) rotate(90deg); opacity: 0.4; }
         }
 
+        /* Top Center Logo Badge at translateZ(50px) */
+        .promo-logo-badge {
+          transform: translateZ(50px);
+          transform-style: preserve-3d;
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border-radius: 9999px;
+          padding: 6px 18px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.85);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+        }
+
+        .promo-logo-badge:hover {
+          transform: translateZ(58px) scale(1.04);
+          box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32), 0 0 0 1px #ffffff;
+        }
+
         /* Accessibility: Prefers reduced motion */
         @media (prefers-reduced-motion: reduce) {
           .buyoll-promo-overlay.is-entering .buyoll-promo-scene,
@@ -643,7 +664,8 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
           .promo-headline-3d,
           .promo-word,
           .promo-confetti-particle,
-          .promo-sparkle {
+          .promo-sparkle,
+          .promo-logo-badge {
             animation: none !important;
             transform: none !important;
             opacity: 1 !important;
@@ -751,6 +773,18 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
+
+          {/* Top Center Buyoll Logo Badge with 3D Depth */}
+          <div className="flex justify-center -mt-1 mb-3 select-none">
+            <div className="promo-logo-badge">
+              <img
+                src="/buyoll_logo.png"
+                alt="Buyoll"
+                loading="eager"
+                className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-sm"
+              />
+            </div>
+          </div>
 
           {/* Top category label & badge */}
           <div className="flex items-center gap-2.5 mb-2 select-none">

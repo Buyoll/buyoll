@@ -314,6 +314,7 @@ export interface WalletDepositRequest {
   userId: number;
   userName: string;
   userPhone: string;
+  role?: string;
   amount: number;
   mpesaCode: string;
   status: 'pending' | 'approved' | 'declined';
@@ -436,7 +437,7 @@ export interface StoreCreditLedgerEntry {
   userId: number;
   amount: number; // + or -
   balanceAfter: number;
-  type: 'default_conversion' | 'point_redemption' | 'purchase_deduction' | 'admin_adjustment' | 'loan_disbursement' | 'loan_funding' | 'loan_commission';
+  type: 'default_conversion' | 'point_redemption' | 'purchase_deduction' | 'admin_adjustment' | 'loan_disbursement' | 'loan_funding' | 'loan_commission' | 'deposit' | 'refund_credit' | 'transfer_out';
   referenceId?: string;
   note: string;
   createdAt: number;
@@ -635,12 +636,13 @@ export interface MerchantSubscriptionRecord {
   tierId: string;
   tierName: string;
   amount: number;
-  paymentMethod: 'wallet_coins' | 'mpesa_till_paybill';
+  paymentMethod: 'wallet_coins' | 'wallet_credit' | 'mpesa_till_paybill';
   paymentCode?: string;
   status: 'pending' | 'active' | 'expired' | 'declined';
   startDate?: number;
   expiresAt?: number;
   createdAt: number;
+  notes?: string;
 }
 
 export interface ChatStrikeRecord {

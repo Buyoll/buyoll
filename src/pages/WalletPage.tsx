@@ -200,17 +200,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
     setSubmittingDeposit(true);
     try {
+      const activeRole = currentUser.activeRole || (currentUser.role === 'buyer' ? 'member' : currentUser.role) || 'member';
       const res = await api.depositToWallet({
         amount: depositAmount,
         mpesaCode: trimmedCode,
         notes: depositNotes.trim() || undefined,
+        role: activeRole,
       });
       onNotify('success', res.message || 'Deposit submitted! The admin will verify and credit your wallet.');
       setShowDepositModal(false);
       setDepositMpesaCode('');
       setDepositNotes('');
-      loadWalletData();
-      if (onUserUpdate) onUserUpdate();
+      await loadWalletData();
+      if (onUserUpdate) await onUserUpdate();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to submit deposit');
     } finally {

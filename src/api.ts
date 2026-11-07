@@ -2511,7 +2511,7 @@ export const api = {
   },
 
   // Wallet M-Pesa Deposit Flow
-  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string }): Promise<any> {
+  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string; role?: string }): Promise<any> {
     return await fetchApi<any>('/wallet/deposit', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -2714,10 +2714,10 @@ export const api = {
     return await fetchApi<any>('/merchant/subscription/current');
   },
 
-  async paySubscriptionCoins(tierId: string): Promise<any> {
+  async paySubscriptionCoins(tierId: string, paymentMethod: 'wallet_coins' | 'wallet_credit' = 'wallet_coins'): Promise<any> {
     return await fetchApi<any>('/merchant/subscription/pay-coins', {
       method: 'POST',
-      body: JSON.stringify({ tierId }),
+      body: JSON.stringify({ tierId, paymentMethod }),
     });
   },
 

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
-import { getDatabase, saveDatabase, logAudit } from './db.js';
+import { getDatabase, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
 
 // -------------------------------------------------------------
 // SECURE PASSWORD HASHING (Scrypt + Salt)
@@ -3720,155 +3720,266 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
 apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
-  const { user, db } = auth;
+  const { user } = auth;
 
   const { decision, reason } = req.body; // 'approve' | 'reject'
-  const payment = db.payments.find(p => p.id === Number(req.params.id));
-
-  if (!payment) return res.status(404).json({ error: 'Payment not found' });
-  if (payment.status !== 'pending') {
-    return res.status(400).json({ error: 'This payment has already been processed' });
+  if (decision !== 'approve' && decision !== 'reject') {
+    return res.status(400).json({ error: 'Decision must be "approve" or "reject".' });
   }
 
-  const now = Date.now();
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      const payment = (db.payments || []).find((p) => p.id === Number(req.params.id));
+      if (!payment) throw { status: 404, message: 'Payment not found' };
+      if (payment.status !== 'pending') {
+        throw { status: 400, message: `This payment has already been ${payment.status}. Duplicate processing prevented.` };
+      }
 
-  if (decision === 'approve') {
-    payment.status = 'approved';
-    payment.approvedAt = now;
+      const now = Date.now();
 
-    // 1. If it's a group installment payment, credit slot and mark days as Paid (✓)
-    if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
-      const grp = db.groups.find(g => g.id === payment.groupId);
-      if (grp) {
-        const slot = grp.slots.find(s => s.slotNumber === payment.slotNumber);
-        if (slot) {
-          slot.paidAmount = (slot.paidAmount || 0) + payment.amount;
-          slot.lastPaymentDate = now;
+      if (decision === 'approve') {
+        // Prevent duplicate approved codes for subscriptions or deposits
+        if (payment.type === 'merchant_subscription' && payment.code) {
+          const duplicateActive = (db.merchantSubscriptions || []).some(
+            (s) => s.paymentCode === payment.code && s.status === 'active'
+          );
+          if (duplicateActive) {
+            throw { status: 400, message: `Payment code ${payment.code} has already been approved for an active subscription.` };
+          }
+        } else if (payment.type === 'wallet_deposit' && payment.code) {
+          const duplicateApproved = (db.walletDeposits || []).some(
+            (d) => d.mpesaCode === payment.code && d.status === 'approved'
+          );
+          if (duplicateApproved) {
+            throw { status: 400, message: `M-Pesa code ${payment.code} has already been approved for a wallet deposit.` };
+          }
+        }
 
-          slot.paidDays = slot.paidDays || [];
-          slot.pendingDays = slot.pendingDays || [];
-          slot.dailyPaymentRecords = slot.dailyPaymentRecords || [];
+        payment.status = 'approved';
+        payment.approvedAt = now;
+        payment.verifiedAt = now;
+        payment.verifiedBy = user.name;
 
-          const daysApproved = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
-          for (const d of daysApproved) {
-            slot.pendingDays = slot.pendingDays.filter(pd => pd !== d);
-            if (!slot.paidDays.includes(d)) {
-              slot.paidDays.push(d);
+        // 1. If it's a group installment payment, credit slot and mark days as Paid (✓)
+        if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
+          const grp = db.groups.find((g) => g.id === payment.groupId);
+          if (grp) {
+            const slot = grp.slots.find((s) => s.slotNumber === payment.slotNumber);
+            if (slot) {
+              slot.paidAmount = (slot.paidAmount || 0) + payment.amount;
+              slot.lastPaymentDate = now;
+
+              slot.paidDays = slot.paidDays || [];
+              slot.pendingDays = slot.pendingDays || [];
+              slot.dailyPaymentRecords = slot.dailyPaymentRecords || [];
+
+              const daysApproved = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
+              for (const d of daysApproved) {
+                slot.pendingDays = slot.pendingDays.filter((pd) => pd !== d);
+                if (!slot.paidDays.includes(d)) {
+                  slot.paidDays.push(d);
+                }
+              }
+
+              // Mark daily payment records as approved
+              for (const rec of slot.dailyPaymentRecords) {
+                if (rec.code === payment.code) {
+                  rec.status = 'approved';
+                }
+              }
+
+              // Update group round tracking
+              grp.currentRoundPaid = (grp.currentRoundPaid || 0) + payment.amount;
+              const targetAmt = grp.targetAmountPerRound || grp.productPrice;
+              grp.roundBalanceRemaining = Math.max(0, targetAmt - grp.currentRoundPaid);
+
+              if (grp.currentRoundPaid >= targetAmt) {
+                grp.isReadyForPickup = true;
+                grp.chat.push({
+                  id: `chat_${now}_pickup`,
+                  senderId: 1,
+                  senderName: 'System Verification',
+                  kind: 'system',
+                  text: `✅ 100% PAID! Full target amount of KSh ${targetAmt.toLocaleString()} has been reached! Item is now verified & READY FOR PICKUP for Member #${grp.currentRecipientSlot || 1}!`,
+                  timestamp: now,
+                });
+              }
+
+              // Award platform points automatically to good payer (1 point for every 10 KSh)
+              const payer = db.users.find((u) => u.id === payment.userId);
+              if (payer) {
+                const pointsEarned = Math.max(1, Math.floor(payment.amount / 10));
+                payer.points = (payer.points || 0) + pointsEarned;
+                payer.lastActive = now;
+              }
+
+              // Group broadcast notification
+              if (!grp.notifications) grp.notifications = [];
+              grp.notifications.unshift({
+                id: `notif_${now}_appr`,
+                groupId: grp.id,
+                groupName: grp.name,
+                title: 'Contribution Verified (✓)',
+                message: `Admin verified KSh ${payment.amount.toLocaleString()} for ${daysApproved.map((d) => `Day ${d}`).join(', ')} from ${payment.userName}. Green tick recorded!`,
+                type: 'payment_approved',
+                timestamp: now,
+              });
             }
           }
+        } else if (payment.type === 'merchant_subscription') {
+          const merchant = db.users.find((u) => u.id === payment.userId);
+          const sub = (db.merchantSubscriptions || []).find((s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending'));
+          const expiresAt = now + 30 * 86400000;
+          if (sub) {
+            sub.status = 'active';
+            sub.startDate = now;
+            sub.expiresAt = expiresAt;
+          }
+          if (merchant) {
+            merchant.merchantSubscriptionStatus = 'active';
+            merchant.merchantSubscriptionPlan = (sub?.tierId || merchant.merchantSubscriptionPlan || 'tier_500') as any;
+            merchant.merchantSubscriptionExpiresAt = expiresAt;
+            merchant.verified = true;
+            merchant.verifiedAt = now;
+            merchant.starRating = 5;
 
-          // Mark daily payment records as approved
-          for (const rec of slot.dailyPaymentRecords) {
-            if (rec.code === payment.code) {
-              rec.status = 'approved';
+            if (!db.userNotifications) db.userNotifications = [];
+            db.userNotifications.unshift({
+              id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+              userId: merchant.id,
+              title: '🎉 Subscription Approved & Activated!',
+              message: `Your merchant subscription has been approved by Admin! Your store is active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
+              type: 'payment',
+              read: false,
+              timestamp: now,
+            });
+
+            logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription for ${merchant.name} (Code: ${payment.code})`);
+          }
+        } else if (payment.type === 'wallet_deposit') {
+          const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
+          if (dep) {
+            dep.status = 'approved';
+            dep.processedAt = now;
+            dep.processedBy = user.name;
+            const targetUser = db.users.find((u) => u.id === dep.userId);
+            if (targetUser) {
+              const depRole = dep.role || targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
+              if (!targetUser.roleWallets) targetUser.roleWallets = {};
+              if (!targetUser.roleWallets[depRole]) targetUser.roleWallets[depRole] = { credit: 0, coins: 0, points: 0 };
+              targetUser.roleWallets[depRole].credit = (targetUser.roleWallets[depRole].credit || 0) + dep.amount;
+              if ((targetUser.activeRole || targetUser.role) === depRole) {
+                targetUser.credit = targetUser.roleWallets[depRole].credit;
+              }
+
+              if (!db.storeCreditLedger) db.storeCreditLedger = [];
+              db.storeCreditLedger.unshift({
+                id: db.nextIds.ledger++,
+                userId: targetUser.id,
+                amount: dep.amount,
+                balanceAfter: targetUser.roleWallets[depRole].credit,
+                type: 'refund_credit' as const,
+                referenceId: dep.mpesaCode,
+                note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved by Admin in payments`,
+                createdAt: now,
+              });
+
+              if (!db.userNotifications) db.userNotifications = [];
+              db.userNotifications.unshift({
+                id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+                userId: targetUser.id,
+                title: '💰 Wallet Deposit Approved',
+                message: `Your deposit of KSh ${dep.amount.toLocaleString()} (Code: ${dep.mpesaCode}) has been verified and credited to your ${depRole} wallet!`,
+                type: 'payment',
+                read: false,
+                timestamp: now,
+              });
             }
           }
-
-          // Update group round tracking
-          grp.currentRoundPaid = (grp.currentRoundPaid || 0) + payment.amount;
-          const targetAmt = grp.targetAmountPerRound || grp.productPrice;
-          grp.roundBalanceRemaining = Math.max(0, targetAmt - grp.currentRoundPaid);
-
-          if (grp.currentRoundPaid >= targetAmt) {
-            grp.isReadyForPickup = true;
-            grp.chat.push({
-              id: `chat_${now}_pickup`,
+        } else if (payment.type === 'loan_fee') {
+          const loan = (db.peerLoans || []).find((l) => l.id === payment.loanId || l.platformFeePaymentCode === payment.code);
+          if (loan) {
+            loan.platformFeeStatus = 'approved';
+            loan.status = 'fee_verified';
+          }
+        } else if (payment.type === 'coin_purchase') {
+          const payer = db.users.find((u) => u.id === payment.userId);
+          if (payer) {
+            const coinsToAdd = payment.amount * 2; // 2 coins per KSh 1
+            payer.coins = (payer.coins || 0) + coinsToAdd;
+            if (!db.coinLedger) db.coinLedger = [];
+            db.coinLedger.unshift({
+              id: db.coinLedger.length + 1,
+              type: 'deposit',
               senderId: 1,
-              senderName: 'System Verification',
-              kind: 'system',
-              text: `✅ 100% PAID! Full target amount of KSh ${targetAmt.toLocaleString()} has been reached! Item is now verified & READY FOR PICKUP for Member #${grp.currentRecipientSlot || 1}!`,
+              senderName: 'M-Pesa Deposit Till',
+              recipientId: payer.id,
+              recipientName: payer.name,
+              amount: coinsToAdd,
+              reason: `Deposited coins via M-Pesa Till (Code: ${payment.code})`,
               timestamp: now,
             });
           }
-
-          // Award platform points automatically to good payer (1 point for every 10 KSh)
-          const payer = db.users.find(u => u.id === payment.userId);
-          if (payer) {
-            const pointsEarned = Math.max(1, Math.floor(payment.amount / 10));
-            payer.points = (payer.points || 0) + pointsEarned;
-            payer.lastActive = now;
-          }
-
-          // Group broadcast notification
-          if (!grp.notifications) grp.notifications = [];
-          grp.notifications.unshift({
-            id: `notif_${now}_appr`,
-            groupId: grp.id,
-            groupName: grp.name,
-            title: 'Contribution Verified (✓)',
-            message: `Admin verified KSh ${payment.amount.toLocaleString()} for ${daysApproved.map(d => `Day ${d}`).join(', ')} from ${payment.userName}. Green tick recorded!`,
-            type: 'payment_approved',
-            timestamp: now,
-          });
         }
-      }
-    } else if (payment.type === 'merchant_subscription') {
-      const merchant = db.users.find(u => u.id === payment.userId);
-      if (merchant) {
-        merchant.merchantSubscriptionStatus = 'active';
-        merchant.verified = true;
-        merchant.verifiedAt = now;
-        merchant.starRating = 5;
-        logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription for ${merchant.name}`);
-      }
-    } else if (payment.type === 'loan_fee') {
-      const loan = (db.peerLoans || []).find(l => l.id === payment.loanId || l.platformFeePaymentCode === payment.code);
-      if (loan) {
-        loan.platformFeeStatus = 'approved';
-        loan.status = 'fee_verified';
-      }
-    } else if (payment.type === 'coin_purchase') {
-      const payer = db.users.find(u => u.id === payment.userId);
-      if (payer) {
-        const coinsToAdd = payment.amount * 2; // 2 coins per KSh 1
-        payer.coins = (payer.coins || 0) + coinsToAdd;
-        if (!db.coinLedger) db.coinLedger = [];
-        db.coinLedger.unshift({
-          id: `coin_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          type: 'deposit',
-          senderId: 1,
-          senderName: 'M-Pesa Deposit Till',
-          recipientId: payer.id,
-          recipientName: payer.name,
-          amount: coinsToAdd,
-          reason: `Deposited coins via M-Pesa Till (Code: ${payment.code})`,
-          timestamp: now,
-        });
-      }
-    }
 
-    logAudit(db, user.id, user.name, 'PAYMENT_APPROVED', `Approved payment ${payment.code} for KSh ${payment.amount}`);
-  } else {
-    payment.status = 'rejected';
-    payment.rejectionReason = (reason || 'Statement mismatch or unverified transaction code').trim();
+        logAudit(db, user.id, user.name, 'PAYMENT_APPROVED', `Approved payment ${payment.code} for KSh ${payment.amount}`);
+      } else {
+        payment.status = 'rejected';
+        payment.rejectionReason = (reason || 'Statement mismatch or unverified transaction code').trim();
 
-    // If it's a group installment, revert pending days
-    if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
-      const grp = db.groups.find(g => g.id === payment.groupId);
-      if (grp) {
-        const slot = grp.slots.find(s => s.slotNumber === payment.slotNumber);
-        if (slot) {
-          const daysToRevert = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
-          slot.pendingDays = (slot.pendingDays || []).filter(pd => !daysToRevert.includes(pd));
-          for (const rec of slot.dailyPaymentRecords || []) {
-            if (rec.code === payment.code) {
-              rec.status = 'rejected';
+        // If it's a group installment, revert pending days
+        if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
+          const grp = db.groups.find((g) => g.id === payment.groupId);
+          if (grp) {
+            const slot = grp.slots.find((s) => s.slotNumber === payment.slotNumber);
+            if (slot) {
+              const daysToRevert = payment.daysPaid && payment.daysPaid.length > 0 ? payment.daysPaid : [1];
+              slot.pendingDays = (slot.pendingDays || []).filter((pd) => !daysToRevert.includes(pd));
+              for (const rec of slot.dailyPaymentRecords || []) {
+                if (rec.code === payment.code) {
+                  rec.status = 'rejected';
+                }
+              }
             }
           }
+        } else if (payment.type === 'merchant_subscription') {
+          const merchant = db.users.find((u) => u.id === payment.userId);
+          const sub = (db.merchantSubscriptions || []).find((s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending'));
+          if (sub) {
+            sub.status = 'declined';
+            if (sub.paymentMethod === 'wallet_credit' && merchant) {
+              const refundAmt = sub.amount || 0;
+              if (!merchant.roleWallets) merchant.roleWallets = {};
+              if (!merchant.roleWallets.merchant) merchant.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
+              merchant.roleWallets.merchant.credit = (merchant.roleWallets.merchant.credit || 0) + refundAmt;
+              merchant.credit = (merchant.credit || 0) + refundAmt;
+            } else if (sub.paymentMethod === 'wallet_coins' && merchant) {
+              merchant.coins = (merchant.coins || 0) + (sub.amount || 0);
+            }
+          }
+          if (merchant) {
+            merchant.merchantSubscriptionStatus = 'inactive';
+          }
+        } else if (payment.type === 'wallet_deposit') {
+          const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
+          if (dep) {
+            dep.status = 'declined';
+            dep.processedAt = now;
+            dep.processedBy = user.name;
+            dep.notes = payment.rejectionReason;
+          }
         }
-      }
-    } else if (payment.type === 'merchant_subscription') {
-      const merchant = db.users.find(u => u.id === payment.userId);
-      if (merchant) {
-        merchant.merchantSubscriptionStatus = 'inactive';
-      }
-    }
 
-    logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}: ${payment.rejectionReason}`);
+        logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}: ${payment.rejectionReason}`);
+      }
+
+      return payment;
+    });
+
+    res.json({ payment: result, message: `Payment ${result.code} was ${decision}d.` });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Payment decision failed' });
   }
-
-  await saveDatabase(db);
-  res.json({ payment, message: `Payment ${payment.code} was ${decision}d.` });
 });
 
 apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) => {
@@ -4880,7 +4991,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-  const { amount, mpesaCode, notes } = req.body;
+  const { amount, mpesaCode, notes, role } = req.body;
   const numAmount = Number(amount);
   const trimmedCode = String(mpesaCode || '').trim().toUpperCase();
 
@@ -4894,53 +5005,102 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
     });
   }
 
-  if (numAmount <= 0) {
+  if (!numAmount || numAmount <= 0) {
     return res.status(400).json({ error: 'Deposit amount must be greater than zero.' });
   }
 
-  const db = await getDatabase();
-  if (!db.walletDeposits) db.walletDeposits = [];
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      if (!db.walletDeposits) db.walletDeposits = [];
 
-  // Check duplicate code in deposits
-  if (db.walletDeposits.some(d => d.mpesaCode === trimmedCode)) {
-    return res.status(400).json({ error: 'This M-Pesa transaction code has already been submitted for a wallet deposit.' });
+      // Check duplicate code in deposits (only pending or approved block duplicate; declined can be resubmitted)
+      const existingDeposit = db.walletDeposits.find(
+        (d) => d.mpesaCode === trimmedCode && (d.status === 'pending' || d.status === 'approved')
+      );
+      if (existingDeposit) {
+        throw {
+          status: 400,
+          message: `This M-Pesa transaction code has already been submitted for a wallet deposit (${existingDeposit.status}).`,
+        };
+      }
+
+      // Check duplicate in payments
+      const existingPayment = (db.payments || []).find(
+        (p) => p.code === trimmedCode && (p.status === 'pending' || p.status === 'approved')
+      );
+      if (existingPayment) {
+        throw {
+          status: 400,
+          message: `This transaction code has already been recorded in platform payments (${existingPayment.status}).`,
+        };
+      }
+
+      const activeRole = role || user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+      const now = Date.now();
+
+      const newDeposit: WalletDepositRequest = {
+        id: `dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: user.id,
+        userName: user.name,
+        userPhone: user.phone,
+        role: activeRole,
+        amount: numAmount,
+        mpesaCode: trimmedCode,
+        status: 'pending',
+        createdAt: now,
+        notes: (notes || '').trim(),
+      };
+
+      db.walletDeposits.unshift(newDeposit);
+
+      // Also record in db.payments as pending
+      if (!db.payments) db.payments = [];
+      const paymentRecord: PaymentRecord = {
+        id: db.nextIds.payment++,
+        type: 'wallet_deposit',
+        userId: user.id,
+        userName: user.name,
+        userPhone: user.phone,
+        code: trimmedCode,
+        amount: numAmount,
+        status: 'pending',
+        channel: 'M-Pesa Deposit Till 196853',
+        createdAt: now,
+        notes: `Wallet deposit of KSh ${numAmount} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
+      };
+      db.payments.unshift(paymentRecord);
+
+      // Private notification for user
+      if (!db.userNotifications) db.userNotifications = [];
+      db.userNotifications.unshift({
+        id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: user.id,
+        title: '⏳ Wallet Deposit Request Submitted',
+        message: `Your deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) has been received. Buyoll Admin will verify against statements and credit your ${activeRole} wallet.`,
+        type: 'payment',
+        read: false,
+        timestamp: now,
+      });
+
+      logAudit(
+        db,
+        user.id,
+        user.name,
+        'WALLET_DEPOSIT_SUBMITTED',
+        `Submitted wallet deposit of KSh ${numAmount} for ${activeRole} wallet (Code: ${trimmedCode})`
+      );
+
+      return {
+        deposit: newDeposit,
+        message: `Deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your ${activeRole} wallet automatically.`,
+      };
+    });
+
+    res.status(201).json({ success: true, ...result });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({ error: err.message || 'Failed to submit wallet deposit' });
   }
-
-  const newDeposit: WalletDepositRequest = {
-    id: `dep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    userId: user.id,
-    userName: user.name,
-    userPhone: user.phone,
-    amount: numAmount,
-    mpesaCode: trimmedCode,
-    status: 'pending',
-    createdAt: Date.now(),
-    notes: (notes || '').trim(),
-  };
-
-  db.walletDeposits.unshift(newDeposit);
-
-  // Also record in db.payments as pending
-  const paymentRecord: PaymentRecord = {
-    id: db.nextIds.payment++,
-    type: 'wallet_deposit',
-    userId: user.id,
-    userName: user.name,
-    code: trimmedCode,
-    amount: numAmount,
-    status: 'pending',
-    createdAt: Date.now(),
-  };
-  db.payments.unshift(paymentRecord);
-
-  logAudit(db, user.id, user.name, 'WALLET_DEPOSIT_SUBMITTED', `Submitted wallet deposit of KSh ${numAmount} (Code: ${trimmedCode})`);
-  await saveDatabase(db);
-
-  res.status(201).json({
-    success: true,
-    deposit: newDeposit,
-    message: `Deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your wallet automatically.`,
-  });
 });
 
 apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
@@ -4948,7 +5108,7 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
   const db = await getDatabase();
-  const userDeposits = (db.walletDeposits || []).filter(d => d.userId === user.id);
+  const userDeposits = (db.walletDeposits || []).filter((d) => d.userId === user.id);
   res.json({ deposits: userDeposits });
 });
 
@@ -4962,91 +5122,157 @@ apiRouter.get('/admin/wallet-deposits', async (req: Request, res: Response) => {
 apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
-  const { user, db } = auth;
+  const { user } = auth;
 
   const { action, notes } = req.body;
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'Action must be "approve" or "decline".' });
   }
 
-  if (!db.walletDeposits) db.walletDeposits = [];
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      if (!db.walletDeposits) db.walletDeposits = [];
 
-  const deposit = db.walletDeposits.find(d => d.id === req.params.id);
-  if (!deposit) return res.status(404).json({ error: 'Deposit request not found' });
+      const deposit = db.walletDeposits.find((d) => d.id === req.params.id);
+      if (!deposit) throw { status: 404, message: 'Deposit request not found' };
 
-  if (deposit.status !== 'pending') {
-    return res.status(400).json({ error: `This deposit request has already been ${deposit.status}.` });
-  }
+      // Prevent duplicate processing
+      if (deposit.status !== 'pending') {
+        throw { status: 400, message: `This deposit request has already been ${deposit.status}.` };
+      }
 
-  const targetUser = db.users.find(u => u.id === deposit.userId);
-  if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+      const targetUser = db.users.find((u) => u.id === deposit.userId);
+      if (!targetUser) throw { status: 404, message: 'Target user not found' };
 
-  const now = Date.now();
-  deposit.processedAt = now;
-  deposit.processedBy = user.name;
-  if (notes) deposit.notes = notes;
+      // Prevent duplicate code approval on different deposit records
+      if (action === 'approve') {
+        const duplicateApproved = db.walletDeposits.some(
+          (d) => d.id !== deposit.id && d.mpesaCode === deposit.mpesaCode && d.status === 'approved'
+        );
+        if (duplicateApproved) {
+          throw { status: 400, message: 'Another deposit with this M-Pesa transaction code has already been approved.' };
+        }
+      }
 
-  const payment = db.payments.find(p => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
+      const now = Date.now();
+      deposit.processedAt = now;
+      deposit.processedBy = user.name;
+      if (notes) deposit.notes = notes;
 
-  if (action === 'approve') {
-    deposit.status = 'approved';
-    if (payment) {
-      payment.status = 'approved';
-      payment.approvedAt = now;
-    }
+      const payment = (db.payments || []).find((p) => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
+      const depRole = deposit.role || targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
 
-    // Automatically credit user's wallet
-    targetUser.credit = (targetUser.credit || 0) + deposit.amount;
+      if (action === 'approve') {
+        deposit.status = 'approved';
+        if (payment) {
+          payment.status = 'approved';
+          payment.approvedAt = now;
+          payment.verifiedAt = now;
+          payment.verifiedBy = user.name;
+        }
 
-    // Add to store credit ledger
-    const ledgerEntry = {
-      id: db.nextIds.ledger++,
-      userId: targetUser.id,
-      amount: deposit.amount,
-      balanceAfter: targetUser.credit,
-      type: 'refund_credit' as const,
-      referenceId: deposit.mpesaCode,
-      note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited by Admin`,
-      createdAt: now,
-    };
-    db.storeCreditLedger.unshift(ledgerEntry);
+        // Ensure targetUser.roleWallets exists
+        if (!targetUser.roleWallets) {
+          targetUser.roleWallets = {
+            member: { credit: targetUser.credit || 0, coins: targetUser.coins || 0, points: targetUser.points || 0 },
+            merchant: { credit: 0, coins: 0, points: 0 },
+            lender: { credit: 0, coins: 0, points: 0 },
+          };
+        }
+        if (!targetUser.roleWallets[depRole]) {
+          targetUser.roleWallets[depRole] = { credit: 0, coins: 0, points: 0 };
+        }
 
-    logAudit(
-      db,
-      user.id,
-      user.name,
-      'WALLET_DEPOSIT_APPROVED',
-      `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode}). New balance: KSh ${targetUser.credit}`
-    );
-    await saveDatabase(db);
+        // Credit target role wallet atomically
+        targetUser.roleWallets[depRole].credit = (targetUser.roleWallets[depRole].credit || 0) + deposit.amount;
 
-    res.json({
-      success: true,
-      deposit,
-      newBalance: targetUser.credit,
-      message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s wallet. New balance: KSh ${targetUser.credit.toLocaleString()}.`,
+        // Sync top-level credit if active role matches depRole
+        const currentActive = targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
+        if (currentActive === depRole) {
+          targetUser.credit = targetUser.roleWallets[depRole].credit;
+        }
+
+        // Add to store credit ledger atomically
+        if (!db.storeCreditLedger) db.storeCreditLedger = [];
+        const ledgerEntry = {
+          id: db.nextIds.ledger++,
+          userId: targetUser.id,
+          amount: deposit.amount,
+          balanceAfter: targetUser.roleWallets[depRole].credit,
+          type: 'refund_credit' as const,
+          referenceId: deposit.mpesaCode,
+          note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
+          createdAt: now,
+        };
+        db.storeCreditLedger.unshift(ledgerEntry);
+
+        // Private notification to target user
+        if (!db.userNotifications) db.userNotifications = [];
+        db.userNotifications.unshift({
+          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: targetUser.id,
+          title: '💰 Wallet Deposit Approved',
+          message: `Your deposit of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${targetUser.roleWallets[depRole].credit.toLocaleString()}.`,
+          type: 'payment',
+          read: false,
+          timestamp: now,
+        });
+
+        // Audit log
+        logAudit(
+          db,
+          user.id,
+          user.name,
+          'WALLET_DEPOSIT_APPROVED',
+          `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (${depRole} wallet, Code: ${deposit.mpesaCode}). New balance: KSh ${targetUser.roleWallets[depRole].credit}`
+        );
+
+        return {
+          deposit,
+          newBalance: targetUser.roleWallets[depRole].credit,
+          message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s ${depRole} wallet. New balance: KSh ${targetUser.roleWallets[depRole].credit.toLocaleString()}.`,
+        };
+      } else {
+        deposit.status = 'declined';
+        if (payment) {
+          payment.status = 'rejected';
+          payment.rejectionReason = notes || 'Declined by Admin verification';
+        }
+
+        // Private notification to user
+        if (!db.userNotifications) db.userNotifications = [];
+        db.userNotifications.unshift({
+          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: targetUser.id,
+          title: '❌ Wallet Deposit Declined',
+          message: `Your deposit request of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) was declined. Reason/Note: ${notes || 'Statement mismatch or invalid transaction code'}. Please check your M-Pesa receipt and try again.`,
+          type: 'system',
+          read: false,
+          timestamp: now,
+        });
+
+        logAudit(
+          db,
+          user.id,
+          user.name,
+          'WALLET_DEPOSIT_DECLINED',
+          `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode})`
+        );
+
+        return {
+          deposit,
+          message: `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetUser.name}.`,
+        };
+      }
     });
-  } else {
-    deposit.status = 'declined';
-    if (payment) {
-      payment.status = 'rejected';
-    }
 
-    logAudit(
-      db,
-      user.id,
-      user.name,
-      'WALLET_DEPOSIT_DECLINED',
-      `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode})`
-    );
-    await saveDatabase(db);
-
-    res.json({
-      success: true,
-      deposit,
-      message: `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetUser.name}.`,
-    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({ error: err.message || 'Failed to process deposit decision' });
   }
 });
+
+
 
 

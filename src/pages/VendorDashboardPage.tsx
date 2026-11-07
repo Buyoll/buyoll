@@ -20,6 +20,7 @@ import {
   Shield,
   Coins,
   CreditCard,
+  Wallet,
   FileCheck,
   Building,
   Check,
@@ -49,6 +50,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     isExpired: boolean;
     daysRemaining: number;
     subscription: any;
+    pendingSubscription?: any;
     tier: any;
     canUpgrade: boolean;
     message: string;
@@ -56,7 +58,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [tiersList, setTiersList] = useState<MerchantSubscriptionTier[]>([]);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [selectedTierId, setSelectedTierId] = useState<string>('tier_500');
-  const [subPaymentMethod, setSubPaymentMethod] = useState<'wallet_coins' | 'mpesa_till'>('wallet_coins');
+  const [subPaymentMethod, setSubPaymentMethod] = useState<'wallet_credit' | 'wallet_coins' | 'mpesa_till'>('mpesa_till');
   const [subPaymentCode, setSubPaymentCode] = useState('');
   const [submittingSubscription, setSubmittingSubscription] = useState(false);
 
@@ -91,11 +93,16 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   async function handleSubscriptionPay() {
     setSubmittingSubscription(true);
     try {
-      if (subPaymentMethod === 'wallet_coins') {
-        const res = await api.paySubscriptionCoins(selectedTierId);
-        onNotify('success', res.message || 'Subscription payment submitted using wallet credit! Pending admin approval.');
+      if (subPaymentMethod === 'wallet_credit') {
+        const res = await api.paySubscriptionCoins(selectedTierId, 'wallet_credit');
+        onNotify('success', res.message || 'Subscription payment submitted using wallet credit! Pending Admin approval.');
         setIsSubscriptionModalOpen(false);
-        loadVendorData();
+        await loadVendorData();
+      } else if (subPaymentMethod === 'wallet_coins') {
+        const res = await api.paySubscriptionCoins(selectedTierId, 'wallet_coins');
+        onNotify('success', res.message || 'Subscription payment submitted using coins! Pending Admin approval.');
+        setIsSubscriptionModalOpen(false);
+        await loadVendorData();
       } else {
         const code = subPaymentCode.trim().toUpperCase();
         if (!code) {
@@ -117,10 +124,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           paymentCode: code,
           amount,
         });
-        onNotify('success', res.message || 'Subscription payment submitted for admin reconciliation.');
+        onNotify('success', res.message || 'Payment code submitted for Admin approval! Admin will reconcile against statements.');
         setIsSubscriptionModalOpen(false);
         setSubPaymentCode('');
-        loadVendorData();
+        await loadVendorData();
       }
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to process subscription');
@@ -303,22 +310,21 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* STRICT UPGRADE BUTTON RULE (Part D): Disabled if active with expiration date; enabled if expired */}
-          {subscriptionInfo && !subscriptionInfo.isExpired ? (
+          {subscriptionInfo?.subscription && !subscriptionInfo.isExpired ? (
             <button
-              disabled
-              title="Upgrade button disabled while 30-day subscription is active. Enabled once current plan expires."
-              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl cursor-not-allowed opacity-80"
+              onClick={() => setIsSubscriptionModalOpen(true)}
+              title="Click to upgrade or renew your 30-day merchant tier"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 text-xs font-bold rounded-xl hover:bg-emerald-100 transition-colors cursor-pointer"
             >
               <Clock className="w-3.5 h-3.5 text-emerald-600" />
               <span>
-                Active: {subscriptionInfo.tier?.name?.split(' ')[0] || 'Store'} (Expires: {new Date(subscriptionInfo.subscription?.expiresAt).toLocaleDateString()}) · Upgrade on expiry
+                Active: {subscriptionInfo.tier?.name?.split(' ')[0] || 'Store'} (Expires: {new Date(subscriptionInfo.subscription?.expiresAt).toLocaleDateString()}) · Upgrade/Renew
               </span>
             </button>
           ) : (
             <button
               onClick={() => setIsSubscriptionModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
               <span>{subscriptionInfo?.isExpired ? 'Upgrade / Renew Subscription' : 'Subscribe Store (30-Day Tiers)'}</span>
@@ -327,7 +333,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
 
           <button
             onClick={handleOpenCreateProduct}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-sm self-start sm:self-auto"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-sm self-start sm:self-auto cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Post New Listing</span>
@@ -335,8 +341,30 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
       </div>
 
+      {/* PENDING ADMIN APPROVAL BANNER */}
+      {subscriptionInfo?.pendingSubscription && (
+        <div className="mb-6 p-4 bg-amber-50/90 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                Subscription Request Under Admin Verification
+              </h4>
+              <p className="text-xs text-amber-900 mt-0.5">
+                Your request for <b>{subscriptionInfo.pendingSubscription.tierName}</b> ({subscriptionInfo.pendingSubscription.paymentCode || (subscriptionInfo.pendingSubscription.paymentMethod === 'wallet_credit' ? 'Wallet Credit' : 'Wallet Coins')}) is awaiting Admin verification against M-Pesa statements. Once approved, your catalog limits will activate for 30 days!
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-amber-100 text-amber-800 border border-amber-300 rounded-full text-[11px] font-bold uppercase tracking-wider shrink-0 self-start sm:self-auto animate-pulse">
+            Pending Admin Approval
+          </span>
+        </div>
+      )}
+
       {/* Subscription banner if expired or inactive */}
-      {(!subscriptionInfo || subscriptionInfo.isExpired) && (
+      {(!subscriptionInfo || subscriptionInfo.isExpired) && !subscriptionInfo?.pendingSubscription && (
         <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-teal-500/10 border-2 border-emerald-600/30 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -353,18 +381,19 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 : 'Subscribe to a 30-Day Merchant Tier to Post Products & Open Speed Groups'}
             </h3>
             <p className="text-xs text-slate-600 mt-1 max-w-2xl">
-              Choose from 6 plans starting from KES 250/mo up to Enterprise. Pay seamlessly via Wallet Coins or manual M-Pesa Till / Paybill.
+              Choose from 6 plans starting from KES 250/mo up to Enterprise. Pay seamlessly via Wallet Coins, Store Credit or manual M-Pesa Till / Paybill.
             </p>
           </div>
           <button
             onClick={() => setIsSubscriptionModalOpen(true)}
-            className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2"
+            className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2 cursor-pointer"
           >
             <span>Upgrade / Choose Plan</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       )}
+
 
       {/* KPI Stats Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -672,29 +701,11 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               <label className="block text-xs font-bold text-slate-700 mb-2">
                 Select Payment Method:
               </label>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setSubPaymentMethod('wallet_coins')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    subPaymentMethod === 'wallet_coins'
-                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
-                    <Coins className="w-4 h-4 text-amber-500" />
-                    <span>Wallet Balance / Coins</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Wallet credit payment. Requires Admin approval. Your coins: {currentUser?.coins || 0}.
-                  </p>
-                </button>
-
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
                 <button
                   type="button"
                   onClick={() => setSubPaymentMethod('mpesa_till')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                     subPaymentMethod === 'mpesa_till'
                       ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
                       : 'border-slate-200 bg-slate-100/50 hover:bg-white'
@@ -705,7 +716,43 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     <span>M-Pesa Till / Paybill</span>
                   </div>
                   <p className="text-[10px] text-slate-500">
-                    Buy Goods Till 196853 or Paybill 522533. Reconciled by Admin.
+                    Till 196853 or Paybill 522533. Submit code for Admin reconciliation.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubPaymentMethod('wallet_credit')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    subPaymentMethod === 'wallet_credit'
+                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                    <Wallet className="w-4 h-4 text-emerald-700" />
+                    <span>Merchant Wallet (KES)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Operating balance: <b>KSh {(currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0).toLocaleString()}</b>
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubPaymentMethod('wallet_coins')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    subPaymentMethod === 'wallet_coins'
+                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                    <Coins className="w-4 h-4 text-amber-500" />
+                    <span>Applaud Coins</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Coins balance: <b>{currentUser?.coins || 0} coins</b>
                   </p>
                 </button>
               </div>
@@ -723,6 +770,25 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     maxLength={12}
                     className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg uppercase focus:ring-2 focus:ring-[#0E5A3C] outline-none"
                   />
+                  <p className="text-[10px] text-slate-500">
+                    Admin verifies your code against M-Pesa statements and activates your store for 30 days.
+                  </p>
+                </div>
+              )}
+
+              {subPaymentMethod === 'wallet_credit' && (
+                <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                  <p className="text-[11px] text-emerald-900">
+                    KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} will be held in escrow from your Merchant Wallet and submitted to Admin for approval.
+                  </p>
+                </div>
+              )}
+
+              {subPaymentMethod === 'wallet_coins' && (
+                <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                  <p className="text-[11px] text-amber-900">
+                    {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} coins will be held in escrow and submitted to Admin for approval.
+                  </p>
                 </div>
               )}
             </div>
@@ -731,7 +797,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => setIsSubscriptionModalOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
               >
                 Cancel
               </button>
@@ -739,14 +805,21 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 type="button"
                 onClick={handleSubscriptionPay}
                 disabled={submittingSubscription}
-                className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                {submittingSubscription ? 'Processing...' : subPaymentMethod === 'wallet_coins' ? 'Confirm Payment with Coins' : 'Submit Code for Admin Approval'}
+                {submittingSubscription
+                  ? 'Processing...'
+                  : subPaymentMethod === 'mpesa_till'
+                  ? 'Submit Code for Admin Approval'
+                  : subPaymentMethod === 'wallet_credit'
+                  ? 'Submit Wallet Payment for Admin Approval'
+                  : 'Submit Coins for Admin Approval'}
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* MERCHANT VERIFICATION APPLICATION MODAL (Part C & G) */}
       {isVerificationModalOpen && (

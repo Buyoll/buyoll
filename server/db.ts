@@ -1062,3 +1062,25 @@ export function logAudit(db: DatabaseSchema, actorId: number, actorName: string,
     db.auditLogs.pop();
   }
 }
+
+/**
+ * Executes an atomic database transaction under the write lock.
+ * Ensures reading the latest DB state, executing mutations (wallet, ledger, audit),
+ * and persisting to disk before any other transaction runs.
+ */
+export async function runDatabaseTransaction<T>(
+  operation: (db: DatabaseSchema) => Promise<T> | T
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    writeLock = writeLock.then(async () => {
+      try {
+        const db = await getDatabase();
+        const result = await operation(db);
+        await saveDatabase(db);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}

@@ -243,7 +243,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     try {
       const res = await api.decideWalletDeposit(depositId, { action });
       onNotify('success', res.message || `Deposit request ${action}d!`);
-      loadAllAdminData();
+      await loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to process deposit request');
     } finally {
@@ -257,7 +257,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     try {
       const res = await api.adminDecidePayment(paymentId, decision);
       onNotify('success', res.message || `Payment #${paymentId} ${decision}d`);
-      loadAllAdminData();
+      await loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to process payment');
     } finally {
@@ -446,7 +446,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     try {
       const res = await api.approveAdminMerchantSubscription(subId);
       onNotify('success', res.message || 'Subscription approved and store activated for 30 days!');
-      loadAllAdminData();
+      await loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to approve subscription');
     } finally {
@@ -459,7 +459,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     try {
       const res = await api.declineAdminMerchantSubscription(subId);
       onNotify('success', res.message || 'Subscription declined.');
-      loadAllAdminData();
+      await loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to decline subscription');
     } finally {
@@ -1128,7 +1128,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     {walletDeposits.map((dep) => (
                       <tr key={dep.id} className="hover:bg-slate-50/70">
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900">{dep.userName}</div>
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <span>{dep.userName}</span>
+                            {dep.role && (
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider ${
+                                dep.role === 'merchant'
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : dep.role === 'lender'
+                                  ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}>
+                                {dep.role}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400 font-mono">{dep.userPhone}</div>
                         </td>
 
@@ -2386,7 +2399,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         </td>
                         <td className="py-3 px-3">
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-semibold">
-                            {sub.paymentMethod === 'wallet_coins' ? 'Wallet Coins' : 'M-Pesa Till/Paybill'}
+                            {sub.paymentMethod === 'wallet_credit'
+                              ? 'Merchant Wallet (KES)'
+                              : sub.paymentMethod === 'wallet_coins'
+                              ? 'Wallet Coins'
+                              : 'M-Pesa Till/Paybill'}
                           </span>
                         </td>
                         <td className="py-3 px-3 font-mono font-bold uppercase text-slate-800">

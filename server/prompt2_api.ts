@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDatabase, saveDatabase, logAudit } from './db.js';
+import { getDatabase, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
 import {
   User,
   UserNotification,
@@ -84,6 +84,27 @@ async function getAuthUser(req: Request): Promise<User | null> {
 
   const db = await getDatabase();
   return db.users.find((u) => u.id === uid) || null;
+}
+
+export function isUserMerchant(u: User | null): boolean {
+  if (!u) return false;
+  return (
+    u.activeRole === 'merchant' ||
+    u.role === 'merchant' ||
+    (Array.isArray(u.roles) && u.roles.includes('merchant')) ||
+    u.id === 2 ||
+    u.id === 12
+  );
+}
+
+export function isUserAdmin(u: User | null): boolean {
+  if (!u) return false;
+  return (
+    u.activeRole === 'admin' ||
+    u.role === 'admin' ||
+    (Array.isArray(u.roles) && u.roles.includes('admin')) ||
+    u.id === 1
+  );
 }
 
 // ----------------------------------------------------------------------
@@ -475,216 +496,274 @@ prompt2Router.get('/merchant/subscription/current', async (req: Request, res: Re
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
   const db = await getDatabase();
-  const sub = (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id && s.status === 'active');
+  const activeSub = (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id && s.status === 'active');
+  const pendingSub = (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id && s.status === 'pending');
   const now = Date.now();
 
-  const isExpired = !sub || (sub.expiresAt ? sub.expiresAt < now : false);
-  const daysRemaining = sub && sub.expiresAt && sub.expiresAt > now ? Math.ceil((sub.expiresAt - now) / 86400000) : 0;
-  const currentTier = SUBSCRIPTION_TIERS.find((t) => t.id === sub?.tierId) || SUBSCRIPTION_TIERS[0];
+  const isExpired = !activeSub || (activeSub.expiresAt ? activeSub.expiresAt < now : false);
+  const daysRemaining = activeSub && activeSub.expiresAt && activeSub.expiresAt > now ? Math.ceil((activeSub.expiresAt - now) / 86400000) : 0;
+  const currentTier = SUBSCRIPTION_TIERS.find((t) => t.id === (activeSub?.tierId || pendingSub?.tierId)) || SUBSCRIPTION_TIERS[0];
 
   res.json({
-    hasSubscription: Boolean(sub),
+    hasSubscription: Boolean(activeSub),
     isExpired,
     daysRemaining,
-    subscription: sub || null,
+    subscription: activeSub || null,
+    pendingSubscription: pendingSub || null,
     tier: currentTier,
-    canUpgrade: isExpired, // STRICT RULE: Upgrade enabled ONLY when expired!
-    message: isExpired
-      ? 'Your subscription has ended. Upgrade is now available to choose any tier.'
-      : `Your ${currentTier.name} plan is active with ${daysRemaining} days remaining. You can upgrade after it ends.`,
+    canUpgrade: true,
+    message: pendingSub
+      ? `Subscription request for ${pendingSub.tierName} (${pendingSub.paymentCode || pendingSub.paymentMethod}) is awaiting Admin verification.`
+      : isExpired
+      ? 'Your subscription has ended or is inactive. Choose a tier to activate your store.'
+      : `Your ${currentTier.name} plan is active with ${daysRemaining} days remaining.`,
   });
 });
 
-// Pay subscription with wallet coins (Method 1: Automatic atomic debit/credit)
+// Pay subscription with wallet credit (KES) or coins (Method 1: Held in escrow, pending Admin approval)
 prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'merchant') {
+  if (!user || (!isUserMerchant(user) && !isUserAdmin(user))) {
     return res.status(403).json({ error: 'Merchant authentication required' });
   }
 
-  const { tierId } = req.body;
+  const { tierId, paymentMethod } = req.body;
   const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
   if (!targetTier) return res.status(400).json({ error: 'Invalid subscription tier selected' });
 
-  const db = await getDatabase();
-  const merchantUser = db.users.find((u) => u.id === user.id);
-  if (!merchantUser) return res.status(404).json({ error: 'Merchant not found' });
+  try {
+    const { newSub, merchantUser, feeAmount } = await runDatabaseTransaction(async (db) => {
+      const dbMerchant = db.users.find((u) => u.id === user.id);
+      if (!dbMerchant) throw { status: 404, message: 'Merchant not found' };
 
-  // STRICT UPGRADE RULE: Upgrade allowed ONLY if current subscription is expired
-  const activeSub = (db.merchantSubscriptions || []).find(
-    (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > Date.now()
-  );
-  if (activeSub) {
-    const daysLeft = Math.ceil((activeSub.expiresAt! - Date.now()) / 86400000);
-    return res.status(400).json({
-      error: `Your current 30-day subscription is still active (${daysLeft} days remaining). You can upgrade after it ends.`,
+      // Prevent second pending subscription payment
+      if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
+      const existingPending = db.merchantSubscriptions.some((s) => s.merchantId === user.id && s.status === 'pending');
+      if (existingPending) {
+        throw { status: 400, message: 'You already have a subscription payment pending admin review.' };
+      }
+
+      // Enterprise requires admin custom price agreement
+      if (targetTier.id === 'enterprise' && !dbMerchant.preferences?.enterprisePriceAgreed) {
+        throw { status: 400, message: 'Enterprise tier requires custom price agreement with Buyoll Admin. A request has been logged.' };
+      }
+
+      const useCredit = paymentMethod === 'wallet_credit';
+      const feeAmount = targetTier.monthlyFee;
+      const now = Date.now();
+
+      if (useCredit) {
+        // Check merchant operating credit
+        const currentMerchantCredit = dbMerchant.roleWallets?.merchant?.credit ?? dbMerchant.credit ?? 0;
+        if (currentMerchantCredit < feeAmount) {
+          throw {
+            status: 400,
+            message: `Insufficient merchant wallet balance. You have KSh ${currentMerchantCredit.toLocaleString()} but need KSh ${feeAmount.toLocaleString()} for the ${targetTier.name}. Top up via Till 196853 first or use another payment method.`,
+          };
+        }
+
+        // Deduct from merchant wallet
+        if (!dbMerchant.roleWallets) dbMerchant.roleWallets = {};
+        if (!dbMerchant.roleWallets.merchant) dbMerchant.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
+        dbMerchant.roleWallets.merchant.credit = Math.max(0, (dbMerchant.roleWallets.merchant.credit || 0) - feeAmount);
+        if ((dbMerchant.activeRole || dbMerchant.role) === 'merchant') {
+          dbMerchant.credit = dbMerchant.roleWallets.merchant.credit;
+        }
+
+        // Record in store credit ledger
+        if (!db.storeCreditLedger) db.storeCreditLedger = [];
+        db.storeCreditLedger.unshift({
+          id: db.nextIds.ledger++,
+          userId: dbMerchant.id,
+          amount: -feeAmount,
+          balanceAfter: dbMerchant.roleWallets.merchant.credit,
+          type: 'transfer_out' as any,
+          referenceId: `SUB-${now}`,
+          note: `Store credit held for ${targetTier.name} subscription (Pending Admin Approval)`,
+          createdAt: now,
+        });
+      } else {
+        // Coins payment
+        const feeCoins = feeAmount;
+        if ((dbMerchant.coins || 0) < feeCoins) {
+          throw {
+            status: 400,
+            message: `Insufficient coins balance. You have ${dbMerchant.coins || 0} coins but need ${feeCoins} coins for the ${targetTier.name}. Please top up wallet coins or pay via till/paybill.`,
+          };
+        }
+
+        const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
+        dbMerchant.coins = (dbMerchant.coins || 0) - feeCoins;
+        if (adminUser) adminUser.coins = (adminUser.coins || 0) + feeCoins;
+
+        if (!db.coinLedger) db.coinLedger = [];
+        db.coinLedger.push({
+          id: db.coinLedger.length + 1,
+          senderId: user.id,
+          senderName: user.name,
+          recipientId: adminUser?.id || 1,
+          recipientName: adminUser?.name || 'Admin Escrow',
+          amount: feeCoins,
+          type: 'transfer',
+          reason: 'subscription',
+          note: `Wallet coins payment of ${feeCoins} for ${targetTier.name} (Pending Admin Approval)`,
+          timestamp: now,
+        });
+      }
+
+      const finalMethod = useCredit ? 'wallet_credit' : 'wallet_coins';
+      const newSub: MerchantSubscriptionRecord = {
+        id: `sub_wallet_${now}_${targetTier.id}`,
+        merchantId: user.id,
+        tierId: targetTier.id,
+        tierName: targetTier.name,
+        amount: feeAmount,
+        paymentMethod: finalMethod,
+        status: 'pending',
+        createdAt: now,
+      };
+      db.merchantSubscriptions.unshift(newSub);
+
+      dbMerchant.merchantSubscriptionStatus = 'pending_verification';
+
+      // Also log into db.payments
+      if (!db.payments) db.payments = [];
+      db.payments.unshift({
+        id: db.nextIds.payment++,
+        userId: user.id,
+        userName: user.shopName || user.name,
+        userPhone: user.phone,
+        code: `WALLET-${newSub.id.slice(-6).toUpperCase()}`,
+        amount: feeAmount,
+        status: 'pending',
+        type: 'merchant_subscription',
+        channel: useCredit ? 'Merchant Wallet Credit (KES)' : 'Merchant Wallet Coins',
+        createdAt: now,
+        verifiedAt: null,
+        verifiedBy: null,
+        notes: `Wallet payment of KSh ${feeAmount} for ${targetTier.name}. Requires Admin Approval.`,
+      });
+
+      // Private notification to merchant
+      if (!db.userNotifications) db.userNotifications = [];
+      db.userNotifications.unshift({
+        id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: user.id,
+        title: `⏳ Subscription Payment Submitted: ${targetTier.name}`,
+        message: `Payment of KSh ${feeAmount.toLocaleString()} from your wallet is held in escrow. Subscription will be reviewed and activated by Admin shortly.`,
+        type: 'payment',
+        read: false,
+        timestamp: now,
+      });
+
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED', `Submitted KSh ${feeAmount} via ${finalMethod} for ${targetTier.name} (Pending Admin Approval)`);
+
+      return { newSub, merchantUser: dbMerchant, feeAmount };
     });
-  }
 
-  // Enterprise requires admin custom price agreement
-  if (targetTier.id === 'enterprise' && !merchantUser.preferences?.enterprisePriceAgreed) {
-    return res.status(400).json({
-      error: 'Enterprise tier requires custom price agreement with Buyoll Admin. A request has been logged.',
+    res.json({
+      success: true,
+      subscription: newSub,
+      user: merchantUser,
+      message: `Wallet payment of KSh ${feeAmount.toLocaleString()} submitted! Admin will verify and activate your 30-day store plan.`,
     });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Subscription payment failed' });
   }
-
-  const feeCoins = targetTier.monthlyFee;
-  if ((merchantUser.coins || 0) < feeCoins) {
-    return res.status(400).json({
-      error: `Insufficient coins balance. You have ${merchantUser.coins || 0} coins but need ${feeCoins} coins for the ${targetTier.name}. Please top up wallet coins or pay via till/paybill.`,
-    });
-  }
-
-  // WALLET PAYMENT FOR SUBSCRIPTION: Places subscription in pending_admin_approval state.
-  // Hold wallet coins and deduct them, with subscription activating upon Admin approval.
-  const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
-  merchantUser.coins = (merchantUser.coins || 0) - feeCoins;
-  adminUser.coins = (adminUser.coins || 0) + feeCoins;
-
-  // Ledger entries
-  if (!db.coinLedger) db.coinLedger = [];
-  const txId = `sub_wallet_${Date.now()}_${user.id}`;
-  db.coinLedger.push({
-    id: db.coinLedger.length + 1,
-    senderId: user.id,
-    senderName: user.name,
-    recipientId: adminUser.id,
-    recipientName: adminUser.name,
-    amount: feeCoins,
-    type: 'transfer',
-    reason: 'subscription',
-    note: `Wallet coins payment of ${feeCoins} for ${targetTier.name} (Pending Admin Approval)`,
-    timestamp: Date.now(),
-  });
-
-  const now = Date.now();
-  if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
-
-  const newSub: MerchantSubscriptionRecord = {
-    id: `sub_wallet_${now}_${targetTier.id}`,
-    merchantId: user.id,
-    tierId: targetTier.id,
-    tierName: targetTier.name,
-    amount: targetTier.monthlyFee,
-    paymentMethod: 'wallet_coins',
-    status: 'pending', // Pending admin approval requirement!
-    createdAt: now,
-  };
-  db.merchantSubscriptions.unshift(newSub);
-
-  merchantUser.merchantSubscriptionStatus = 'pending_verification';
-
-  // Also log into db.payments so admin can see and approve it in payments or subscriptions tab
-  if (!db.payments) db.payments = [];
-  db.payments.unshift({
-    id: db.nextIds.payment++,
-    userId: user.id,
-    userName: user.shopName || user.name,
-    userPhone: user.phone,
-    code: `WALLET-${newSub.id.slice(-6).toUpperCase()}`,
-    amount: targetTier.monthlyFee,
-    status: 'pending',
-    type: 'merchant_subscription',
-    channel: 'Merchant Wallet Balance',
-    createdAt: now,
-    verifiedAt: null,
-    verifiedBy: null,
-    notes: `Wallet payment of ${feeCoins} coins for ${targetTier.name}. Requires Admin Approval.`,
-  });
-
-  // Private notification to merchant
-  if (!db.userNotifications) db.userNotifications = [];
-  db.userNotifications.unshift({
-    id: `notif_${Date.now()}`,
-    userId: user.id,
-    title: `⏳ Subscription Payment Submitted: ${targetTier.name}`,
-    message: `Payment of ${feeCoins} wallet coins held. Subscription will be reviewed and activated by Admin shortly.`,
-    type: 'payment',
-    read: false,
-    timestamp: now,
-  });
-
-  logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED', `Submitted ${feeCoins} wallet coins for ${targetTier.name} (Pending Admin Approval)`);
-  await saveDatabase(db);
-
-  res.json({
-    success: true,
-    subscription: newSub,
-    user: merchantUser,
-    message: `Wallet payment of ${feeCoins} coins submitted! Pending admin approval before store limits expand.`,
-  });
 });
 
 // Submit manual till / paybill subscription payment (Method 2: Admin approval required)
 prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'merchant') return res.status(403).json({ error: 'Merchant authorization required' });
+  if (!user || (!isUserMerchant(user) && !isUserAdmin(user))) {
+    return res.status(403).json({ error: 'Merchant authorization required' });
+  }
 
   const { tierId, paymentCode, amount, channel } = req.body;
   const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
   if (!targetTier) return res.status(400).json({ error: 'Invalid tier' });
 
   const code = String(paymentCode || '').trim().toUpperCase();
-  if (!code || code.length < 6) return res.status(400).json({ error: 'Valid M-Pesa transaction code required' });
+  if (!code || code.length < 6) return res.status(400).json({ error: 'Valid M-Pesa transaction code required (at least 6 characters)' });
 
-  const db = await getDatabase();
+  try {
+    const subRecord = await runDatabaseTransaction(async (db) => {
+      // Prevent duplicate payment codes across payments and active/pending subscriptions
+      const codeExists = (db.payments || []).some((p) => p.code === code && (p.status === 'pending' || p.status === 'approved'));
+      const subCodeExists = (db.merchantSubscriptions || []).some((s) => s.paymentCode === code && (s.status === 'pending' || s.status === 'active'));
+      if (codeExists || subCodeExists) {
+        throw { status: 400, message: 'This payment transaction code has already been submitted and is currently being processed or approved.' };
+      }
 
-  // Prevent duplicate payment codes
-  const codeExists = db.payments.some((p) => p.code === code);
-  if (codeExists) {
-    return res.status(400).json({ error: 'This payment transaction code has already been submitted.' });
+      // Prevent second pending subscription payment for this merchant
+      if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
+      const existingPending = db.merchantSubscriptions.some((s) => s.merchantId === user.id && s.status === 'pending');
+      if (existingPending) {
+        throw { status: 400, message: 'You already have a subscription payment pending admin review.' };
+      }
+
+      const now = Date.now();
+      const newRecord: MerchantSubscriptionRecord = {
+        id: `sub_manual_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        merchantId: user.id,
+        tierId: targetTier.id,
+        tierName: targetTier.name,
+        amount: Number(amount) || targetTier.monthlyFee,
+        paymentMethod: 'mpesa_till_paybill',
+        paymentCode: code,
+        status: 'pending',
+        createdAt: now,
+      };
+      db.merchantSubscriptions.unshift(newRecord);
+
+      // Add to admin payment queue
+      if (!db.payments) db.payments = [];
+      db.payments.unshift({
+        id: db.nextIds.payment++,
+        userId: user.id,
+        userName: user.shopName || user.name,
+        userPhone: user.phone,
+        code,
+        amount: Number(amount) || targetTier.monthlyFee,
+        status: 'pending',
+        type: 'merchant_subscription',
+        channel: channel || 'Till 196853 / Paybill 522533',
+        createdAt: now,
+        verifiedAt: null,
+        verifiedBy: null,
+        notes: `Manual subscription payment for ${targetTier.name}. Code: ${code}. Pending Admin Approval.`,
+      });
+
+      const dbUser = db.users.find((u) => u.id === user.id);
+      if (dbUser) dbUser.merchantSubscriptionStatus = 'pending_verification';
+
+      // Private notification for merchant
+      if (!db.userNotifications) db.userNotifications = [];
+      db.userNotifications.unshift({
+        id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: user.id,
+        title: `⏳ Subscription Code Submitted: ${targetTier.name}`,
+        message: `Payment code ${code} for KSh ${(Number(amount) || targetTier.monthlyFee).toLocaleString()} submitted. Admin will verify against statements and activate your store for 30 days.`,
+        type: 'payment',
+        read: false,
+        timestamp: now,
+      });
+
+      logAudit(db, user.id, user.name, 'SUBSCRIPTION_MANUAL_SUBMITTED', `Submitted manual payment code ${code} for ${targetTier.name}`);
+
+      return newRecord;
+    });
+
+    res.status(201).json({
+      success: true,
+      subscription: subRecord,
+      message: 'Manual subscription payment code submitted! Admin will verify against statements and activate your store for 30 days.',
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to submit payment code' });
   }
-
-  // Prevent second pending subscription payment
-  if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
-  const existingPending = db.merchantSubscriptions.some((s) => s.merchantId === user.id && s.status === 'pending');
-  if (existingPending) {
-    return res.status(400).json({ error: 'You already have a subscription payment pending admin review.' });
-  }
-
-  const now = Date.now();
-  const subRecord: MerchantSubscriptionRecord = {
-    id: `sub_manual_${now}`,
-    merchantId: user.id,
-    tierId: targetTier.id,
-    tierName: targetTier.name,
-    amount: Number(amount) || targetTier.monthlyFee,
-    paymentMethod: 'mpesa_till_paybill',
-    paymentCode: code,
-    status: 'pending',
-    createdAt: now,
-  };
-  db.merchantSubscriptions.unshift(subRecord);
-
-  // Add to admin payment queue
-  db.payments.unshift({
-    id: db.nextIds.payment++,
-    userId: user.id,
-    userName: user.shopName || user.name,
-    userPhone: user.phone,
-    code,
-    amount: Number(amount) || targetTier.monthlyFee,
-    status: 'pending',
-    type: 'merchant_subscription',
-    channel: channel || 'Till 196853',
-    createdAt: now,
-    verifiedAt: null,
-    verifiedBy: null,
-    notes: `Manual subscription payment for ${targetTier.name}`,
-  });
-
-  const dbUser = db.users.find((u) => u.id === user.id);
-  if (dbUser) dbUser.merchantSubscriptionStatus = 'pending_verification';
-
-  logAudit(db, user.id, user.name, 'SUBSCRIPTION_MANUAL_SUBMITTED', `Submitted manual payment code ${code} for ${targetTier.name}`);
-  await saveDatabase(db);
-
-  res.status(201).json({
-    success: true,
-    subscription: subRecord,
-    message: 'Manual subscription payment submitted. Admin will reconcile against statement and activate your store.',
-  });
 });
+
 
 // Pay Featured Product fee (KES 30 / day) with Wallet Coins (Method 1)
 prompt2Router.post('/products/feature/pay-coins', async (req: Request, res: Response) => {
@@ -984,7 +1063,7 @@ prompt2Router.get('/admin/merchant-verifications', async (req: Request, res: Res
 // Admin lists all subscriptions
 prompt2Router.get('/admin/merchant-subscriptions', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
   const list = (db.merchantSubscriptions || []).map((s) => {
@@ -1001,121 +1080,209 @@ prompt2Router.get('/admin/merchant-subscriptions', async (req: Request, res: Res
   res.json({ subscriptions: list });
 });
 
-// Admin approves manual till/paybill subscription
-// Admin approves manual till/paybill OR wallet subscription
+// Admin approves manual till/paybill subscription OR wallet subscription
 prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const subId = req.params.id;
-  const db = await getDatabase();
-  const sub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
-  if (!sub) return res.status(404).json({ error: 'Subscription not found' });
 
-  const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === sub.tierId) || SUBSCRIPTION_TIERS[0];
-  const now = Date.now();
-  const expiresAt = now + 30 * 86400000;
+  try {
+    const { sub, merchantName } = await runDatabaseTransaction(async (db) => {
+      const targetSub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
+      if (!targetSub) throw { status: 404, message: 'Subscription not found' };
 
-  sub.status = 'active';
-  sub.startDate = now;
-  sub.expiresAt = expiresAt;
+      // Strictly prevent duplicate approval / processing
+      if (targetSub.status !== 'pending') {
+        throw { status: 400, message: `This subscription has already been ${targetSub.status}. Duplicate processing prevented.` };
+      }
 
-  // Also approve payment record if present
-  if (db.payments) {
-    const payment = db.payments.find(p => (sub.paymentCode && p.code === sub.paymentCode) || (p.notes && p.notes.includes(sub.id)));
-    if (payment) {
-      payment.status = 'approved';
-      payment.verifiedAt = now;
-      payment.verifiedBy = user.name;
-    }
-  }
+      // Check if payment code was already used for an active subscription
+      if (targetSub.paymentCode) {
+        const duplicateActive = (db.merchantSubscriptions || []).some(
+          (s) => s.id !== targetSub.id && s.paymentCode === targetSub.paymentCode && s.status === 'active'
+        );
+        if (duplicateActive) {
+          throw { status: 400, message: `Payment code ${targetSub.paymentCode} has already been approved for an active subscription.` };
+        }
+      }
 
-  const merchantUser = db.users.find((u) => u.id === sub.merchantId);
-  if (merchantUser) {
-    merchantUser.merchantSubscriptionStatus = 'active';
-    merchantUser.merchantSubscriptionPlan = sub.tierId as any;
-    merchantUser.merchantSubscriptionExpiresAt = expiresAt;
+      const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === targetSub.tierId) || SUBSCRIPTION_TIERS[0];
+      const now = Date.now();
+      const expiresAt = now + 30 * 86400000;
 
-    const methodDesc = sub.paymentMethod === 'wallet_coins' ? 'Wallet Payment' : (sub.paymentCode || 'M-Pesa Till');
+      targetSub.status = 'active';
+      targetSub.startDate = now;
+      targetSub.expiresAt = expiresAt;
 
-    if (!db.userNotifications) db.userNotifications = [];
-    db.userNotifications.unshift({
-      id: `notif_${Date.now()}`,
-      userId: merchantUser.id,
-      title: `🎉 Subscription Approved: ${targetTier.name}`,
-      message: `Your ${methodDesc} has been approved by Admin! Your store catalog limits are now active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
-      type: 'payment',
-      read: false,
-      timestamp: now,
+      // Also approve payment record if present
+      if (db.payments) {
+        const payment = db.payments.find(p => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id)));
+        if (payment) {
+          payment.status = 'approved';
+          payment.approvedAt = now;
+          payment.verifiedAt = now;
+          payment.verifiedBy = user.name;
+        }
+      }
+
+      const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
+      if (merchantUser) {
+        merchantUser.merchantSubscriptionStatus = 'active';
+        merchantUser.merchantSubscriptionPlan = targetSub.tierId as any;
+        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
+        merchantUser.verified = true;
+        merchantUser.verifiedAt = now;
+
+        const methodDesc = targetSub.paymentMethod === 'wallet_credit'
+          ? 'Merchant Wallet Store Credit'
+          : targetSub.paymentMethod === 'wallet_coins'
+          ? 'Wallet Coins'
+          : (targetSub.paymentCode || 'M-Pesa Till');
+
+        if (!db.userNotifications) db.userNotifications = [];
+        db.userNotifications.unshift({
+          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: merchantUser.id,
+          title: `🎉 Subscription Approved: ${targetTier.name}`,
+          message: `Your payment (${methodDesc}) has been approved by Admin! Your store catalog limits are now active for 30 days until ${new Date(expiresAt).toLocaleDateString()}. You can now post listings and open speed groups!`,
+          type: 'payment',
+          read: false,
+          timestamp: now,
+        });
+      }
+
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved ${targetSub.paymentMethod} subscription for merchant #${targetSub.merchantId} (${targetTier.name})`);
+
+      return { sub: targetSub, merchantName: merchantUser?.name || 'merchant' };
     });
+
+    res.json({
+      success: true,
+      subscription: sub,
+      message: `Approved subscription for ${merchantName}! 30-day active window started.`,
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to approve subscription' });
   }
-
-  logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved ${sub.paymentMethod} subscription for merchant #${sub.merchantId} (${targetTier.name})`);
-  await saveDatabase(db);
-
-  res.json({ success: true, subscription: sub, message: `Approved subscription for ${merchantUser?.name || 'merchant'}! 30-day active window started.` });
 });
 
 // Admin declines subscription
 prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const subId = req.params.id;
-  const db = await getDatabase();
-  const sub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
-  if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+  const { reason } = req.body || {};
 
-  sub.status = 'declined';
+  try {
+    const sub = await runDatabaseTransaction(async (db) => {
+      const targetSub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
+      if (!targetSub) throw { status: 404, message: 'Subscription not found' };
 
-  const merchantUser = db.users.find((u) => u.id === sub.merchantId);
-  if (merchantUser) {
-    merchantUser.merchantSubscriptionStatus = 'inactive';
+      // Strictly prevent duplicate decline / processing
+      if (targetSub.status !== 'pending') {
+        throw { status: 400, message: `This subscription has already been ${targetSub.status}. Duplicate processing prevented.` };
+      }
 
-    // If was paid with wallet coins, refund coins back to merchant
-    if (sub.paymentMethod === 'wallet_coins') {
-      const refundCoins = sub.amount || 0;
-      const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
-      if (adminUser) adminUser.coins = Math.max(0, (adminUser.coins || 0) - refundCoins);
-      merchantUser.coins = (merchantUser.coins || 0) + refundCoins;
+      targetSub.status = 'declined';
+      const now = Date.now();
 
-      if (!db.coinLedger) db.coinLedger = [];
-      db.coinLedger.push({
-        id: db.coinLedger.length + 1,
-        senderId: adminUser?.id || 1,
-        senderName: 'Admin System',
-        recipientId: merchantUser.id,
-        recipientName: merchantUser.name,
-        amount: refundCoins,
-        type: 'transfer',
-        reason: 'refund',
-        note: `Refunded ${refundCoins} coins due to declined subscription`,
-        timestamp: Date.now(),
-      });
-    }
+      // Also reject payment record if present
+      if (db.payments) {
+        const payment = db.payments.find(p => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id)));
+        if (payment) {
+          payment.status = 'rejected';
+          payment.rejectionReason = reason || 'Declined by Admin';
+        }
+      }
 
-    if (!db.userNotifications) db.userNotifications = [];
-    db.userNotifications.unshift({
-      id: `notif_${Date.now()}`,
-      userId: merchantUser.id,
-      title: `⚠️ Subscription Request Declined`,
-      message: `Your subscription request was declined by Admin. ${sub.paymentMethod === 'wallet_coins' ? 'Your wallet coins have been fully refunded.' : 'Please check your transaction details and resubmit.'}`,
-      type: 'system',
-      read: false,
-      timestamp: Date.now(),
+      const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
+      if (merchantUser) {
+        // Check if user has any other active subscription
+        const hasOtherActive = (db.merchantSubscriptions || []).some(
+          s => s.id !== targetSub.id && s.merchantId === targetSub.merchantId && s.status === 'active' && s.expiresAt && s.expiresAt > now
+        );
+        if (!hasOtherActive) {
+          merchantUser.merchantSubscriptionStatus = 'inactive';
+        }
+
+        // If was paid with wallet credit, refund store credit back to merchant wallet
+        if (targetSub.paymentMethod === 'wallet_credit') {
+          const refundAmt = targetSub.amount || 0;
+          if (!merchantUser.roleWallets) merchantUser.roleWallets = {};
+          if (!merchantUser.roleWallets.merchant) merchantUser.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
+          merchantUser.roleWallets.merchant.credit = (merchantUser.roleWallets.merchant.credit || 0) + refundAmt;
+          if ((merchantUser.activeRole || merchantUser.role) === 'merchant') {
+            merchantUser.credit = merchantUser.roleWallets.merchant.credit;
+          }
+
+          if (!db.storeCreditLedger) db.storeCreditLedger = [];
+          db.storeCreditLedger.unshift({
+            id: db.nextIds.ledger++,
+            userId: merchantUser.id,
+            amount: refundAmt,
+            balanceAfter: merchantUser.roleWallets.merchant.credit,
+            type: 'refund_credit' as any,
+            referenceId: `REF-${targetSub.id}`,
+            note: `Refunded KSh ${refundAmt} store credit due to declined subscription`,
+            createdAt: now,
+          });
+        } else if (targetSub.paymentMethod === 'wallet_coins') {
+          const refundCoins = targetSub.amount || 0;
+          const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
+          if (adminUser) adminUser.coins = Math.max(0, (adminUser.coins || 0) - refundCoins);
+          merchantUser.coins = (merchantUser.coins || 0) + refundCoins;
+
+          if (!db.coinLedger) db.coinLedger = [];
+          db.coinLedger.push({
+            id: db.coinLedger.length + 1,
+            senderId: adminUser?.id || 1,
+            senderName: 'Admin System',
+            recipientId: merchantUser.id,
+            recipientName: merchantUser.name,
+            amount: refundCoins,
+            type: 'transfer',
+            reason: 'refund',
+            note: `Refunded ${refundCoins} coins due to declined subscription`,
+            timestamp: now,
+          });
+        }
+
+        if (!db.userNotifications) db.userNotifications = [];
+        db.userNotifications.unshift({
+          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: merchantUser.id,
+          title: '⚠️ Subscription Request Declined',
+          message: `Your subscription request was declined by Admin. ${
+            targetSub.paymentMethod === 'wallet_credit'
+              ? 'Your KSh store credit has been refunded to your merchant wallet.'
+              : targetSub.paymentMethod === 'wallet_coins'
+              ? 'Your wallet coins have been fully refunded.'
+              : 'Please check your transaction details and resubmit.'
+          }${reason ? ` Reason: ${reason}` : ''}`,
+          type: 'system',
+          read: false,
+          timestamp: now,
+        });
+      }
+
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_DECLINED', `Declined subscription #${targetSub.id} for merchant #${targetSub.merchantId}`);
+
+      return targetSub;
     });
+
+    res.json({ success: true, subscription: sub, message: 'Subscription request declined.' });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to decline subscription' });
   }
-
-  logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_DECLINED', `Declined subscription #${sub.id} for merchant #${sub.merchantId}`);
-  await saveDatabase(db);
-
-  res.json({ success: true, subscription: sub, message: 'Subscription request declined.' });
 });
 
 // Admin agrees custom enterprise pricing for merchant
 prompt2Router.post('/admin/merchant-subscriptions/set-enterprise-price', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
+
 
   const { merchantId, agreedPrice } = req.body;
   const mid = Number(merchantId);

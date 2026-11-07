@@ -61,7 +61,7 @@
       "name": "Samuel Mwangi",
       "phone": "0712345678",
       "role": "member",
-      "credit": 0,
+      "credit": 1500,
       "coins": 50,
       "points": 120,
       "lastActive": 1793634881286,
@@ -73,7 +73,7 @@
       "platformId": "BYL-M-10003",
       "roleWallets": {
         "member": {
-          "credit": 0,
+          "credit": 1500,
           "nonWithdrawableBalance": 0,
           "coins": 50,
           "points": 120
@@ -169,14 +169,14 @@
       "platformId": "BYL-V-10012",
       "shopName": "Amani Electronics",
       "shopDescription": "Verified seller on Buyoll",
-      "verified": false,
-      "merchantSubscriptionStatus": "active",
-      "credit": 0,
-      "coins": 250,
+      "verified": true,
+      "merchantSubscriptionStatus": "pending_verification",
+      "credit": 1000,
+      "coins": 500,
       "points": 50,
       "roleWallets": {
         "merchant": {
-          "credit": 0,
+          "credit": 1000,
           "nonWithdrawableBalance": 0,
           "coins": 500,
           "points": 50
@@ -184,8 +184,9 @@
       },
       "lastActive": 1793805215674,
       "createdAt": 1793805215674,
-      "merchantSubscriptionPlan": "tier_250",
-      "merchantSubscriptionExpiresAt": 1796397262531
+      "merchantSubscriptionPlan": "tier_1500",
+      "merchantSubscriptionExpiresAt": 1796660690920,
+      "verifiedAt": 1794068690920
     },
     {
       "id": 13,
@@ -750,6 +751,95 @@
   "refundRequests": [],
   "payments": [
     {
+      "id": 16,
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "code": "WALLET-ER_500",
+      "amount": 500,
+      "status": "pending",
+      "type": "merchant_subscription",
+      "channel": "Merchant Wallet Credit (KES)",
+      "createdAt": 1794068690945,
+      "verifiedAt": null,
+      "verifiedBy": null,
+      "notes": "Wallet payment of KSh 500 for Growing Merchant (KES 500). Requires Admin Approval."
+    },
+    {
+      "id": 15,
+      "type": "wallet_deposit",
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "code": "DEP690933M2",
+      "amount": 1000,
+      "status": "approved",
+      "channel": "M-Pesa Deposit Till 196853",
+      "createdAt": 1794068690935,
+      "notes": "Wallet deposit of KSh 1000 to merchant wallet. Code: DEP690933M2. Pending Admin approval.",
+      "approvedAt": 1794068690939,
+      "verifiedAt": 1794068690939,
+      "verifiedBy": "Buyoll Primary Administrator"
+    },
+    {
+      "id": 14,
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "code": "TILL90905M1",
+      "amount": 1500,
+      "status": "approved",
+      "type": "merchant_subscription",
+      "channel": "Till 196853",
+      "createdAt": 1794068690910,
+      "verifiedAt": 1794068690920,
+      "verifiedBy": "Buyoll Primary Administrator",
+      "notes": "Manual subscription payment for Pro Merchant (KES 1,500). Code: TILL90905M1. Pending Admin Approval.",
+      "approvedAt": 1794068690920
+    },
+    {
+      "id": 13,
+      "type": "wallet_deposit",
+      "userId": 3,
+      "userName": "Samuel Mwangi",
+      "userPhone": "0712345678",
+      "code": "DEP690713K1",
+      "amount": 1500,
+      "status": "approved",
+      "channel": "M-Pesa Deposit Till 196853",
+      "createdAt": 1794068690867,
+      "notes": "Wallet deposit of KSh 1500 to member wallet. Code: DEP690713K1. Pending Admin approval.",
+      "approvedAt": 1794068690895,
+      "verifiedAt": 1794068690895,
+      "verifiedBy": "Buyoll Primary Administrator"
+    },
+    {
+      "id": 12,
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "code": "TILL34652M1",
+      "amount": 500,
+      "status": "approved",
+      "type": "merchant_subscription",
+      "channel": "Till 196853",
+      "createdAt": 1794068634654,
+      "verifiedAt": 1794068634663,
+      "verifiedBy": "Buyoll Primary Administrator",
+      "notes": "Manual subscription payment for Growing Merchant (KES 500)"
+    },
+    {
+      "id": 11,
+      "type": "wallet_deposit",
+      "userId": 3,
+      "userName": "Samuel Mwangi",
+      "code": "DEP634432K1",
+      "amount": 1500,
+      "status": "approved",
+      "createdAt": 1794068634583,
+      "approvedAt": 1794068634639
+    },
+    {
       "id": 10,
       "userId": 12,
       "userName": "Amani Electronics",
@@ -797,6 +887,56 @@
   ],
   "storeCreditLedger": [
     {
+      "id": 6,
+      "userId": 12,
+      "amount": 500,
+      "balanceAfter": 1000,
+      "type": "refund_credit",
+      "referenceId": "REF-sub_wallet_1794068690945_tier_500",
+      "note": "Refunded KSh 500 store credit due to declined subscription",
+      "createdAt": 1794068690951
+    },
+    {
+      "id": 5,
+      "userId": 12,
+      "amount": -500,
+      "balanceAfter": 500,
+      "type": "transfer_out",
+      "referenceId": "SUB-1794068690945",
+      "note": "Store credit held for Growing Merchant (KES 500) subscription (Pending Admin Approval)",
+      "createdAt": 1794068690945
+    },
+    {
+      "id": 4,
+      "userId": 12,
+      "amount": 1000,
+      "balanceAfter": 1000,
+      "type": "refund_credit",
+      "referenceId": "DEP690933M2",
+      "note": "M-Pesa Wallet Deposit (Code: DEP690933M2) approved & credited to merchant wallet by Admin",
+      "createdAt": 1794068690939
+    },
+    {
+      "id": 3,
+      "userId": 3,
+      "amount": 1500,
+      "balanceAfter": 1500,
+      "type": "refund_credit",
+      "referenceId": "DEP690713K1",
+      "note": "M-Pesa Wallet Deposit (Code: DEP690713K1) approved & credited to member wallet by Admin",
+      "createdAt": 1794068690895
+    },
+    {
+      "id": 2,
+      "userId": 3,
+      "amount": 1500,
+      "balanceAfter": 1500,
+      "type": "refund_credit",
+      "referenceId": "DEP634432K1",
+      "note": "M-Pesa Wallet Deposit (Code: DEP634432K1) approved & credited by Admin",
+      "createdAt": 1794068634639
+    },
+    {
       "id": 1,
       "userId": 4,
       "amount": 2040,
@@ -808,6 +948,102 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": 53,
+      "timestamp": 1794068690951,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "MERCHANT_SUBSCRIPTION_DECLINED",
+      "details": "Declined subscription #sub_wallet_1794068690945_tier_500 for merchant #12"
+    },
+    {
+      "id": 52,
+      "timestamp": 1794068690945,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED",
+      "details": "Submitted KSh 500 via wallet_credit for Growing Merchant (KES 500) (Pending Admin Approval)"
+    },
+    {
+      "id": 51,
+      "timestamp": 1794068690939,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "WALLET_DEPOSIT_APPROVED",
+      "details": "Approved KSh 1000 wallet deposit for Amani Electronics (merchant wallet, Code: DEP690933M2). New balance: KSh 1000"
+    },
+    {
+      "id": 50,
+      "timestamp": 1794068690935,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "WALLET_DEPOSIT_SUBMITTED",
+      "details": "Submitted wallet deposit of KSh 1000 for merchant wallet (Code: DEP690933M2)"
+    },
+    {
+      "id": 49,
+      "timestamp": 1794068690926,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "MERCHANT_SUBSCRIPTION_APPROVED",
+      "details": "Approved mpesa_till_paybill subscription for merchant #12 (Pro Merchant (KES 1,500))"
+    },
+    {
+      "id": 48,
+      "timestamp": 1794068690910,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "SUBSCRIPTION_MANUAL_SUBMITTED",
+      "details": "Submitted manual payment code TILL90905M1 for Pro Merchant (KES 1,500)"
+    },
+    {
+      "id": 47,
+      "timestamp": 1794068690896,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "WALLET_DEPOSIT_APPROVED",
+      "details": "Approved KSh 1500 wallet deposit for Samuel Mwangi (member wallet, Code: DEP690713K1). New balance: KSh 1500"
+    },
+    {
+      "id": 46,
+      "timestamp": 1794068690873,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "WALLET_DEPOSIT_SUBMITTED",
+      "details": "Submitted wallet deposit of KSh 1500 for member wallet (Code: DEP690713K1)"
+    },
+    {
+      "id": 45,
+      "timestamp": 1794068634670,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "MERCHANT_SUBSCRIPTION_APPROVED",
+      "details": "Approved mpesa_till_paybill subscription for merchant #12 (Growing Merchant (KES 500))"
+    },
+    {
+      "id": 44,
+      "timestamp": 1794068634654,
+      "actorId": 12,
+      "actorName": "Amani Electronics",
+      "action": "SUBSCRIPTION_MANUAL_SUBMITTED",
+      "details": "Submitted manual payment code TILL34652M1 for Growing Merchant (KES 500)"
+    },
+    {
+      "id": 43,
+      "timestamp": 1794068634639,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "WALLET_DEPOSIT_APPROVED",
+      "details": "Approved KSh 1500 wallet deposit for Samuel Mwangi (Code: DEP634432K1). New balance: KSh 1500"
+    },
+    {
+      "id": 42,
+      "timestamp": 1794068634583,
+      "actorId": 3,
+      "actorName": "Samuel Mwangi",
+      "action": "WALLET_DEPOSIT_SUBMITTED",
+      "details": "Submitted wallet deposit of KSh 1500 (Code: DEP634432K1)"
+    },
     {
       "id": 41,
       "timestamp": 1793980467755,
@@ -1087,9 +1323,9 @@
     "group": 201,
     "defaultRecord": 2,
     "refundRequest": 1,
-    "payment": 11,
-    "ledger": 2,
-    "audit": 42,
+    "payment": 17,
+    "ledger": 7,
+    "audit": 54,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1
@@ -1111,7 +1347,49 @@
     }
   ],
   "chatModerationLogs": [],
-  "walletDeposits": [],
+  "walletDeposits": [
+    {
+      "id": "dep_1794068690935_zfn1",
+      "userId": 12,
+      "userName": "Amani Electronics",
+      "userPhone": "0751761018",
+      "role": "merchant",
+      "amount": 1000,
+      "mpesaCode": "DEP690933M2",
+      "status": "approved",
+      "createdAt": 1794068690935,
+      "notes": "Merchant operating credit topup",
+      "processedAt": 1794068690939,
+      "processedBy": "Buyoll Primary Administrator"
+    },
+    {
+      "id": "dep_1794068690867_stne",
+      "userId": 3,
+      "userName": "Samuel Mwangi",
+      "userPhone": "0712345678",
+      "role": "member",
+      "amount": 1500,
+      "mpesaCode": "DEP690713K1",
+      "status": "approved",
+      "createdAt": 1794068690867,
+      "notes": "Chama contribution deposit",
+      "processedAt": 1794068690895,
+      "processedBy": "Buyoll Primary Administrator"
+    },
+    {
+      "id": "dep_1794068634583_i6tf",
+      "userId": 3,
+      "userName": "Samuel Mwangi",
+      "userPhone": "0712345678",
+      "amount": 1500,
+      "mpesaCode": "DEP634432K1",
+      "status": "approved",
+      "createdAt": 1794068634583,
+      "notes": "Chama contribution deposit",
+      "processedAt": 1794068634639,
+      "processedBy": "Buyoll Primary Administrator"
+    }
+  ],
   "supportTickets": [],
   "announcements": [
     {
@@ -1166,6 +1444,87 @@
     }
   ],
   "userNotifications": [
+    {
+      "id": "notif_1794068690951_e06r",
+      "userId": 12,
+      "title": "⚠️ Subscription Request Declined",
+      "message": "Your subscription request was declined by Admin. Your KSh store credit has been refunded to your merchant wallet. Reason: Duplicate request test",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794068690951
+    },
+    {
+      "id": "notif_1794068690945_gyn5",
+      "userId": 12,
+      "title": "⏳ Subscription Payment Submitted: Growing Merchant (KES 500)",
+      "message": "Payment of KSh 500 from your wallet is held in escrow. Subscription will be reviewed and activated by Admin shortly.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690945
+    },
+    {
+      "id": "notif_1794068690939_hodd",
+      "userId": 12,
+      "title": "💰 Wallet Deposit Approved",
+      "message": "Your deposit of KSh 1,000 (Code: DEP690933M2) has been verified and credited to your merchant wallet! New balance: KSh 1,000.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690939
+    },
+    {
+      "id": "notif_1794068690935_13xb",
+      "userId": 12,
+      "title": "⏳ Wallet Deposit Request Submitted",
+      "message": "Your deposit request of KSh 1,000 (Code: DEP690933M2) has been received. Buyoll Admin will verify against statements and credit your merchant wallet.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690935
+    },
+    {
+      "id": "notif_1794068690920_rltk",
+      "userId": 12,
+      "title": "🎉 Subscription Approved: Pro Merchant (KES 1,500)",
+      "message": "Your payment (TILL90905M1) has been approved by Admin! Your store catalog limits are now active for 30 days until 12/7/2026. You can now post listings and open speed groups!",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690920
+    },
+    {
+      "id": "notif_1794068690910_oa4z",
+      "userId": 12,
+      "title": "⏳ Subscription Code Submitted: Pro Merchant (KES 1,500)",
+      "message": "Payment code TILL90905M1 for KSh 1,500 submitted. Admin will verify against statements and activate your store for 30 days.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690910
+    },
+    {
+      "id": "notif_1794068690895_du8q",
+      "userId": 3,
+      "title": "💰 Wallet Deposit Approved",
+      "message": "Your deposit of KSh 1,500 (Code: DEP690713K1) has been verified and credited to your member wallet! New balance: KSh 1,500.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690895
+    },
+    {
+      "id": "notif_1794068690867_qjsc",
+      "userId": 3,
+      "title": "⏳ Wallet Deposit Request Submitted",
+      "message": "Your deposit request of KSh 1,500 (Code: DEP690713K1) has been received. Buyoll Admin will verify against statements and credit your member wallet.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068690867
+    },
+    {
+      "id": "notif_1794068634663",
+      "userId": 12,
+      "title": "🎉 Subscription Approved: Growing Merchant (KES 500)",
+      "message": "Your TILL34652M1 has been approved by Admin! Your store catalog limits are now active for 30 days until 12/7/2026.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794068634663
+    },
     {
       "id": "notif_1793805262532",
       "userId": 12,
@@ -1265,6 +1624,42 @@
     }
   ],
   "merchantSubscriptions": [
+    {
+      "id": "sub_wallet_1794068690945_tier_500",
+      "merchantId": 12,
+      "tierId": "tier_500",
+      "tierName": "Growing Merchant (KES 500)",
+      "amount": 500,
+      "paymentMethod": "wallet_credit",
+      "status": "declined",
+      "createdAt": 1794068690945
+    },
+    {
+      "id": "sub_manual_1794068690910_1tcn",
+      "merchantId": 12,
+      "tierId": "tier_1500",
+      "tierName": "Pro Merchant (KES 1,500)",
+      "amount": 1500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "TILL90905M1",
+      "status": "active",
+      "createdAt": 1794068690910,
+      "startDate": 1794068690920,
+      "expiresAt": 1796660690920
+    },
+    {
+      "id": "sub_manual_1794068634654",
+      "merchantId": 12,
+      "tierId": "tier_500",
+      "tierName": "Growing Merchant (KES 500)",
+      "amount": 500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "TILL34652M1",
+      "status": "active",
+      "createdAt": 1794068634654,
+      "startDate": 1794068634663,
+      "expiresAt": 1796660634663
+    },
     {
       "id": "sub_wallet_1793805255546_tier_250",
       "merchantId": 12,
