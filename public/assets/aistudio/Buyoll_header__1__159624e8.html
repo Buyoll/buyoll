@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Buyoll header</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#f5f5f5;--surface:#fff;--text:#333;--muted:#666;--line:#e5e5e5;--field:#f5f5f5;--orange:#ff6600;--orange-2:#ff8000;--red:#f91c3f;--red-d:#d9102f;--admin:#7c3aed;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141414;--surface:#1e1e1e;--text:#e8e8e8;--muted:#a3a3a3;--line:#333;--field:#2a2a2a;--admin:#a78bfa;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141414;--surface:#1e1e1e;--text:#e8e8e8;--muted:#a3a3a3;--line:#333;--field:#2a2a2a;--admin:#a78bfa;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:14px}
+a{color:inherit;text-decoration:none}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px}
+.hdr{background:var(--surface);border-top:3px solid var(--orange);box-shadow:0 1px 0 var(--line)}
+
+/* promo banner (admin) */
+.promo{background:linear-gradient(90deg,var(--red-d),var(--red) 30%,var(--red) 70%,var(--red-d));color:#fff}
+.promo .wrap{display:flex;align-items:center;justify-content:center;gap:18px;height:64px;position:relative}
+.promo b{font-size:26px;font-weight:700;letter-spacing:-.3px}
+.promo .big{font-size:30px;font-weight:700;color:#ffe27a}
+.promo .tag{border:2px solid #fff;border-radius:999px;padding:5px 18px;font-weight:700;font-size:15px}
+.promo .x{position:absolute;right:24px;top:10px;background:rgba(0,0,0,.25);border:0;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;display:grid;place-items:center}
+
+/* main row */
+.main .wrap{display:flex;align-items:center;gap:32px;height:92px}
+.logo{display:block;flex:none;background:#fff;border-radius:6px;line-height:0}
+.logo img{width:112px;height:76px;display:block}
+.box{flex:1;display:flex;border:2px solid var(--orange);border-radius:8px;overflow:hidden;background:var(--surface);height:46px;max-width:760px;margin:0 auto}
+.box svg{width:18px;height:18px;margin:0 8px 0 14px;align-self:center;color:var(--muted)}
+.box input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:14px;color:var(--text);outline:none}
+.box input::placeholder{color:var(--muted)}
+.box button{border:0;background:var(--orange-2);color:#fff;font:inherit;font-weight:700;font-size:15px;letter-spacing:.5px;padding:0 38px;cursor:pointer}
+.box:focus-within{box-shadow:0 0 0 3px rgba(255,102,0,.25)}
+.cta{background:var(--orange);color:#fff;border:0;border-radius:8px;height:46px;padding:0 24px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap}
+.cta:hover{background:var(--orange-2)}
+
+/* primary nav */
+.nav{background:var(--field);border-top:1px solid var(--line)}
+.nav .wrap{display:flex;height:46px;align-items:stretch;overflow-x:auto}
+.nav a{display:flex;align-items:center;gap:8px;padding:0 22px;font-weight:600;color:var(--muted);white-space:nowrap;border-bottom:3px solid transparent}
+.nav a:hover{color:var(--orange)}
+.nav a.on{color:var(--orange);border-color:var(--orange);background:var(--surface)}
+
+/* admin overlay (demo only) */
+.bar{max-width:1280px;margin:16px auto;padding:0 24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;color:var(--muted)}
+.bar label{display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--text)}
+.bar button{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:6px;padding:5px 12px;cursor:pointer}
+[data-admin]{position:relative}
+body.adm [data-admin]{outline:2px dashed var(--admin);outline-offset:-2px}
+body.adm [data-admin]::after{content:"Admin: " attr(data-admin);position:absolute;top:0;left:0;background:var(--admin);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:0 0 4px 0;z-index:5;pointer-events:none;white-space:nowrap}
+
+@media (max-width:760px){
+ .main .wrap{flex-wrap:wrap;height:auto;padding:10px 24px;gap:12px}.box{order:3;flex-basis:100%;max-width:none}.logo{margin-right:auto}
+ .promo b,.promo .big{font-size:18px}.promo .tag{display:none}
+}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <div class="promo" id="promo" data-admin="Promo banner · text, dates, link, on/off"><div class="wrap">
+    <b>Buyoll</b><span class="big">11.11</span><b>Mega Sale · up to 15% off</b><a class="tag" href="#">Join the sale</a>
+    <button class="x" aria-label="Close banner" onclick="promo.hidden=true"><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div></div>
+
+  <div class="main"><div class="wrap">
+    <a class="logo" href="#" aria-label="Buyoll home"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHAAAABMCAIAAAA6OqTKAAATiklEQVR4nO1cd3hc1ZX/nfvevJlR7wXZ2Aj32LiAsYNxwDa4AMGAyZosYAglZb+UTUiyhCWbsptkCQl8hIQSCAY2kBBvEhtYbBxaaO4Fx92Wi2RJlqwyGk1979179o83M5oZydbIHmI7n37SNyO9cu65v3fuOeeee2eImTGI7EGcbgX+0aA7b0qp06vHPwCEEDg5CyWibCvzj4OMCE1jcNDtngAZETrIYOYYDEpZxiChWcYgoVnGIKFZxiChWcYgoVnGIKFZxiChWcYgoVnGIKFZxiChWYaedYlEdNbN/aWUtlSO2kRkuHQiUoptKZ3CJhFpmtA1rV9RmRKqmJkZ8R+g548YCIKEEGdfZc+25bZddW+8v0naNkh4DO2mhVdWlBf7ugJ/eOUtnz8AQNf02TMmTx4/qt8OxqzpxAXmqGkdPnLU3x0MhaPhqBkORyJRy7LtaCQataVt2SQoPy9naHX5pHEjioryNSHOopppQ1PrVbf+W93hI86/gsR182c+8d/33HD3d9ds3G47FgqUFBWsfeXxmqry4/XMKTD3b6GhSPTGu+5fs3mXLW2AAUcexat6PVZKRG63+8pLJ3/1js9MmzLWaeDMR2dXt6/L73gpIjBza1u7aVkNjS22lLGLCKZp+nz+mqqyOAN9o58+M3Nj87FN2/dFolHblratbFvatrSlbUslpZRSJX5tqULhyKtvrVt4531LX1ppmlZ2evzxg+Mv7BgMEVKrwAxwuo/rG/0bkWKWUoLZEdvTeu/Iwwxm27YDwfD9P31674GGnid8GqEkpAVl96FwX4hfRcmDL8Z2BgL6H/IEECjZzA2XVlpUkJ+f59I1XROmZTcdbQuEIlIpxwcwuMsfePDx3z32k3v0nP4jIzMzs2IGQwgSRJaU0lZOJCQij9uV5kCY2bTsQCCkWLFiBhmGnpfjdbl0AFASZjeOrEfdau6ogxWB5qLCoTjvcgyfBW8xRG+tKPX9JBOVfgml+AslmsnP865Y+pOqilIiIkCx2vDRnnt//OS+g0cSz5eBfQePRE0zEjXf+mBzR2eXLZWUSte1RVd9qry02AmXpmVv/tve199Zb1qWlEoqriorWnzt7KdeeKWppd2SUkpFhMWfnrVg9vRkToOhyENPvrT6vQ2WaZmWxUzFhXlPPvCtkbU1FPFjz6vY8hxatsAKkOP6iSB0bP8dSkdh4m2YcBO8RckdS4QHAh2PzEwCbb+EpsYdEMCGy1VSXFBeWpQ4OuuSKbMvmbTvYEMy707esPT3r/38qZdCoYhiBrOua7le9803zBVCAxCORL/74NMfbNjOzM4YqygrnnHxhN/+eXVTS4cT+TRNNDS2zJl5kdttxKQz7z1Q/8T/rOj0B+L5mxpSXakJkL+J33+Qtj4Hszt5VBHA0oLsQtNGtO5A0yZc8V/IrQCJtB5m6BmOh/59KHNaVCNwijtRSkVNs7Mr4FyecLI1FcWGy9XQ3BoIhE3Lsm3bltKy7HAkmrjdsmx/IMysEp2yLbO4MH9U7blCxPompdr0t7079xxM5Hamab/94VZ/IBSPFCyEuOX6OVUFGq/6Fjb+Oo1NICmeMMMK0bbnseoemIEk+noP9d4G2b+JnkxmY0sZCIY7uwJd/oCvq7u+sfU/H3521TvrY7owwMjN9d775Vs9boOZ+1Ey7ShRjtdz3fyZHrcn5sBBUqrfrXjTsmznktYO37PLVkmlYg6JUFKYf9uiK7xrf4q618llwMiFboAImg5Nh9AhXNBc0HRoLmguBvGOZdj8DKSZ1H5CjRSLTf3tBxnNlFKjHR1r75oy704i4URClUwZAwSP2/3Db9w+cdwIXddSbu9LH0pRlMAgomuuuOSpF17ZsfdQ/D5+/a/rv/uvtztP6C9/XX+ksaVn7DAuvfiCUruR9ryMqV/gT3wG0sSah7D3VYy+FkJPFg9mKIWonw68odY+KsYvdoyUQL305PThmZUon9oUJfI1ZsXJfppj53VNzJ154afnXqrreooScftNs9G+rJcrSovnXX7x7v31Uimnuf2HmtZu3jF7xpRQOPLqG2sippm42eXSv/mFxd719yNwFM2bkVuOYZfRpfdy4zp8+gky8tLHBSt0HVaPThD+etR/AB4PxycQxdSjnkiQ3OtMkPmQZ4dFOCySExCTDsYhFV57e921n7vvUEOzlI75cpqgVMmUNuQB0nVtwaxphQW5PXcxP/H88nAk+tHO/Ws37UjIEIQZU8ePqfZqzZtImnTwHXr7e3jvxyg5H3lV1LAGIAgt5RfM218SJAHmbb+FHYmpwQARx3uXonJMz/6RAaFOOsEEkDM4DZdeWVZUU11eU1VeU1VeXVlWkJ+j6yI+wVC2lHsPNNx1z48DwRARU5pK/T1sAohowtjzL506IfnqzTv2tXV0Pf3iq93BYPw6CCGW3DjfbXUKGQYYbMMKU/MGDrXTeZfz7hVQvSZsMopdy6EUmOnYDtiRmA0mUkROUneAMT+DxD5p7u4cKcjz/vk3P6oqL42lR4qPHut84LEXV761JjY1YiiobXsOHT3WmTK94GSJycc46c+YwefmeD57/ZWr390YiUadK9s6fCtWv792yy7bjoV7IcTI2iFXzblE69gCtp35BzMj4qe2XTz6Orz6BdhRaO6eRpWFxo1o3RFjUMkexjnNPcU73vvg8ZF5PZQT0yWXrleUFldXlibOVVeW3XL9lW+9t9G27ZjqzMFgeOfeg7LX7DM2oQIAKFa2ZaWabuykrmmTPzGyoqykvrHZGSVSqgd+9UIgGE6IMlz67Yuvysvxis7UpMeOYtuLtPApRTo+/DkKapxAQADbFnYsIzsac4y6G5qRThanvA0I/RMal0qJuUTvGoFSKhSJMKu0UW3btqbpsZvib4ePHHUySqW4uaWjtc2XOBtvKIaKsqI7b1rwg4eWKo7ZsVOddK4SJAryc6+bN1MIYnchCVfiFElL1a1GqIMu+iIdWI22nXAmDgxYERyLu2ACV02G7o7r3OOc0jTJHAOq2MfIsiW3d3bpuk4EIlLMbR1djz+/IhK1kq5kt9sYP+b8nfvqNU2zZWyQMvMrqz+47cYF5WVF4Yj50K9f8ncHU8NoT488buOmhXN+8cwf2zu6Uh4iASDD0G+9Ye65NZUAOK+KjTwKtTvOnpnJCvLel2nsIh59DcVrcwTiqB/LbkaoAwCEiybcAssDAEx9PFNKbpIyYXigSyAMkK+r+/q7/t0wXIIEEdlStnV0BUMRZ/oYa59oVG1NRVnR5PEjPW531Izl5Mx8qLFlzuKvl5UWdXUHOnx+pVQ87jkd6ImTRFRcmH/RBaNff2d9Wu5NhIK8nJsXzY39m1PKI+Zj61LYUScNYWXRG/dx/RoK1MPfzKyQU4GyMTjyIXUcchrhgnOpZgoagomupXCYnt4jE5s9iZkS21I2tbQfajh64HBT3eHGQw3NgWCIWcXmEgwiFOXnPvz9rxXm502dNGb40Oqk2wkgfzBYd/hIW4evF5tp3YDX6/763Z8RQqQeZl3Tpl/4iVHnDY1LJZrxTS4Y2hOaSfCoq3HdbzDvFxzpQuAYPvkNWvAIxlwPaYEB0uiSr8NTDCTCUaJYFlc1yd/11q1P9E9oLI1Im0HGhfeuEQohRo8Y9ttffe/iyeN0XasoLf7cPy3wetwpM6bEXcxEcb2T4n0CuqZNuWD0xHG11JNsM4CSovz7v7pE05L0LxqGKXfDFU9dmdFZT/5GbtsHZZGy0VHH/ka07XfU5LGLMGlJ3IH2zCkIICFYcbJjP05f+0A/Q56IKsuLzxs+5MCBBtOWSimlVHzpg+PP0ClZGsVF+UPPqbxp4RWfXTgnP88rNA2ApolbFs3t8gd+8cwf233+nrGjVEF+7rxZ05SUf1r5XmzKzygtyo/VNOMwXK6rr5ixbdcBGc8OBNHk8SNH1g5N1VXQtC9xpBPrfslmgKQUTev4ySkkLVhRgOmdH/Bff0TKgubiEVfRtY/D5QVQVV5SXVnW4etiBoiIaMSw6hyvZ/TI4c2tbaYlnWy3tLjIqVj2w1i/i3TM3O7zB4MRxU7Bl6Vk07KcW1gxA16P4TYMt+HK8Xo8HsNtuNIkRCLm0baOZSvefH/939q7AoW57mkXXXDjNZcNqSq3bNnU0g4nQyCUlxSWlRa59B5OIxHzK/c//OKKN5VSAIG5sCD32Yfvm3f5xendY4YZ4F3L6a3vINAKJZGIpI65CR2eEnzqO5i0BO5CJ8OzbLuj09/a7nPSObdLr64qy8/1+vyBlmOdpmUTQILKSgqryktOQKhTrs1o1TNFZ9uE2Q0rAjBIsNBJM6B7SDdAJ3IgSrFpWaZpKWZBZBgul0vXhEDqWHI0DkeiwVDEtm1bqlVvr/2Pny31+bsT62jzL5+29KF7Cwvy+lQQdhSdB3n/atq9HJ37oCwwIFxcMpLGXIvaK1FyvmObKcpJk+0IpEksyYkHupeNPGhGsmInQKarnmnqUstWXvF5hDohGLpHuAuQU46CIVxyPlVOwLkz4Ck6TnvkcRset9H7VJquSvHvX377kaeXWbaUtt3u8weCIedCAHk53sXXzs7LyzmOhgTdg/IxVDICk25FqB2RTiiFnFLKKYORA82dcnmkE4fXoOUj6qiDvxGhNphdkBFmwFtK1zyOIdMyqtTHMUBCGfDVU+tusNWTwjv1Gc2NnBI1brFY8LOByUwFAYFg6Lk/vLb3QEOvKMAuXZt72UXzLpuq9bNGTdBc8JbAW3Li5vjdB7HteQp3Qkbj6Wr8JdAC3yEMmTYg/QdIKBGKa+HOQ7QzcYAJcBegchLXTBMTbx6YwF5g4KOd+3fX1SfNu2InXLo+9JyK73/jjuMM9pPCxH+G0FT9e6J1GyJdsSTCqQkYeSgZMSDzxMnkoSW1PGxGStKoiHMrMeUuuuw+lI8ZsMBe+NXSP1mmrQmhCRIETZBL171ez/QLx/3f8w+cN+ycLG5LofIxNPPbNPWLnFtFRIlSIoP4nKkoGTFggQMNSmCF5i1YejmsEACQiKWowsVDP0nTv0ajFrBwnThAnRhbd+x/aflftuysa23zWZZVUlw4Ycx5V8/55OxLL0zLH04JrCBN7F2JdY/iyBooMza/dKhwefn2N6lmauYdOckoDwBRPy+/g3b9GQyecgc1bkD7LkgbRBAGnzOVpn8ZI+ejd6k8MzBzbEneSftj2SFlbycaI+LnPa/RhsfQvAnKBDOEzuXjUD2FtjwLgEcvpEXPwl2QudCT//AsjDzM/RnnnwMi1vOwZCVPvgveYjAgTWpcg+V38GMXYsOv4auHsgcqPrZ3UNdcLl3XNV3XNC1L+/rsKNr24P0H+fFJ9PLdOLIOMgrF8Jby1C/RrSvhLgAR51bTgp/DyO1fYG/lM7HQPrZ8SpO3vUArv8q1V9INzwGCGzfgta+Izv0sTTCIBLs88BTyuTNp+tdQNhbu/FPxA6cEaSLShUPv8rpHqX0Pot2wI7G5nm6gbByu/iWqLgBYLr9T7HkF8x+hKbclMtB+4ZQiTmHIA7H8edefOKeMhs+C5oI0ETiKHcuw7hF0NyO+xgvNgLsARbVcdRGNvwEV4+EugGYMNHoOGErCCiHYigNv8r5VdGw3Ak2ww5DxESM0LhxKM76N0dcgtwKaC9Liw+9SdxPG3QjdM+D4fmqEOkrbIJFkdww7ipbt2PIMdq9AuI2U3bP3Sugw8lFSi+opqJqEyvEoroWRC90D4coCv8qGNGFHEDyG1p3cso2at3DLRxRuhxVxpqEAQATNhcIhGHsjJi1BcS10I6kKosAK4mQ2dmeD0D7BDBnF0a287lFq+JCCx9iOgp2N1bHz0Nxw5bK3lKono3oiSkcjpxSeQrgLYORCM2LPiQSQtAYZK6BwrNvKhh1GtBuRLkR86KpHy3Y+upU66mAGYYXAMmXrgtDg8qJwGM6fgws/j5IR0PSTC5t9IjuEnmhHvTQRbOG1j9Ku/0XEBysMaSUWUCip6gjSoBnQPdA9rLuRW0551ewthacIrhxyeUA6ICFNjoZgdlOkgwMtCDSTHYYVhRWBjEDZsWps6qolCcGaAVcu8mtw8b9g7HXwlvS1+y7jfh0HH5uFpoEZoTa0fMRbnqe6VbDDUDaUDae0nIQYEaLv1ebYJgROOZHCHffcSERMGoQOoXN+JSYuodHXoGQEjOxNsXrh70VoAqwQ7sCRdah/nw+8Scd2QlpQnKjzx5iKT6WdA4nqc3x5gpOuile9CUQUX5UlkGB3EQ2fieGzMHQ6KsdnHq9PBX93QoG4B2SAEWpH00Zu2kjHdrPvEPmPINQKZSeW6yh1cTW5FMNpq85GPhdUU+EwLq5F1USqmYqKcRB6ugv+mHFaCE0CM1iCFZQEK7CEHWXfYfId4kATBVoQ7kC4E2aQpQk45WdBugdGPnuLKaeC86tROJRKapFTBqGBNJAAaRDaaUl4TzehfYDBCkoBCqxSF7KSowwBAkSxNEBoA4rUlO6cs4aTKzB/rCCQBk37WD+L93HJjeNM/CjRWffJxmSciYSe1TiLCT0zP/14FhN6ZnqGs5jQMxODhGYZg4RmGWccoRltwhyozGyErwxFnHGEZvIR6gHLzEb4ylDEGUfo2Y5BQrOMs4zQMzOZT8bJfAfzacQZmMynkTP4HcynijRyzr4vrTrDcZb50DMf/w+nV9k6Pb88xQAAAABJRU5ErkJggg==" alt="Buyoll"></a>
+    <div class="box" role="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" placeholder="Search groups, members, loans…" aria-label="Search">
+      <button type="button">Search</button>
+    </div>
+    <button class="cta" type="button">Sign In / Join</button>
+  </div></div>
+
+  <nav class="nav"><div class="wrap">
+    <a href="#" class="on" data-admin="Announcements & Notices · written by admin"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 010 6"/></svg>Announcements</a>
+    <a href="#"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.2 0 4 1.8 4 4"/></svg>My Groups</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M4 9l1-5h14l1 5M4 9v11h16V9M4 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3"/></svg>Merchant</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>Lender</a>
+    <a href="#"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"/></svg>Share</a>
+  </div></nav>
+</header>
+
+<div class="bar">
+  <label><input type="checkbox" onchange="document.body.classList.toggle('adm',this.checked)"> Show admin-managed areas</label>
+  <button onclick="promo.hidden=false">Restore banner</button>
+</div>
+</body>
+</html>

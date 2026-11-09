@@ -444,7 +444,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>My Chama Groups ({trustGroups.length})</span>
+          <span>My Groups ({trustGroups.length})</span>
         </button>
 
         <button

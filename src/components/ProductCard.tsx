@@ -115,9 +115,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
           </div>
 
-          {/* Daily Chama rate */}
+          {/* Daily Group rate */}
           <div className="text-xs text-[#0E5A3C] font-semibold mb-3">
-            From KSh {minDaily.toLocaleString()} / day in Chama
+            From KSh {minDaily.toLocaleString()} / day in Group
           </div>
         </div>
 
@@ -145,7 +145,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }}
             className="ml-auto px-3 py-1.5 bg-slate-900 group-hover:bg-[#FF6A00] text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
           >
-            View Details
+            Join a Group
           </button>
         </div>
       </div>

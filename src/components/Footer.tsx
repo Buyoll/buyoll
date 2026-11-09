@@ -92,7 +92,7 @@ export const Footer: React.FC<FooterProps> = ({
                   </svg>
                 </summary>
                 <p className="mt-3 text-sm text-[#4B5563] dark:text-[#9CA3AF] leading-relaxed max-w-[420px]">
-                  Buyoll connects shoppers, merchants and members across Kenya through product discovery, configurable group-contribution Chama systems (from 10 members down to a 1-member Lipa Mdogomdogo), gradual payment arrangements, non-withdrawable shopping wallets and merchant-sponsored promotional incentives.
+                  Buyoll connects shoppers, merchants and members across Kenya through product discovery, configurable group-contribution Group systems (from 10 members down to a 1-member Lipa Mdogomdogo), gradual payment arrangements, non-withdrawable shopping wallets and merchant-sponsored promotional incentives.
                 </p>
               </details>
             </div>
@@ -296,13 +296,13 @@ export const Footer: React.FC<FooterProps> = ({
                 </li>
                 <li>
                   <button
-                    onClick={() => openLegalDoc('Chama & Lender Agreement')}
+                    onClick={() => openLegalDoc('Group & Lender Agreement')}
                     className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
                   >
                     <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 4v16M6 20h12M5 7h14M5 7l-3 7a3 3 0 0 0 6 0Zm14 0-3 7a3 3 0 0 0 6 0Z" />
                     </svg>
-                    <span>Chama &amp; Lender Agreement</span>
+                    <span>Group &amp; Lender Agreement</span>
                   </button>
                 </li>
               </ul>
@@ -414,7 +414,7 @@ export const Footer: React.FC<FooterProps> = ({
               {earnModal === 'rider' && (
                 <>
                   <p>
-                    Dispatch matured Chama products directly from verified merchant shops to rotating buyers in your neighborhood.
+                    Dispatch matured Group products directly from verified merchant shops to rotating buyers in your neighborhood.
                   </p>
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
                     <span className="font-bold block mb-1">Rider Requirements:</span>
@@ -433,7 +433,7 @@ export const Footer: React.FC<FooterProps> = ({
               {earnModal === 'merchant' && (
                 <>
                   <p>
-                    Join verified shop owners and distributors across Kenya offering appliances, electronics, solar stations, and furniture with configurable Chama speed groups.
+                    Join verified shop owners and distributors across Kenya offering appliances, electronics, solar stations, and furniture with configurable Group speed options.
                   </p>
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
                     <span className="font-bold block mb-1">Merchant Privileges:</span>
@@ -449,12 +449,12 @@ export const Footer: React.FC<FooterProps> = ({
               {earnModal === 'referral' && (
                 <>
                   <p>
-                    Earn 100 Reward Coins and store credits for every active Chama member you invite who completes their first installment.
+                    Earn 100 Reward Coins and store credits for every active Group member you invite who completes their first installment.
                   </p>
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-950 dark:text-amber-100 rounded-xl border border-amber-200 dark:border-amber-800/60">
                     <span className="font-bold block mb-1">Referral Guidelines:</span>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                      <li>Share unique Chama invitation codes with friends and networks</li>
+                      <li>Share unique Group invitation codes with friends and networks</li>
                       <li>Coins can be gifted or used for shopping discounts</li>
                       <li>Wallet credits remain strictly non-withdrawable for purchases</li>
                     </ul>
@@ -465,16 +465,16 @@ export const Footer: React.FC<FooterProps> = ({
               {earnModal === 'legal' && (
                 <div className="space-y-2.5 text-xs text-slate-600 dark:text-[#9CA3AF]">
                   <p className="font-semibold text-slate-900 dark:text-white">
-                    Buyoll Social Fintech Chama Marketplace ({legalTitle})
+                    Buyoll Social Fintech Group Marketplace ({legalTitle})
                   </p>
                   <p>
-                    1. <b>Platform Facilitation</b>: Buyoll facilitates transparent member coordination, Chama group savings cycles, and store credit ledgers. Buyoll is not a banking institution and payments are made manually via M-Pesa Till 196853, Paybill 522533 (Account 4363), or direct Merchant Till 3463533.
+                    1. <b>Platform Facilitation</b>: Buyoll facilitates transparent member coordination, Group savings cycles, and store credit ledgers. Buyoll is not a banking institution and payments are made manually via M-Pesa Till 196853, Paybill 522533 (Account 4363), or direct Merchant Till 3463533.
                   </p>
                   <p>
                     2. <b>Non-Withdrawable Store Credit Policy</b>: All balances in user wallets are exclusively designated for marketplace item purchases and cannot be withdrawn as liquid cash.
                   </p>
                   <p>
-                    3. <b>Peer Loans &amp; Speed Options</b>: 3rd-Party Chama group lenders operate under a fixed 3% facilitator rate. Members must fulfill their contribution obligations in full to maintain a high platform Financial CV.
+                    3. <b>Peer Loans &amp; Speed Options</b>: 3rd-Party Group lenders operate under a fixed 3% facilitator rate. Members must fulfill their contribution obligations in full to maintain a high platform Financial CV.
                   </p>
                   <p>
                     4. <b>Merchant Ratings</b>: Members agree to submit verified star ratings and constructive feedback for shop owners upon group completion or interaction.

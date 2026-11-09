@@ -31,6 +31,11 @@ import {
   HandCoins,
   MessageSquare,
   ThumbsUp,
+  Video,
+  Camera,
+  Upload,
+  X,
+  Trash2,
 } from 'lucide-react';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { BuyollAIModal } from '../components/BuyollAIModal.tsx';
@@ -60,8 +65,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [isAIOpen, setIsAIOpen] = useState(false);
 
-  // Gallery state
+  // Gallery & Media state (Section 8: Trip & Product Media)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [mediaTab, setMediaTab] = useState<'photos' | 'videos'>('photos');
+  const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+  const [mediaModalPhotos, setMediaModalPhotos] = useState<string[]>([]);
+  const [mediaModalVideos, setMediaModalVideos] = useState<string[]>([]);
+  const [newPhotoUrlInput, setNewPhotoUrlInput] = useState('');
+  const [newVideoUrlInput, setNewVideoUrlInput] = useState('');
+  const [savingMedia, setSavingMedia] = useState(false);
 
   // Mandatory speed selection state
   const [selectedSpeed, setSelectedSpeed] = useState<number | null>(null);
@@ -170,7 +183,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   // Pre-create 4 speed groups (10, 8, 6, 4 or 2 members) - Store Owner / Merchant / Admin action
   async function handleGenerateGroups() {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to manage Chama groups.');
+      onNotify('info', 'Please sign in to manage groups.');
       onOpenAuth();
       return;
     }
@@ -192,7 +205,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   async function handleCreateGroup(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUser) {
-      onNotify('info', 'Please sign in to start a Chama group.');
+      onNotify('info', 'Please sign in to start a Group.');
       onOpenAuth();
       return;
     }
@@ -210,11 +223,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         name: customGroupName.trim() || undefined,
       });
 
-      onNotify('success', `Chama group created! Platform Till: 522533.`);
+      onNotify('success', `Group created! Platform Till: 522533.`);
       triggerVisualPushAlert({
-        title: '🎉 New Chama Group Launched!',
-        body: `${currentUser?.name || 'A merchant'} created a new ${product!.title} Chama (${selectedSpeed} members). Click to request entry!`,
-        url: `/chama/${res.group.id}`,
+        title: '🎉 New Group Launched!',
+        body: `${currentUser?.name || 'A merchant'} created a new ${product!.title} Group (${selectedSpeed} members). Click to request entry!`,
+        url: `/group/${res.group.id}`,
         tag: `new-group-${res.group.id}`,
       });
       onNavigate('group', res.group.id);
@@ -228,7 +241,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   // Handle Join with Member's Invite Code
   async function handleJoinWithCode(targetGroupId?: number) {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to join a Chama group.');
+      onNotify('info', 'Please sign in to join a Group.');
       onOpenAuth();
       return;
     }
@@ -243,7 +256,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     try {
       const gid = targetGroupId || (groups.length > 0 ? groups[0].id : productId);
       const res = await api.joinGroup(gid, trimmed);
-      onNotify('success', res.message || 'Joined Chama group successfully!');
+      onNotify('success', res.message || 'Joined Group successfully!');
       onNavigate('group', res.group.id);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to join group with this invite code.');
@@ -255,7 +268,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   // Direct join button on a specific group card
   async function handleDirectJoinGroup(targetGroup: ChamaGroup) {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to join a Chama group.');
+      onNotify('info', 'Please sign in to join a Group.');
       onOpenAuth();
       return;
     }
@@ -266,13 +279,86 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     setSubmittingJoin(true);
     try {
       const res = await api.joinGroup(targetGroup.id, code);
-      onNotify('success', res.message || 'Joined Chama group successfully!');
+      onNotify('success', res.message || 'Joined group successfully!');
       onNavigate('group', res.group.id);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to join group.');
     } finally {
       setSubmittingJoin(false);
     }
+  }
+
+  // Section 8: Media Replacement Handlers (Photos cap: 3, Videos cap: 2)
+  async function handleSaveMedia() {
+    if (!product) return;
+    if (mediaModalPhotos.length > 3) {
+      onNotify('error', 'Maximum 3 photos allowed. Please remove excess photos.');
+      return;
+    }
+    if (mediaModalVideos.length > 2) {
+      onNotify('error', 'Maximum 2 videos allowed. Please remove excess videos.');
+      return;
+    }
+    setSavingMedia(true);
+    try {
+      const res = await api.updateProductMedia(product.id, {
+        images: mediaModalPhotos,
+        videos: mediaModalVideos,
+      });
+      setProduct(prev => prev ? { ...prev, images: res.images, videos: res.videos } : null);
+      onNotify('success', res.message || 'Media updated successfully!');
+      setIsMediaModalOpen(false);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update media');
+    } finally {
+      setSavingMedia(false);
+    }
+  }
+
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (mediaModalPhotos.length >= 3) {
+      onNotify('error', 'Maximum 3 photos allowed. Remove an existing photo first.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      onNotify('error', 'Only image files (JPEG, PNG, WebP) are allowed.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      onNotify('error', 'Photo exceeds maximum allowed size of 10MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const b64 = evt.target?.result as string;
+      if (b64) setMediaModalPhotos(prev => [...prev, b64]);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleVideoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (mediaModalVideos.length >= 2) {
+      onNotify('error', 'Maximum 2 videos allowed. Remove an existing video first.');
+      return;
+    }
+    if (!file.type.startsWith('video/')) {
+      onNotify('error', 'Only video files (MP4, WebM) are allowed.');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      onNotify('error', 'Video exceeds maximum allowed size of 50MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const b64 = evt.target?.result as string;
+      if (b64) setMediaModalVideos(prev => [...prev, b64]);
+    };
+    reader.readAsDataURL(file);
   }
 
   if (loading) {
@@ -307,10 +393,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const images = rawImages.map(img => resolveImageUrl(img));
   const currentImage = images[selectedImageIndex] || images[0];
 
+  const rawVideos = product.videos && product.videos.length > 0
+    ? product.videos
+    : [];
+  const videos = rawVideos.map(vid => resolveImageUrl(vid));
+  const currentVideo = videos[selectedVideoIndex] || videos[0];
+
   const selectedSpeedOption: SpeedOption | undefined = product.speedOptions.find(
     s => s.size === selectedSpeed
   );
 
+  const isOwner = Boolean(currentUser && (currentUser.id === product.vendorId || currentUser.role === 'admin'));
   const isMerchantOrAdmin = currentUser && (currentUser.id === product.vendorId || currentUser.role === 'merchant' || currentUser.role === 'admin');
 
   // Groups filtered by selected speed (or all active groups)
@@ -336,58 +429,139 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       {/* Main 2-Column Split: Left Gallery, Right Details & Speed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mb-16">
         {/* LEFT COLUMN: Gallery & Description (~58%) */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          {/* Main Large Image Container (Standardized Square 1000x1000 target standard) */}
-          <div className="relative aspect-square w-full bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 shadow-xs">
-            <img
-              src={currentImage}
-              alt={product.title}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover object-center"
-            />
+        <div className="lg:col-span-7 flex flex-col gap-4">
+          {/* Segmented Media Toggle (Photos First) + Owner Action */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setMediaTab('photos')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  mediaTab === 'photos'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5 text-[#0E5A3C]" />
+                <span>Photos ({images.length})</span>
+              </button>
 
-            {/* Promotion Ribbon */}
-            {product.promotionType && product.promotionType !== 'none' && (
-              <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
-                {product.promotionType === 'daily' && (
-                  <span className="px-3 py-1 bg-rose-600 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 fill-current" />
-                    <span>Daily Promotion Deal</span>
-                  </span>
-                )}
-                {product.promotionType === 'weekly' && (
-                  <span className="px-3 py-1 bg-amber-500 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 fill-current" />
-                    <span>Weekly Special</span>
-                  </span>
-                )}
-                {product.promotionType === 'monthly' && (
-                  <span className="px-3 py-1 bg-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
-                    <Star className="w-3.5 h-3.5 fill-current" />
-                    <span>Monthly Mega Promo</span>
-                  </span>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => setMediaTab('videos')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  mediaTab === 'videos'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Video className="w-3.5 h-3.5 text-rose-600" />
+                <span>Videos ({videos.length})</span>
+              </button>
+            </div>
+
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMediaModalPhotos(product.images || []);
+                  setMediaModalVideos(product.videos || []);
+                  setIsMediaModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] border border-emerald-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Manage Media (3 Photos, 2 Videos)</span>
+              </button>
             )}
-
-            {product.discountPercent && product.discountPercent > 0 && (
-              <div className="absolute top-4 right-4 px-3 py-1 bg-[#FF6A00] text-white text-xs font-bold rounded-lg shadow-sm">
-                SAVE {product.discountPercent}%
-              </div>
-            )}
-
-            {/* Global Buyoll.ai Action Button directly on Product */}
-            <button
-              onClick={() => setIsAIOpen(true)}
-              className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/90 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-lg backdrop-blur-xs flex items-center gap-1.5 border border-white/20 transition-all hover:scale-105"
-            >
-              <Sparkles className="w-4 h-4 text-amber-300 fill-current" />
-              <span>Ask Buyoll.ai Assistant</span>
-            </button>
           </div>
 
+          {/* Main Media Container */}
+          {mediaTab === 'photos' ? (
+            <div className="relative aspect-square w-full bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 shadow-xs">
+              <img
+                src={currentImage}
+                alt={product.title}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover object-center"
+              />
+
+              {/* Promotion Ribbon */}
+              {product.promotionType && product.promotionType !== 'none' && (
+                <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
+                  {product.promotionType === 'daily' && (
+                    <span className="px-3 py-1 bg-rose-600 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 fill-current" />
+                      <span>Daily Promotion Deal</span>
+                    </span>
+                  )}
+                  {product.promotionType === 'weekly' && (
+                    <span className="px-3 py-1 bg-amber-500 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 fill-current" />
+                      <span>Weekly Special</span>
+                    </span>
+                  )}
+                  {product.promotionType === 'monthly' && (
+                    <span className="px-3 py-1 bg-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1.5">
+                      <Star className="w-3.5 h-3.5 fill-current" />
+                      <span>Monthly Mega Promo</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {product.discountPercent && product.discountPercent > 0 && (
+                <div className="absolute top-4 right-4 px-3 py-1 bg-[#FF6A00] text-white text-xs font-bold rounded-lg shadow-sm">
+                  SAVE {product.discountPercent}%
+                </div>
+              )}
+
+              {/* Global Buyoll.ai Action Button directly on Product */}
+              <button
+                onClick={() => setIsAIOpen(true)}
+                className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/90 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-lg backdrop-blur-xs flex items-center gap-1.5 border border-white/20 transition-all hover:scale-105"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300 fill-current" />
+                <span>Ask Buyoll.ai Assistant</span>
+              </button>
+            </div>
+          ) : (
+            <div className="relative aspect-square w-full bg-slate-950 rounded-2xl overflow-hidden border border-slate-200 shadow-xs flex items-center justify-center">
+              {videos.length > 0 ? (
+                <video
+                  key={currentVideo}
+                  src={currentVideo}
+                  controls
+                  playsInline
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="text-center p-8 text-white">
+                  <Video className="w-12 h-12 text-slate-500 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-300">No Videos Uploaded Yet</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                    The owner can upload up to 2 videos (MP4/WebM up to 50MB) for this trip or product experience.
+                  </p>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMediaModalPhotos(product.images || []);
+                        setMediaModalVideos(product.videos || []);
+                        setIsMediaModalOpen(true);
+                      }}
+                      className="mt-3 px-3.5 py-1.5 bg-[#FF6A00] text-white text-xs font-bold rounded-lg"
+                    >
+                      Upload Video Now
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Thumbnail Strip */}
-          {images.length > 1 && (
+          {mediaTab === 'photos' && images.length > 1 && (
             <div className="flex gap-3 overflow-x-auto pb-2">
               {images.map((img, idx) => (
                 <button
@@ -400,6 +574,25 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   }`}
                 >
                   <img src={img} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mediaTab === 'videos' && videos.length > 1 && (
+            <div className="flex gap-2 pb-2">
+              {videos.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedVideoIndex(idx)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    selectedVideoIndex === idx
+                      ? 'bg-[#0E5A3C] text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Video Clip {idx + 1}</span>
                 </button>
               ))}
             </div>
@@ -419,7 +612,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   Free Gift: <span className="text-[#0E5A3C] font-extrabold">{product.bonusGift}</span>
                 </div>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Delivered absolutely free along with your item when your Chama group cycle completes!
+                  Delivered absolutely free along with your item when your Group cycle completes!
                 </p>
               </div>
             </div>
@@ -439,7 +632,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 </h3>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
                   {Object.entries(product.attributes).map(([key, val]) => (
-                    <div key={key} className="flex justify-between py-1.5 border-b border-slate-100">
+                     <div key={key} className="flex justify-between py-1.5 border-b border-slate-100">
                       <dt className="text-slate-500">{key}</dt>
                       <dd className="font-semibold text-slate-900">{val}</dd>
                     </div>
@@ -489,7 +682,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       <span>Possibility of Loan Advance for this Product</span>
                     </div>
                     <p className="text-[11.5px] text-slate-600 leading-relaxed">
-                      Active savers on this product are eligible for 3rd-Party Chama Peer Loan Advances up to 100% of product value. Apply on the Lenders Desk at a transparent 3% rate to receive this item before your final rotation!
+                      Active savers on this product are eligible for 3rd-Party Group Peer Loan Advances up to 100% of product value. Apply on the Lenders Desk at a transparent 3% rate to receive this item before your final rotation!
                     </p>
                   </div>
 
@@ -500,7 +693,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       <span>Earn Applaud Coins from Fellow Members</span>
                     </div>
                     <p className="text-[11.5px] text-slate-600 leading-relaxed">
-                      Chama members can reward you with Applaud Coins whenever you honor and meet your contribution obligations promptly. Use your accumulated coins across the Buyoll ecosystem or stake them for priority slots.
+                      Group members can reward you with Applaud Coins whenever you honor and meet your contribution obligations promptly. Use your accumulated coins across the Buyoll ecosystem or stake them for priority slots.
                     </p>
                   </div>
 
@@ -616,7 +809,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         </div>
 
 
-        {/* RIGHT COLUMN: Buy & Chama Speed Selector (~42%) */}
+        {/* RIGHT COLUMN: Buy & Group Speed Selector (~42%) */}
         <div className="lg:col-span-5 flex flex-col gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
             {/* Seller info with 5 stars and Buyoll Verified */}
@@ -663,7 +856,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Pay flexibly in small daily installments with an active Buyoll Chama group below.
+                Pay flexibly in small daily installments with an active Buyoll Group below.
               </p>
             </div>
 
@@ -840,7 +1033,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {/* SECTION 2: PROMINENT JOIN AREA (RETAINED BOLDLY & NEATLY IN VISIBLE PLACE) */}
             <div className="border-t border-slate-200 pt-5">
               <div className="text-sm font-bold text-slate-900 mb-2">
-                2. Choose your speed to continue, Join a Chama Group
+                2. Choose your speed to continue, Join a Group
               </div>
 
               {/* RETAINED SECTION: BOLD, NEAT, CLEAN IN PROMINENT VISIBLE PLACE */}
@@ -868,9 +1061,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <button
                     onClick={() => handleJoinWithCode()}
                     disabled={submittingJoin || !inviteCodeInput.trim()}
-                    className="px-4 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    className="px-4 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-xl transition-colors shadow-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0 cursor-pointer"
                   >
-                    {submittingJoin ? 'Joining...' : 'Join Group'}
+                    {submittingJoin ? 'Joining...' : 'Join This Group'}
                   </button>
                 </div>
               </div>
@@ -913,15 +1106,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         </div>
       </div>
 
-      {/* ACTIVE CHAMA SPEED GROUPS SECTION */}
+      {/* ACTIVE SPEED GROUPS SECTION */}
       <section className="border-t border-slate-200 pt-10">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-              Active Chama Speed Groups
+              Active Speed Groups
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Store-created Chama groups for 10, 8, 6, 4 or 2 members. Select your speed and start saving immediately.
+              Store-created Groups for 10, 8, 6, 4 or 2 members. Select your speed and start saving immediately.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -937,6 +1130,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             const openSlots = grp.slots.filter(s => s.status === 'open' || s.status === 'replacement_eligible').length;
             const isMember = currentUser && grp.slots.some(s => s.userId === currentUser.id && s.status === 'active');
             const isJoiningThis = joiningGroupId === grp.id;
+            const isMerchantOwner = Boolean(currentUser && (currentUser.id === product.vendorId || grp.vendorId === currentUser.id));
 
             return (
               <div
@@ -982,7 +1176,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
                 {/* Actions */}
                 <div>
-                  {isMember ? (
+                  {isMerchantOwner ? (
+                    <button
+                      onClick={() => onNavigate('group', grp.id)}
+                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Store className="w-3.5 h-3.5 text-[#0E5A3C]" />
+                      <span>Merchant Owner (Read-Only)</span>
+                    </button>
+                  ) : isMember ? (
                     <button
                       onClick={() => onNavigate('group', grp.id)}
                       className="w-full py-2 bg-emerald-50 text-[#0E5A3C] font-semibold text-xs rounded-lg hover:bg-emerald-100 transition-colors"
@@ -992,7 +1194,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   ) : isJoiningThis ? (
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                       <label className="block text-[11px] font-semibold text-slate-700">
-                        Enter Chama Invite Code:
+                        Enter Group Invite Code:
                       </label>
                       <input
                         type="text"
@@ -1007,7 +1209,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           disabled={submittingJoin}
                           className="flex-1 py-1.5 bg-[#FF6A00] text-white text-xs font-bold rounded"
                         >
-                          {submittingJoin ? 'Joining...' : 'Confirm Join'}
+                          {submittingJoin ? 'Joining...' : 'Confirm & Join Group'}
                         </button>
                         <button
                           onClick={() => {
@@ -1024,16 +1226,31 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     <div className="flex gap-2">
                       <button
                         onClick={() => onNavigate('group', grp.id)}
-                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg transition-colors"
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                       >
-                        View Details
+                        Join a Group
                       </button>
-                      {openSlots > 0 && (
+                      {openSlots > 0 ? (
                         <button
                           onClick={() => handleDirectJoinGroup(grp)}
-                          className="flex-1 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                          className="flex-1 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
                         >
-                          Join Group
+                          Join This Group
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const vacant = groups.find(other => other.id !== grp.id && other.slots.some(s => s.status === 'open'));
+                            if (vacant) {
+                              onNavigate('group', vacant.id);
+                              onNotify('info', `Found open vacant group "${vacant.name}"!`);
+                            } else {
+                              onNotify('info', 'All existing groups for this item are currently full.');
+                            }
+                          }}
+                          className="flex-1 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Full · Find Vacant
                         </button>
                       )}
                     </div>
@@ -1141,15 +1358,135 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         />
       )}
 
-      {/* Global Buyoll.ai Dedicated Assistant Modal */}
-      {isAIOpen && product && (
-        <BuyollAIModal
-          product={product}
-          currentUser={currentUser}
-          onClose={() => setIsAIOpen(false)}
-          onNotify={onNotify}
-          onOpenAuth={onOpenAuth}
-        />
+      {/* Trip / Product Media Upload & Replacement Modal */}
+      {isMediaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#0E5A3C] flex items-center justify-center font-bold">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Manage Media Uploads</h3>
+                  <p className="text-xs text-slate-500">Max 3 photos (≤10MB each), max 2 videos (≤50MB each)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsMediaModalOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Photos Section */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Photos ({mediaModalPhotos.length}/3)
+                </span>
+                {mediaModalPhotos.length < 3 && (
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-[#0E5A3C] text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Add Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                    />
+                  </label>
+                )}
+              </div>
+              {mediaModalPhotos.length === 0 ? (
+                <div className="border border-dashed border-slate-200 rounded-xl p-4 text-center text-xs text-slate-400">
+                  No photos uploaded yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {mediaModalPhotos.map((img, i) => (
+                    <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 group">
+                      <img src={img} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setMediaModalPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute top-1 right-1 p-1 bg-rose-600 text-white rounded-md opacity-90 hover:opacity-100 transition-opacity"
+                        title="Remove photo"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Videos Section */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Videos ({mediaModalVideos.length}/2)
+                </span>
+                {mediaModalVideos.length < 2 && (
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 text-xs font-bold rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors">
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Add Video Clip</span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handleVideoUpload}
+                    />
+                  </label>
+                )}
+              </div>
+              {mediaModalVideos.length === 0 ? (
+                <div className="border border-dashed border-slate-200 rounded-xl p-4 text-center text-xs text-slate-400">
+                  No video clips uploaded yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {mediaModalVideos.map((vid, i) => (
+                    <div key={i} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center gap-2 truncate">
+                        <Video className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="text-xs font-medium text-slate-700 truncate">Video Clip #{i + 1}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMediaModalVideos(prev => prev.filter((_, idx) => idx !== i))}
+                        className="text-rose-600 hover:text-rose-700 p-1"
+                        title="Remove video"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsMediaModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingMedia}
+                onClick={handleSaveMedia}
+                className="px-5 py-2 bg-[#0E5A3C] text-white rounded-xl text-xs font-bold hover:bg-[#0b4830] transition-colors disabled:opacity-50"
+              >
+                {savingMedia ? 'Saving Media...' : 'Save Media Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

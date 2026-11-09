@@ -311,7 +311,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Member Profile</h2>
         <p className="text-xs text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-          Sign in to access your personal dashboard, track your Chama purchases, view private notifications, and manage saved delivery addresses.
+          Sign in to access your personal dashboard, track your Group purchases, view private notifications, and manage saved delivery addresses.
         </p>
         <button
           onClick={onOpenAuth}
@@ -504,7 +504,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Package className="w-4 h-4" />
-                <span>Orders &amp; Chama Purchases</span>
+                <span>Orders &amp; Group Purchases</span>
               </div>
               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 {orders.length}
@@ -544,7 +544,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Users className="w-4 h-4" />
-                <span>My Chama Groups</span>
+                <span>My Groups</span>
               </div>
               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 {myGroups.length}
@@ -670,7 +670,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   Account Overview
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Welcome to your Buyoll customer dashboard. Manage purchases, Chama savings, and delivery preferences.
+                  Welcome to your Buyoll customer dashboard. Manage purchases, Group savings, and delivery preferences.
                 </p>
               </div>
 
@@ -692,7 +692,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   onClick={() => setActiveTab('groups')}
                   className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#0E5A3C] transition-all"
                 >
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Active Chamas</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Active Groups</span>
                   <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{myGroups.length}</div>
                   <span className="text-[11px] text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold flex items-center gap-1 mt-1">
                     <span>Track cycles</span>
@@ -827,7 +827,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             <h4 className="text-xs font-bold text-slate-900 dark:text-white">Become a Verified Merchant</h4>
                           </div>
                           <p className="text-[11.5px] text-slate-500 leading-relaxed mb-3">
-                            Sell genuine products, organize community Chamas, and receive guaranteed payouts.
+                            Sell genuine products, organize community Groups, and receive guaranteed payouts.
                           </p>
                         </div>
                         <button
@@ -848,7 +848,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             <h4 className="text-xs font-bold text-slate-900 dark:text-white">Become a Group Lender</h4>
                           </div>
                           <p className="text-[11.5px] text-slate-500 leading-relaxed mb-3">
-                            Finance Chama savings groups with secured delivery cycles and earn a 3% platform return.
+                            Finance Group savings groups with secured delivery cycles and earn a 3% platform return.
                           </p>
                         </div>
                         <button
@@ -868,7 +868,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
-                    Recent Chama Orders &amp; Purchases
+                    Recent Group Orders &amp; Purchases
                   </h3>
                   {orders.length > 0 && (
                     <button
@@ -884,7 +884,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <div className="p-8 text-center bg-slate-50 dark:bg-[#16221E] rounded-xl border border-dashed border-slate-200 dark:border-[#24312C]">
                     <Package className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
                     <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">No purchases yet.</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Join a Chama group inside any product to begin your purchase.</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Join a Group inside any product to begin your purchase.</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -932,10 +932,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="space-y-4">
               <div className="border-b border-slate-100 dark:border-[#24312C] pb-4">
                 <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                  Orders &amp; Chama Purchases
+                  Orders &amp; Group Purchases
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Every product on Buyoll is purchased through a Chama group vehicle. Track installment progress and scheduled product release.
+                  Every product on Buyoll is purchased through a Group vehicle. Track installment progress and scheduled product release.
                 </p>
               </div>
 
@@ -984,7 +984,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         </div>
                         <div className="md:col-span-6 space-y-1.5 text-xs">
                           <div className="flex items-center gap-2">
-                            <span className="text-slate-500">Chama Group:</span>
+                            <span className="text-slate-500">Group:</span>
                             <span className="font-bold text-slate-900 dark:text-white">{ord.groupName}</span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -1015,7 +1015,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             onClick={() => onNavigate('group', ord.groupId)}
                             className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                           >
-                            <span>Open Chama</span>
+                            <span>Open Group</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -1088,7 +1088,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <div className="py-16 text-center text-slate-400">
                   <Bell className="w-10 h-10 mx-auto mb-2 opacity-30" />
                   <p className="text-xs font-semibold">No notifications in this filter.</p>
-                  <p className="text-[11px] mt-0.5">You are fully up to date with your Chamas and account.</p>
+                  <p className="text-[11px] mt-0.5">You are fully up to date with your Groups and account.</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -1160,22 +1160,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="space-y-4">
               <div className="border-b border-slate-100 dark:border-[#24312C] pb-4">
                 <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                  My Chama Groups ({myGroups.length})
+                  My Groups ({myGroups.length})
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Every Chama you have joined across products. A member can join multiple groups freely.
+                  Every Group you have joined across products. A member can join multiple groups freely.
                 </p>
               </div>
 
               {myGroups.length === 0 ? (
                 <div className="py-16 text-center text-slate-400">
                   <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-xs font-semibold">You have not joined any Chamas yet.</p>
+                  <p className="text-xs font-semibold">You have not joined any Groups yet.</p>
                   <button
                     onClick={() => onNavigate('home')}
                     className="mt-3 px-4 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
                   >
-                    Explore Chamas to Join
+                    Explore Groups to Join
                   </button>
                 </div>
               ) : (
@@ -1227,7 +1227,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   Saved Items (Wishlist)
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Products you have saved for later. Join an open Chama group whenever you are ready (no cart).
+                  Products you have saved for later. Join an open Group whenever you are ready (no cart).
                 </p>
               </div>
 
@@ -1274,7 +1274,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           onClick={() => onNavigate('product', p.id)}
                           className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
-                          Join Chama to Buy
+                          Join a Group
                         </button>
                       </div>
                     </div>
@@ -1348,7 +1348,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     Delivery Address Book
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Saved delivery destinations for your completed Chama rotations.
+                    Saved delivery destinations for your completed Group rotations.
                   </p>
                 </div>
                 <button
@@ -1556,7 +1556,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           onClick={() => onNavigate('product', p.id)}
                           className="w-full py-2 bg-slate-900 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
-                          View Details &amp; Chamas
+                          Join a Group
                         </button>
                       </div>
                     </div>
@@ -1585,7 +1585,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       In-App &amp; Push Notifications
                     </span>
                     <span className="text-[11px] text-slate-500">
-                      Receive alerts when your Chama day arrives or when members pay.
+                      Receive alerts when your Group day arrives or when members pay.
                     </span>
                   </div>
                   <button
@@ -1628,7 +1628,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <div className="pt-4 border-t border-slate-200 dark:border-[#24312C]">
                   <h4 className="text-xs font-bold text-red-600 mb-1">Account Closing</h4>
                   <p className="text-[11px] text-slate-500 mb-3">
-                    Closing your account requires completing or transferring all active Chama rotations first.
+                    Closing your account requires completing or transferring all active Group rotations first.
                   </p>
                   <button
                     onClick={() => onNotify('info', 'To close your account, please reach out via Help & Support with zero active arrears.')}
@@ -1777,8 +1777,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
               {showRoleModal === 'merchant'
-                ? 'Create an isolated Merchant Wallet, list products, and organize community Chamas.'
-                : 'Accredit your profile as a Buyoll Group Lender. Earn 3% return on Chama micro-credit facility settlements.'}
+                ? 'Create an isolated Merchant Wallet, list products, and organize community Groups.'
+                : 'Accredit your profile as a Buyoll Group Lender. Earn 3% return on Group micro-credit facility settlements.'}
             </p>
 
             <form
@@ -1827,7 +1827,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       value={roleShopDesc}
                       onChange={(e) => setRoleShopDesc(e.target.value)}
                       rows={2}
-                      placeholder="Verified merchant offering genuine products with fast Chama deliveries."
+                      placeholder="Verified merchant offering genuine products with fast Group deliveries."
                       className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
                     />
                   </div>
@@ -1844,7 +1844,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-[#16221E] text-slate-900 dark:text-white"
                     >
                       <option value="Individual Peer Lender">Individual Peer Lender</option>
-                      <option value="Chama Investment SACCO">Chama Investment SACCO</option>
+                      <option value="Group Investment SACCO">Group Investment SACCO</option>
                       <option value="Licensed Micro-finance">Licensed Micro-finance Institution</option>
                       <option value="Community Lending Circle">Community Lending Circle</option>
                     </select>
@@ -1852,7 +1852,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-xs text-emerald-900 dark:text-emerald-200">
                     <p className="font-semibold mb-1">Platform Rule Enforcement:</p>
                     <p className="text-[11px] leading-relaxed">
-                      Lenders fund Chama groups through isolated capital wallets. Lenders and Admins are restricted from viewing or participating in general Member savings groups.
+                      Lenders fund Group groups through isolated capital wallets. Lenders and Admins are restricted from viewing or participating in general Member savings groups.
                     </p>
                   </div>
                 </>

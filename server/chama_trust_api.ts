@@ -1188,12 +1188,12 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
   if (slot === 1) {
     return {
       slot: 1,
-      title: 'Welcome to Buyoll Community Chamas',
+      title: 'Welcome to Buyoll Community Groups',
       message: 'Safe, vetted community savings circles. Join trusted circles with verified member referrals and moderator vetting.',
       badge: 'Notice',
       accent: 'emerald',
-      ctaLabel: 'Explore Chamas',
-      ctaUrl: '/chamas',
+      ctaLabel: 'Explore Groups',
+      ctaUrl: '/groups',
       status: 'published',
       updatedBy: 'cityandcountyre@gmail.com',
       updatedAt: Date.now() - 86400000,
@@ -1204,11 +1204,11 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
     return {
       slot: 2,
       title: 'Know Someone to Join: Trust & Vetting',
-      message: 'Every new Chama member must be vouched for by an active member and verified via moderator phone check before admission.',
+      message: 'Every new Group member must be vouched for by an active member and verified via moderator phone check before admission.',
       badge: 'Update',
       accent: 'violet',
       ctaLabel: 'How It Works',
-      ctaUrl: '/chamas',
+      ctaUrl: '/groups',
       status: 'published',
       updatedBy: 'cityandcountyre@gmail.com',
       updatedAt: Date.now() - 43200000,
@@ -1230,28 +1230,20 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
   };
 }
 
-// 1. GET /announcement-cards (and alias /platform-announcements): Public 3 hero cards inside schedule window
+// 1. GET /announcement-cards (and alias /platform-announcements): Public admin-managed announcements inside schedule window
 chamaTrustRouter.get('/announcement-cards', async (req: Request, res: Response) => {
   const db = await getDatabase();
   const now = Date.now();
-  const slots: (1 | 2 | 3)[] = [1, 2, 3];
 
-  const results: PlatformAnnouncementSlot[] = slots.map((s) => {
-    const found = (db.announcementCards || []).find((c) => c.slot === s);
-    if (!found) return getDefaultSlot(s);
-
-    // Check if published and within schedule window
-    const isPublished = found.status === 'published';
-    const startsValid = !found.startsAt || found.startsAt <= now;
-    const endsValid = !found.endsAt || found.endsAt >= now;
-
-    if (isPublished && startsValid && endsValid) {
-      return found;
-    }
-
-    // Fall back to default slot so hero never breaks or shows empty card
-    return getDefaultSlot(s);
+  const results: PlatformAnnouncementSlot[] = (db.announcementCards || []).filter((c) => {
+    const isPublished = c.status === 'published';
+    const startsValid = !c.startsAt || c.startsAt <= now;
+    const endsValid = !c.endsAt || c.endsAt >= now;
+    return isPublished && startsValid && endsValid;
   });
+
+  // Sort by slot number
+  results.sort((a, b) => a.slot - b.slot);
 
   const etag = `W/"ann_${results.map((r) => `${r.slot}_${r.version}_${r.updatedAt}`).join('-')}"`;
   res.setHeader('ETag', etag);

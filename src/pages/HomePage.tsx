@@ -55,56 +55,7 @@ const CATEGORIES = [
 
 type DayFilter = 'all' | 0 | 1 | 2 | 3 | 5 | 6 | 7;
 
-const DEFAULT_HERO_SLOTS: PlatformAnnouncementSlot[] = [
-  {
-    slot: 1,
-    title: 'Chama Groups Are Strictly Referral-Only',
-    message: 'Strangers cannot join. Every member must be vouched for by an active member and verified by phone by a moderator.',
-    badge: 'RULE',
-    accent: 'emerald',
-    ctaLabel: 'Read Chama Rules',
-    ctaUrl: '/chamas',
-    status: 'published',
-    isPublished: true,
-    startsAt: undefined,
-    endsAt: undefined,
-    updatedAt: Date.now(),
-    updatedBy: 'System',
-    version: 1,
-  },
-  {
-    slot: 2,
-    title: 'Scheduled System Maintenance',
-    message: 'M-Pesa reconciliation batch runs nightly from 02:00 to 02:30 EAT. Instant payouts will queue during this window.',
-    badge: 'MAINTENANCE',
-    accent: 'amber',
-    ctaLabel: 'View Status',
-    ctaUrl: '/announcements',
-    status: 'published',
-    isPublished: true,
-    startsAt: undefined,
-    endsAt: undefined,
-    updatedAt: Date.now(),
-    updatedBy: 'System',
-    version: 1,
-  },
-  {
-    slot: 3,
-    title: 'Merchant Payout Policy',
-    message: 'Funds are released to merchants only after the chama group moderator and buyer confirm receipt.',
-    badge: 'POLICY',
-    accent: 'sky',
-    ctaLabel: 'Merchant Handbook',
-    ctaUrl: '/merchant',
-    status: 'published',
-    isPublished: true,
-    startsAt: undefined,
-    endsAt: undefined,
-    updatedAt: Date.now(),
-    updatedBy: 'System',
-    version: 1,
-  },
-];
+
 
 const ACCENT_CARD_STYLES: Record<string, {
   card: string;
@@ -172,21 +123,17 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [jumpIndexInput, setJumpIndexInput] = useState('');
   const [isFeaturedPaused, setIsFeaturedPaused] = useState(false);
 
-  // Admin-controlled 3 Hero Announcement Cards (Feature B)
-  const [heroSlots, setHeroSlots] = useState<PlatformAnnouncementSlot[]>(DEFAULT_HERO_SLOTS);
+  // Admin-controlled Hero Announcement Cards
+  const [heroSlots, setHeroSlots] = useState<PlatformAnnouncementSlot[]>([]);
   const [heroLoading, setHeroLoading] = useState(true);
 
   async function loadHeroSlots() {
     try {
       const res = await api.getHeroAnnouncementCards();
       const list = res.cards || res.announcements || [];
-      const merged: PlatformAnnouncementSlot[] = [1, 2, 3].map((s) => {
-        const found = list.find((c) => c.slot === s);
-        return found || DEFAULT_HERO_SLOTS[s - 1];
-      });
-      setHeroSlots(merged);
+      setHeroSlots(list);
     } catch {
-      setHeroSlots(DEFAULT_HERO_SLOTS);
+      setHeroSlots([]);
     } finally {
       setHeroLoading(false);
     }
@@ -402,14 +349,14 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
-                  Welcome to Buyoll — Kenya's Social Fintech Chama Marketplace
+                  Welcome to Buyoll — Kenya's Social Fintech Group Marketplace
                 </h2>
                 <span className="px-2 py-0.5 bg-emerald-700/80 text-emerald-100 text-[10px] font-bold rounded-full uppercase tracking-wider">
                   Public Feed
                 </span>
               </div>
               <p className="text-xs text-emerald-100/80 mt-0.5 max-w-2xl leading-relaxed">
-                Explore official announcements and genuine merchant Chama deals below. Sign in to access your private Chamas, Wallet, Merchant Catalog, or Peer Lending Desk.
+                Explore official announcements and genuine merchant Group deals below. Sign in to access your private Groups, Wallet, Merchant Catalog, or Peer Lending Desk.
               </p>
             </div>
           </div>
@@ -423,7 +370,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       )}
 
-      {/* Platform Announcements & Notices (3 Admin-Controlled Hero Slots - Feature B) */}
+      {/* Announcements & Notices (Admin-Controlled Slots) */}
       {!searchQuery && selectedCategory === 'All' && (
         <section className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl sm:rounded-3xl p-5 sm:p-6 mb-8 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#1E2B26] mb-5">
@@ -434,7 +381,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                    Platform Announcements & Notices
+                    Announcements & Notices
                   </h2>
                   <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-extrabold rounded-full uppercase tracking-wider">
                     Verified
@@ -464,6 +411,13 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <div className="h-8 w-28 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
                 </div>
               ))}
+            </div>
+          ) : heroSlots.length === 0 ? (
+            <div className="py-12 px-6 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#16221E]/50">
+              <Bell className="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
+                No announcements right now.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -508,7 +462,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                             if (!card.ctaUrl) return;
                             if (card.ctaUrl.startsWith('http')) {
                               window.open(card.ctaUrl, '_blank', 'noopener,noreferrer');
-                            } else if (card.ctaUrl === '/chamas' || card.ctaUrl.startsWith('/chama')) {
+                            } else if (card.ctaUrl === '/groups' || card.ctaUrl === '/chamas' || card.ctaUrl.startsWith('/group') || card.ctaUrl.startsWith('/chama')) {
                               onNavigate?.('my-chamas');
                             } else if (card.ctaUrl === '/merchant') {
                               onNavigate?.('vendor-dashboard');
@@ -620,7 +574,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <div className="text-xs text-emerald-200 font-semibold flex items-center gap-1.5">
                   <TrendingUp className="w-3.5 h-3.5 text-amber-300" />
                   <span>
-                    Chama savings from{' '}
+                    Group savings from{' '}
                     <b className="text-white">
                       KSh {Math.ceil(currentFeatured.price / 10 / 10).toLocaleString()} / day
                     </b>{' '}
@@ -635,7 +589,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   onClick={() => onSelectProduct(currentFeatured.id)}
                   className="flex items-center gap-2 px-6 py-3 bg-[#FF6A00] hover:bg-[#e85f00] text-white font-bold text-sm rounded-xl transition-all shadow-lg hover:shadow-xl active:scale-95"
                 >
-                  <span>Explore Featured Chama Deal</span>
+                  <span>Explore Featured Group Deal</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
@@ -950,7 +904,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                           </div>
 
                           <div className="text-[11px] text-[#0E5A3C] font-semibold">
-                            Chama: KSh {minDaily.toLocaleString()} / day
+                            Group: KSh {minDaily.toLocaleString()} / day
                           </div>
                         </div>
                       </div>
@@ -963,7 +917,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                           }}
                           className="w-full py-1.5 bg-slate-900 hover:bg-[#FF6A00] text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
                         >
-                          <span>Join Chama</span>
+                          <span>Join a Group</span>
                           <ArrowRight className="w-3 h-3" />
                         </button>
                       </div>
@@ -1048,7 +1002,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500">
-            {products.length} verified item{products.length !== 1 ? 's' : ''} available for Chama savings · Permanent inventory
+            {products.length} verified item{products.length !== 1 ? 's' : ''} available for Group savings · Permanent inventory
           </p>
         </div>
 

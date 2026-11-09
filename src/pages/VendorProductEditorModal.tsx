@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Product, SpeedOption } from '../types.ts';
 import { api } from '../api.ts';
-import { X, Plus, Trash2, Save, Image as ImageIcon } from 'lucide-react';
+import { X, Plus, Trash2, Save, Image as ImageIcon, Video, Upload, Camera } from 'lucide-react';
 
 interface VendorProductEditorModalProps {
   product: Product | null; // null if creating new product
@@ -25,7 +25,20 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
   const [wasPrice, setWasPrice] = useState<number | undefined>(product?.wasPrice);
   const [discountPercent, setDiscountPercent] = useState<number | undefined>(product?.discountPercent);
   const [stockQuantity, setStockQuantity] = useState<number>(product?.stockQuantity || 10);
-  const [imageUrl, setImageUrl] = useState(product?.images?.[0] || '');
+  
+  // Multi-media management: up to 3 photos, up to 2 videos
+  const [images, setImages] = useState<string[]>(
+    product?.images && product.images.length > 0
+      ? product.images.slice(0, 3)
+      : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg']
+  );
+  const [videos, setVideos] = useState<string[]>(
+    product?.videos && product.videos.length > 0
+      ? product.videos.slice(0, 2)
+      : []
+  );
+  const [launchGroupSpeed, setLaunchGroupSpeed] = useState<number>(10);
+
   const [isFeatured, setIsFeatured] = useState<boolean>(product?.isFeatured || false);
   const [promotionType, setPromotionType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>(product?.promotionType || 'none');
   const [promotionDiscount, setPromotionDiscount] = useState<number>(product?.promotionDiscount || 0);
@@ -118,10 +131,68 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
     setSpeedOptions(prev => prev.filter((_, i) => i !== idx));
   }
 
+  // Media handlers
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (images.length >= 3) {
+      onNotify('error', 'Maximum 3 photos allowed per product/trip.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      onNotify('error', 'Photo must be smaller than 10MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setImages(prev => [...prev.slice(0, 2), result]);
+        onNotify('success', 'Photo added.');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  function handleVideoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (videos.length >= 2) {
+      onNotify('error', 'Maximum 2 video clips allowed per product/trip.');
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      onNotify('error', 'Video clip must be smaller than 50MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setVideos(prev => [...prev.slice(0, 1), result]);
+        onNotify('success', 'Video clip added.');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !description.trim() || price <= 0) {
       onNotify('error', 'Please fill in all required product fields.');
+      return;
+    }
+
+    if (images.length === 0) {
+      onNotify('error', 'Please provide at least 1 product photo.');
       return;
     }
 
@@ -134,7 +205,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         return acc;
       }, {} as Record<string, string>);
 
-      const payload: Partial<Product> = {
+      const payload: any = {
         title: title.trim(),
         description: description.trim(),
         category,
@@ -142,13 +213,15 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         wasPrice: wasPrice ? Number(wasPrice) : undefined,
         discountPercent: discountPercent ? Number(discountPercent) : undefined,
         stockQuantity,
-        images: imageUrl.trim() ? [imageUrl.trim()] : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'],
+        images: images.length > 0 ? images : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'],
+        videos: videos.length > 0 ? videos : [],
         attributes: attributesObj,
         isFeatured,
         speedOptions,
         promotionType: promotionType === 'none' ? undefined : promotionType,
         promotionDiscount: promotionDiscount > 0 ? Number(promotionDiscount) : undefined,
         bonusGift: bonusGift.trim() ? bonusGift.trim() : undefined,
+        speedSize: launchGroupSpeed,
       };
 
       if (isEditing && product) {
@@ -157,7 +230,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         onSaved(res.product);
       } else {
         const res = await api.createProduct(payload);
-        onNotify('success', 'New product created and saved to database.');
+        onNotify('success', 'New product created and initial group launched.');
         onSaved(res.product);
       }
       onClose();
@@ -174,7 +247,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
           <div>
             <h2 className="text-lg font-bold text-slate-900">
-              {isEditing ? `Edit Listing: ${product?.title}` : 'Post New Product Listing'}
+              {isEditing ? `Edit Product: ${product?.title}` : 'Post New Product'}
             </h2>
             <p className="text-xs text-slate-500">
               Changes are permanently validated and saved to the backend database.
@@ -345,33 +418,130 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             </div>
           </div>
 
-          {/* Image URL / Selection (Square 1000x1000 standard) */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-700">
-                Product Image URL
-              </label>
-              <span className="text-[10px] text-[#0E5A3C] font-semibold">
-                Standardized 1000 × 1000px (Square Aspect Ratio)
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="e.g. ./images/solar_power.jpg or https://..."
-                className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
-              />
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Square product images (target 1000 × 1000px) maintain consistent presentation across all buyer cards and detail views.
-            </p>
-            {imageUrl && (
-              <div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-xs aspect-square">
-                <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+          {/* Initial Group Launch Speed (1 to 10 members) */}
+          {!isEditing && (
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-[#0E5A3C] uppercase tracking-wide">
+                  Initial Group Speed (1 to 10 Members)
+                </label>
+                <span className="text-xs font-black text-[#0E5A3C] bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                  {launchGroupSpeed} {launchGroupSpeed === 1 ? 'Member (Solo)' : 'Members'}
+                </span>
               </div>
-            )}
+              <p className="text-[11px] text-slate-600 mb-2.5">
+                Product = Group. Every product posted launches its first group waiting for members to join. Choose the group size (1 to 10).
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={launchGroupSpeed}
+                  onChange={(e) => setLaunchGroupSpeed(Number(e.target.value))}
+                  className="w-full accent-[#0E5A3C]"
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                <span>1 (Solo)</span>
+                <span>2 (Duo)</span>
+                <span>4 (Fast)</span>
+                <span>6 (Standard)</span>
+                <span>8</span>
+                <span>10 (Max)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Media Uploads (Max 3 Photos ≤10MB, Max 2 Videos ≤50MB) */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Photos ({images.length}/3)
+                </span>
+                {images.length < 3 && (
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0b4830] transition-colors">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mb-2.5">
+                Target 1000 × 1000px square images (max 10MB each).
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                {images.map((img, idx) => (
+                  <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-white">
+                    <img src={img} alt={`Product photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute top-1.5 right-1.5 p-1 bg-rose-600 text-white rounded-md opacity-90 hover:opacity-100 transition-opacity"
+                      title="Remove photo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    {idx === 0 && (
+                      <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 bg-black/60 text-white text-[9px] font-bold rounded">
+                        Cover
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Video Clips ({videos.length}/2)
+                </span>
+                {videos.length < 2 && (
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 text-xs font-bold rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors">
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Upload Video Clip</span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handleVideoUpload}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Up to 2 video clips showcasing the product or trip (max 50MB each).
+              </p>
+              {videos.length === 0 ? (
+                <div className="text-xs text-slate-400 italic">No video clips added yet (optional).</div>
+              ) : (
+                <div className="space-y-2">
+                  {videos.map((vid, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex items-center gap-2 truncate">
+                        <Video className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="text-xs font-medium text-slate-700 truncate">Video Clip #{idx + 1}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setVideos(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-rose-600 hover:text-rose-700 p-1"
+                        title="Remove video"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Description */}

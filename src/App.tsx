@@ -146,12 +146,12 @@ export default function App() {
     if (typeof window !== 'undefined') {
       let targetPath = '/announcements';
       if (view === 'home') targetPath = '/announcements';
-      else if (view === 'my-chamas') targetPath = '/chamas';
+      else if (view === 'my-chamas') targetPath = '/groups';
       else if (view === 'wallet') targetPath = '/wallet';
       else if (view === 'profile') targetPath = '/profile';
       else if (view === 'vendor-dashboard') targetPath = '/merchant';
       else if (view === 'lenders-dashboard') targetPath = '/lender';
-      else if (view === 'group' && arg) targetPath = `/chama/${arg}`;
+      else if (view === 'group' && arg) targetPath = `/group/${arg}`;
       else if (view === 'admin-portal' || view === 'admin-dashboard') targetPath = ADMIN_PORTAL_PATH;
       if (window.location.pathname !== targetPath) {
         window.history.pushState(null, '', targetPath);
@@ -251,12 +251,21 @@ export default function App() {
         handleNavigate('home');
       } else if (path === '/announcements' || path === '/home' || path === '/') {
         handleNavigate('home');
-      } else if (path === '/chamas' || path === '/my-chamas') {
+      } else if (path === '/groups' || path === '/my-groups' || path === '/chamas' || path === '/my-chamas') {
+        if (path === '/chamas' || path === '/my-chamas') {
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/groups');
+          }
+        }
         if (!user) {
           setPendingTargetView('my-chamas');
           handleOpenAuth('member');
           handleNavigate('home');
-        } else if (activeRole === 'lender' || activeRole === 'admin') {
+        } else if (activeRole === 'merchant') {
+          handleNavigate('vendor-dashboard');
+        } else if (activeRole === 'lender') {
+          handleNavigate('lenders-dashboard');
+        } else if (activeRole === 'admin') {
           handleNotify('error', "You don't have access to that page");
           handleNavigate(getRoleHomeRoute(activeRole).view);
         } else {
@@ -303,9 +312,9 @@ export default function App() {
       } else if (path === '/help') {
         handleOpenHelp('faq');
       } else {
-        const chamaMatch = path.match(/\/chama\/(\d+)/);
-        if (chamaMatch && chamaMatch[1]) {
-          handleNavigate('group', Number(chamaMatch[1]));
+        const groupMatch = path.match(/\/(?:group|chama)\/(\d+)/);
+        if (groupMatch && groupMatch[1]) {
+          handleNavigate('group', Number(groupMatch[1]));
         }
       }
     };
@@ -606,7 +615,7 @@ export default function App() {
               }`}
             >
               <Users className="w-5 h-5 mb-0.5" />
-              <span>My Chamas</span>
+              <span>My Groups</span>
             </button>
             <button
               onClick={() => handleNavigate('profile')}
@@ -632,15 +641,6 @@ export default function App() {
             >
               <Store className="w-5 h-5 mb-0.5" />
               <span>Merchant</span>
-            </button>
-            <button
-              onClick={() => handleNavigate('my-chamas')}
-              className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
-              }`}
-            >
-              <Users className="w-5 h-5 mb-0.5" />
-              <span>My Chamas</span>
             </button>
             <button
               onClick={() => handleNavigate('home')}

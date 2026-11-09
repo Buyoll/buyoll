@@ -46,6 +46,18 @@ export const Header: React.FC<HeaderProps> = ({
   const [isNotifMenuOpen, setIsNotifMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
+  const [topPromoBanner, setTopPromoBanner] = useState<any>(null);
+
+  useEffect(() => {
+    api.getHeroAnnouncementCards()
+      .then((res) => {
+        const published = (res.cards || res.announcements || []).filter((c: any) => c.status === 'published');
+        if (published.length > 0) {
+          setTopPromoBanner(published[0]);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const adminRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
@@ -199,7 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
   const handleShareApp = async () => {
     const shareData = {
       title: 'Join me on Buyoll',
-      text: 'Save together, lend smarter. Join my Chama on Buyoll.',
+      text: 'Save together, lend smarter. Join my Group on Buyoll.',
       url: referralLink,
     };
 
@@ -251,10 +263,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      {/* Top green announcement bar: keeps full width */}
-      <div className="w-full bg-[#0F5C3A] dark:bg-[#12372A] text-white dark:text-[#4ADE9A] text-[13px] text-center h-9 leading-9 font-medium px-4 tracking-normal select-none border-b border-transparent dark:border-[#24312C] transition-colors duration-150">
-        Welcome back to Buyoll — save together, lend smarter.
-      </div>
+      {/* Top announcement bar: reads dynamically from admin published announcements & notices */}
+      {topPromoBanner && (
+        <div className="w-full bg-[#0F5C3A] dark:bg-[#12372A] text-white dark:text-[#4ADE9A] text-[13px] text-center h-9 leading-9 font-medium px-4 tracking-normal select-none border-b border-transparent dark:border-[#24312C] transition-colors duration-150 truncate">
+          <span className="font-bold mr-1.5">[{topPromoBanner.badge}]:</span>
+          <span>{topPromoBanner.title} — {topPromoBanner.message}</span>
+        </div>
+      )}
 
       {/* Main Sticky Header */}
       <header
@@ -313,19 +328,6 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   <button
-                    onClick={() => onOpenAuth('member')}
-                    className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
-                  >
-                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="9" cy="8" r="3" />
-                      <path d="M3 20a6 6 0 0 1 12 0" />
-                      <circle cx="17" cy="9" r="2.5" />
-                      <path d="M17 14a5 5 0 0 1 4 5" />
-                    </svg>
-                    <span className="leading-tight text-center">My Chamas</span>
-                  </button>
-
-                  <button
                     onClick={() => onOpenAuth('merchant')}
                     className="flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A]"
                   >
@@ -353,7 +355,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
 
-              {/* MEMBER ONLY: Announcements, My Chamas, Share */}
+              {/* MEMBER ONLY: Announcements, Dashboard (private My Groups inside), Share */}
               {currentUser && activeRole === 'member' && (
                 <>
                   <button
@@ -381,13 +383,8 @@ export const Header: React.FC<HeaderProps> = ({
                         : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
                     }`}
                   >
-                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="9" cy="8" r="3" />
-                      <path d="M3 20a6 6 0 0 1 12 0" />
-                      <circle cx="17" cy="9" r="2.5" />
-                      <path d="M17 14a5 5 0 0 1 4 5" />
-                    </svg>
-                    <span className="leading-tight text-center">My Chamas</span>
+                    <Users className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" />
+                    <span className="leading-tight text-center">Dashboard</span>
                   </button>
 
                   <button
@@ -402,7 +399,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
 
-              {/* MERCHANT: Merchant dashboard, My Chamas, Announcements, Share (No Lender, No Member dashboard, No Wallet) */}
+              {/* MERCHANT: Merchant dashboard (private My Groups inside), Announcements, Share */}
               {currentUser && activeRole === 'merchant' && (
                 <>
                   <button
@@ -416,24 +413,6 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <Store className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" aria-hidden="true" />
                     <span className="leading-tight text-center">Merchant</span>
-                  </button>
-
-                  <button
-                    onClick={() => onNavigate('my-chamas')}
-                    aria-current={currentView === 'my-chamas' ? 'page' : undefined}
-                    className={`flex flex-col items-center justify-center min-w-[70px] lg:min-w-[84px] px-2 py-1.5 rounded-xl text-[12px] lg:text-[13px] font-medium transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F5C3A] ${
-                      currentView === 'my-chamas'
-                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] font-bold bg-[#E7F3EC] dark:bg-[#12372A] shadow-[inset_0_-2px_0_#0F5C3A] dark:shadow-[inset_0_-2px_0_#4ADE9A]'
-                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A]'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 lg:w-5 lg:h-5 mb-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="9" cy="8" r="3" />
-                      <path d="M3 20a6 6 0 0 1 12 0" />
-                      <circle cx="17" cy="9" r="2.5" />
-                      <path d="M17 14a5 5 0 0 1 4 5" />
-                    </svg>
-                    <span className="leading-tight text-center">My Chamas</span>
                   </button>
 
                   <button
@@ -727,8 +706,8 @@ export const Header: React.FC<HeaderProps> = ({
                 type="search"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search chamas, members, loans..."
-                aria-label="Search chamas, members, loans"
+                placeholder="Search groups, members, loans…"
+                aria-label="Search groups, members, loans"
                 className="w-full h-11 border border-slate-200 dark:border-[#24312C] bg-[#F3F4F6] dark:bg-[#1A2622] text-[#111827] dark:text-[#F3F4F6] rounded-xl pl-10 pr-4 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F5C3A] dark:focus:ring-[#4ADE9A] focus:bg-white dark:focus:bg-[#111A17] transition-all duration-150 placeholder:text-[#6B7280] dark:placeholder:text-[#9CA3AF]"
               />
             </form>
@@ -760,16 +739,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Announcements</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setIsMobileMenuOpen(false);
-                      onOpenAuth('member');
-                    }}
-                    className="min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622] transition-colors"
-                  >
-                    <Users className="w-5 h-5 shrink-0" />
-                    <span>My Chamas</span>
-                  </button>
 
                   <button
                     onClick={() => {
@@ -837,7 +806,7 @@ export const Header: React.FC<HeaderProps> = ({
                     }`}
                   >
                     <Users className="w-5 h-5 shrink-0" />
-                    <span>My Chamas</span>
+                    <span>Member Dashboard</span>
                   </button>
 
                   <button
@@ -854,7 +823,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
 
-              {/* MERCHANT: Merchant dashboard, My Chamas, Announcements, Share */}
+              {/* MERCHANT: Merchant dashboard (private My Groups inside), Announcements, Share */}
               {currentUser && activeRole === 'merchant' && (
                 <>
                   <button
@@ -870,21 +839,6 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <Store className="w-5 h-5 shrink-0" />
                     <span>Merchant Dashboard</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsMobileMenuOpen(false);
-                      onNavigate('my-chamas');
-                    }}
-                    className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                      currentView === 'my-chamas'
-                        ? 'text-[#0F5C3A] dark:text-[#4ADE9A] bg-[#E7F3EC] dark:bg-[#12372A]'
-                        : 'text-[#4B5563] dark:text-[#A7B0AB] hover:bg-slate-100 dark:hover:bg-[#1A2622]'
-                    }`}
-                  >
-                    <Users className="w-5 h-5 shrink-0" />
-                    <span>My Chamas</span>
                   </button>
 
                   <button
@@ -1001,7 +955,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
-              Share your referral link. When new members join your Chama, both of you earn platform reward coins!
+              Share your referral link. When new members join your Group, both of you earn platform reward coins!
             </p>
 
             <div className="flex items-center gap-2 mb-4">
@@ -1023,7 +977,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
-                `Save together, lend smarter. Join my Chama on Buyoll: ${referralLink}`
+                `Save together, lend smarter. Join my Group on Buyoll: ${referralLink}`
               )}`}
               target="_blank"
               rel="noopener noreferrer"

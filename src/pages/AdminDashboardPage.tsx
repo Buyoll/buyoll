@@ -1717,10 +1717,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   <Megaphone className="w-4 h-4" />
                 </span>
                 <h2 className="text-base font-extrabold text-slate-900">
-                  Platform Announcements & Notices (3 Hero Slots)
+                  Announcements & Notices
                 </h2>
                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">
-                  Hero Section
+                  Admin Managed
                 </span>
               </div>
               <p className="text-xs text-slate-500 max-w-2xl">
@@ -1968,6 +1968,45 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           </div>
                         </div>
 
+                        {/* Type, Start & End Dates */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                              Type
+                            </label>
+                            <select
+                              value={card.badge === 'NOTICE' ? 'Notice' : 'Announcement'}
+                              onChange={(e) => handleCardFieldChange(slotNumber, 'badge', e.target.value.toUpperCase())}
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C] bg-white"
+                            >
+                              <option value="Announcement">Announcement</option>
+                              <option value="Notice">Notice</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                              Start Date
+                            </label>
+                            <input
+                              type="date"
+                              value={card.startsAt ? new Date(card.startsAt).toISOString().split('T')[0] : ''}
+                              onChange={(e) => handleCardFieldChange(slotNumber, 'startsAt', e.target.value ? new Date(e.target.value).getTime() : null)}
+                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                              End Date (Optional)
+                            </label>
+                            <input
+                              type="date"
+                              value={card.endsAt ? new Date(card.endsAt).toISOString().split('T')[0] : ''}
+                              onChange={(e) => handleCardFieldChange(slotNumber, 'endsAt', e.target.value ? new Date(e.target.value).getTime() : null)}
+                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                            />
+                          </div>
+                        </div>
+
                         {/* CTA Label & URL */}
                         <div className="grid grid-cols-2 gap-2">
                           <div>
@@ -1991,7 +2030,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               type="text"
                               value={card.ctaUrl || ''}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'ctaUrl', e.target.value)}
-                              placeholder="e.g. /chamas"
+                              placeholder="e.g. /groups"
                               className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
                             />
                           </div>

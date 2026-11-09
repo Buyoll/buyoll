@@ -21,7 +21,6 @@ export interface RoleConfig {
   loginText: string;
   regTitle: string;
   regText: string;
-  defaultEmail: string;
 }
 
 export const ROLES: Record<string, RoleConfig> = {
@@ -33,7 +32,6 @@ export const ROLES: Record<string, RoleConfig> = {
     loginText: 'Pick up where you left off and check your balance, repayments and rewards.',
     regTitle: 'Join the circle',
     regText: 'Create a member account to save, borrow and shop with trusted merchants.',
-    defaultEmail: 'samuel@buyoll.com',
   },
   merchant: {
     label: 'Merchant',
@@ -42,8 +40,7 @@ export const ROLES: Record<string, RoleConfig> = {
     loginTitle: 'Good to see you',
     loginText: 'Manage your store, orders and settlements in one place.',
     regTitle: 'Merchant registration',
-    regText: 'Register your merchant business on Buyoll to launch product Chamas and accept buyer orders.',
-    defaultEmail: 'direct@buyoll.com',
+    regText: 'Register your merchant business on Buyoll to launch product Groups and accept buyer orders.',
   },
   lender: {
     label: 'Lender',
@@ -52,8 +49,7 @@ export const ROLES: Record<string, RoleConfig> = {
     loginTitle: 'Welcome back',
     loginText: 'Review applications, portfolio performance and repayments.',
     regTitle: 'Lender registration',
-    regText: 'Accredit your lending profile on Buyoll to fund Chama emergency advances and earn interest.',
-    defaultEmail: 'grace.lender@buyoll.com',
+    regText: 'Accredit your lending profile on Buyoll to fund Group emergency advances and earn interest.',
   },
   admin: {
     label: 'Admin',
@@ -63,7 +59,6 @@ export const ROLES: Record<string, RoleConfig> = {
     loginText: 'Restricted access. Sign in with administrative credentials.',
     regTitle: 'Admin registration',
     regText: 'Register authorized system administrator account using security verification key.',
-    defaultEmail: 'cityandcountyre@gmail.com',
   },
 };
 
@@ -181,17 +176,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
     setNotice('');
     setMode(m);
-  };
-
-  // One-click demo credentials autofill
-  const handleUseDemo = (targetRole: RoleKey) => {
-    pickRole(targetRole);
-    setMode('login');
-    setLogin({
-      identifier: ROLES[targetRole].defaultEmail,
-      password: 'password123',
-    });
-    setNotice(`Loaded demo ${ROLES[targetRole].label} credentials (${ROLES[targetRole].defaultEmail}). Click Log In.`);
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -471,48 +455,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <h2>{cfg.regTitle || cfg.loginTitle}</h2>
             <p>{cfg.regText || cfg.loginText}</p>
           </aside>
-        </div>
-
-        {/* Demo Fast-Login Pills for Testing */}
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 text-[11px] text-slate-300">
-          <span className="font-semibold text-slate-400">Quick Demo Logins:</span>
-          {!portalMode ? (
-            <>
-              <button
-                type="button"
-                onClick={() => handleUseDemo('member')}
-                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <Users className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Member (Samuel)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUseDemo('merchant')}
-                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <Store className="w-3.5 h-3.5 text-teal-300" />
-                <span>Merchant (Buyoll Direct)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUseDemo('lender')}
-                className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <Landmark className="w-3.5 h-3.5 text-amber-300" />
-                <span>Lender (Grace)</span>
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleUseDemo('admin')}
-              className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <Shield className="w-3.5 h-3.5 text-purple-300" />
-              <span>Admin (Buyoll System)</span>
-            </button>
-          )}
         </div>
       </div>
     </div>
