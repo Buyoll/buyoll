@@ -695,10 +695,24 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Server request failed');
+      const errorMsg =
+        typeof data.error === 'object' && data.error?.message
+          ? data.error.message
+          : typeof data.error === 'string'
+          ? data.error
+          : data.message || 'Server request failed';
+      const error = new Error(errorMsg) as any;
+      error.status = res.status;
+      error.code = data.error?.code || (res.status === 409 ? 'CONFLICT' : res.status === 422 ? 'VALIDATION' : 'ERROR');
+      error.data = data;
+      throw error;
     }
     return data as T;
   } catch (err: any) {
+    if (err.status) {
+      // Don't convert HTTP errors (400, 401, 409, 422, etc.) to Static Mode!
+      throw err;
+    }
     if (err.message === 'Static Mode Detected' || err.name === 'TypeError' || err.message?.includes('fetch')) {
       isStaticMode = true;
       throw new Error('Static Mode');
@@ -1029,6 +1043,13 @@ export const api = {
       saveClientDb(db);
       return { product, message: 'Product updated successfully.' };
     }
+  },
+
+  async updateProductMedia(id: number, media: { images?: string[]; videos?: string[] }): Promise<{ success: boolean; images: string[]; videos: string[]; message?: string }> {
+    return await fetchApi<{ success: boolean; images: string[]; videos: string[]; message?: string }>(`/products/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(media),
+    });
   },
 
   async deleteProduct(id: number): Promise<{ success: boolean; message: string }> {
@@ -2721,11 +2742,56 @@ export const api = {
     });
   },
 
-  async submitManualSubscription(data: { tierId: string; paymentCode: string; amount: number; channel?: string }): Promise<any> {
-    return await fetchApi<any>('/merchant/subscription/submit-manual', {
+  async submitSubscriptionRequest(data: {
+    planId: string;
+    paymentMethod: 'mpesa' | 'wallet' | 'coins';
+    mpesaCode?: string;
+    notes?: string;
+  }): Promise<any> {
+    return await fetchApi<any>('/subscriptions/requests', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  async getMySubscriptionRequest(): Promise<any> {
+    return await fetchApi<any>('/subscriptions/requests/me');
+  },
+
+  async getAdminSubscriptionRequests(status?: string): Promise<{ success: boolean; requests: any[] }> {
+    const q = status ? `?status=${encodeURIComponent(status)}` : '';
+    return await fetchApi<{ success: boolean; requests: any[] }>(`/admin/subscriptions/requests${q}`);
+  },
+
+  async approveAdminSubscriptionRequest(id: string): Promise<any> {
+    return await fetchApi<any>(`/admin/subscriptions/requests/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectAdminSubscriptionRequest(id: string, reason: string): Promise<any> {
+    return await fetchApi<any>(`/admin/subscriptions/requests/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async submitManualSubscription(data: { tierId: string; paymentCode: string; amount: number; channel?: string }): Promise<any> {
+    try {
+      return await fetchApi<any>('/subscriptions/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          planId: data.tierId,
+          paymentMethod: 'mpesa',
+          mpesaCode: data.paymentCode,
+        }),
+      });
+    } catch {
+      return await fetchApi<any>('/merchant/subscription/submit-manual', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    }
   },
 
   async payFeaturedCoins(productId: number, days: number): Promise<any> {
@@ -2791,19 +2857,48 @@ export const api = {
 
   // Admin Subscriptions & Featured Products
   async getAdminMerchantSubscriptions(): Promise<{ subscriptions: any[] }> {
+    try {
+      const res = await fetchApi<{ requests: any[] }>('/admin/subscriptions/requests');
+      if (res?.requests) {
+        return {
+          subscriptions: res.requests.map((r) => ({
+            ...r,
+            tierId: r.planId,
+            tierName: r.planName,
+            amount: r.amountExpected,
+            paymentCode: r.mpesaCode,
+            status: r.status === 'approved' ? 'active' : r.status === 'rejected' ? 'declined' : 'pending',
+          })),
+        };
+      }
+    } catch {}
     return await fetchApi<{ subscriptions: any[] }>('/admin/merchant-subscriptions');
   },
 
   async approveAdminMerchantSubscription(subscriptionId: string): Promise<any> {
-    return await fetchApi<any>(`/admin/merchant-subscriptions/${subscriptionId}/approve`, {
-      method: 'POST',
-    });
+    try {
+      return await fetchApi<any>(`/admin/subscriptions/requests/${encodeURIComponent(subscriptionId)}/approve`, {
+        method: 'POST',
+      });
+    } catch {
+      return await fetchApi<any>(`/admin/merchant-subscriptions/${encodeURIComponent(subscriptionId)}/approve`, {
+        method: 'POST',
+      });
+    }
   },
 
-  async declineAdminMerchantSubscription(subscriptionId: string): Promise<any> {
-    return await fetchApi<any>(`/admin/merchant-subscriptions/${subscriptionId}/decline`, {
-      method: 'POST',
-    });
+  async declineAdminMerchantSubscription(subscriptionId: string, reason?: string): Promise<any> {
+    try {
+      return await fetchApi<any>(`/admin/subscriptions/requests/${encodeURIComponent(subscriptionId)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason || 'Declined by Admin' }),
+      });
+    } catch {
+      return await fetchApi<any>(`/admin/merchant-subscriptions/${encodeURIComponent(subscriptionId)}/decline`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason || 'Declined by Admin' }),
+      });
+    }
   },
 
   async setAdminEnterprisePrice(merchantId: number, agreedPrice: number): Promise<any> {

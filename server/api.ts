@@ -147,8 +147,13 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
 
 import { prompt2Router } from './prompt2_api.js';
 import { chamaTrustRouter } from './chama_trust_api.js';
+import { subscriptionsRouter } from './subscriptions_api.js';
 
 export const apiRouter = Router();
+apiRouter.get('/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', time: Date.now() });
+});
+apiRouter.use(subscriptionsRouter);
 apiRouter.use(prompt2Router);
 apiRouter.use(chamaTrustRouter);
 
@@ -1257,6 +1262,19 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
         { size: 1, cycleDays: 180, dailyAmount: Math.ceil(numPrice / 180), totalAmount: numPrice, description: '1 member · Lipa Mdogomdogo (Installments) · 1 to 6 Months maximum' },
       ];
 
+  // Media caps validation: max 3 photos, max 2 videos
+  const cleanImages = Array.isArray(images) ? images.filter(Boolean) : [];
+  if (cleanImages.length > 3) {
+    return res.status(400).json({ error: 'Maximum 3 photos allowed per product/listing. Please remove extra photos.' });
+  }
+
+  const cleanVideos = Array.isArray(req.body.videos) ? req.body.videos.filter(Boolean) : [];
+  if (cleanVideos.length > 2) {
+    return res.status(400).json({ error: 'Maximum 2 videos allowed per product/listing. Please remove extra videos.' });
+  }
+
+  const initialImages = cleanImages.length > 0 ? cleanImages : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'];
+
   const newProduct: Product = {
     id: db.nextIds.product++,
     title: title.trim(),
@@ -1265,7 +1283,9 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     price: numPrice,
     wasPrice: wasPrice ? Number(wasPrice) : undefined,
     discountPercent: discountPercent ? Number(discountPercent) : undefined,
-    images: Array.isArray(images) && images.length > 0 ? images : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'],
+    images: initialImages,
+    videos: cleanVideos,
+    isTripListing: req.body.isTripListing || category.toLowerCase().includes('trip') || category.toLowerCase().includes('airbus') || category.toLowerCase().includes('stay'),
     vendorId: user.id,
     vendorName: user.shopName || user.name,
     isFeatured: req.body.isFeatured || false,
@@ -1282,10 +1302,85 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
   };
 
   db.products.unshift(newProduct);
-  logAudit(db, user.id, user.name, 'PRODUCT_CREATED', `Created product "${newProduct.title}" (KSh ${newProduct.price})`);
+
+  // CORE MODEL: Product = Group. Every product a merchant posts is a group waiting for members to join.
+  // Group size selectable from 1 to 10 members (1 = single member, up to 10).
+  const initialGroupSize = Math.max(1, Math.min(10, Number(req.body.initialGroupSize || req.body.speedSize || req.body.size || 10)));
+  const isSolo = initialGroupSize === 1;
+  const initialCycleDays = isSolo ? 90 : 10;
+  const initialDailyAmount = isSolo ? Math.ceil(numPrice / 90) : Math.ceil(numPrice / initialGroupSize / 10);
+
+  // Merchant CANNOT join a group they created. All slots are open for customer members.
+  const initialSlots: GroupSlot[] = Array.from({ length: initialGroupSize }, (_, i) => ({
+    slotNumber: i + 1,
+    userId: null,
+    userName: null,
+    userPhone: null,
+    userAvatar: null,
+    status: 'open',
+    inviteCode: `JOIN${newProduct.id}S${i + 1}`,
+    paidAmount: 0,
+    targetAmount: numPrice,
+    paidDays: [],
+    pendingDays: [],
+    dailyPaymentRecords: [],
+  }));
+
+  const initialGroup: ChamaGroup = {
+    id: db.nextIds.group++,
+    productId: newProduct.id,
+    productTitle: newProduct.title,
+    productPrice: newProduct.price,
+    productImage: newProduct.images[0],
+    name: isSolo ? `${newProduct.title} (Solo 1-Member)` : `${newProduct.title} (Group 1 · ${initialGroupSize} Speed)`,
+    size: initialGroupSize,
+    totalSlots: initialGroupSize,
+    vendorId: user.id,
+    adminId: user.id,
+    moderators: [user.id],
+    status: 'active',
+    inviteCode: `GRP${newProduct.id}X1`,
+    dailyAmount: initialDailyAmount,
+    cycleDays: initialCycleDays,
+    slots: initialSlots,
+    occupiedCount: 0,
+    availableCount: initialGroupSize,
+    chat: [
+      {
+        id: `msg_init_${Date.now()}`,
+        senderId: user.id,
+        senderName: user.shopName || user.name,
+        kind: 'system',
+        text: `Group launched for "${newProduct.title}" (${initialGroupSize}-member speed). Customers can join to save together!`,
+        timestamp: Date.now(),
+      },
+    ],
+    notifications: [],
+    createdAt: Date.now(),
+    paymentMode: req.body.paymentMode || 'platform',
+  };
+
+  db.groups.unshift(initialGroup);
+
+  // Automatically post to Announcements section as well
+  if (!db.announcements) db.announcements = [];
+  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
+  const newAnnouncement: Announcement = {
+    id: db.nextIds.announcement++,
+    title: `🎉 New Group Open: ${newProduct.title}`,
+    body: `${user.shopName || user.name} posted a new group for "${newProduct.title}" (${initialGroupSize} members speed). Search, discover, and join this group to save together!`,
+    imageUrl: newProduct.images[0],
+    category: newProduct.category || 'Product Announcements',
+    createdAt: Date.now(),
+    authorId: user.id,
+    authorName: user.shopName || user.name,
+  };
+  db.announcements.unshift(newAnnouncement);
+
+  logAudit(db, user.id, user.name, 'PRODUCT_CREATED', `Created product "${newProduct.title}" (KSh ${newProduct.price}) and initial Group #${initialGroup.id}`);
   await saveDatabase(db);
 
-  res.status(201).json({ product: newProduct });
+  res.status(201).json({ product: newProduct, group: initialGroup });
 });
 
 // PART 6: MAKE VENDOR PRODUCT INFORMATION EDITABLE
@@ -1342,7 +1437,21 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
   }
 
   if (Array.isArray(images) && images.length > 0) {
+    if (images.length > 3) {
+      return res.status(400).json({ error: 'Maximum 3 photos allowed per listing. Please select up to 3 photos.' });
+    }
     product.images = images;
+  }
+
+  if (Array.isArray(req.body.videos)) {
+    if (req.body.videos.length > 2) {
+      return res.status(400).json({ error: 'Maximum 2 videos allowed per listing. Please select up to 2 videos.' });
+    }
+    product.videos = req.body.videos;
+  }
+
+  if (req.body.isTripListing !== undefined) {
+    product.isTripListing = Boolean(req.body.isTripListing);
   }
 
   if (stockQuantity !== undefined) {
@@ -1388,6 +1497,81 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
   await saveDatabase(db);
 
   res.json({ product, message: 'Product updated successfully.' });
+});
+
+// TRIP / AIRBUS MEDIA UPLOADS & REPLACEMENTS (UP TO 3 PHOTOS, UP TO 2 VIDEOS)
+apiRouter.post('/products/:id/media', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const db = await getDatabase();
+  const productId = Number(req.params.id);
+  const product = db.products.find(p => p.id === productId);
+
+  if (!product) {
+    return res.status(404).json({ error: 'Product or listing not found' });
+  }
+
+  if (product.vendorId !== user.id && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only the listing owner or administrator can update media.' });
+  }
+
+  const { images, videos } = req.body || {};
+
+  // Validate caps: max 3 photos, max 2 videos
+  if (Array.isArray(images) && images.length > 3) {
+    return res.status(400).json({ error: 'Maximum 3 photos allowed. Please select up to 3 photos.' });
+  }
+
+  if (Array.isArray(videos) && videos.length > 2) {
+    return res.status(400).json({ error: 'Maximum 2 videos allowed. Please select up to 2 videos.' });
+  }
+
+  // Validate photo size & format (max 10MB each)
+  if (Array.isArray(images)) {
+    for (const img of images) {
+      if (typeof img === 'string' && img.startsWith('data:')) {
+        const approxBytes = img.length * 0.75;
+        if (approxBytes > 10 * 1024 * 1024) {
+          return res.status(400).json({ error: 'Photo exceeds the 10 MB limit. Please compress or select a smaller photo.' });
+        }
+        if (!img.startsWith('data:image/')) {
+          return res.status(400).json({ error: 'Invalid photo format. Only image files (JPEG, PNG, WebP) are allowed.' });
+        }
+      }
+    }
+    product.images = images.length > 0 ? images : product.images;
+  }
+
+  // Validate video size & format (max 50MB each)
+  if (Array.isArray(videos)) {
+    for (const vid of videos) {
+      if (typeof vid === 'string' && vid.startsWith('data:')) {
+        const approxBytes = vid.length * 0.75;
+        if (approxBytes > 50 * 1024 * 1024) {
+          return res.status(400).json({ error: 'Video clip exceeds the 50 MB limit. Please compress or select a smaller video.' });
+        }
+        if (!vid.startsWith('data:video/')) {
+          return res.status(400).json({ error: 'Invalid video format. Only video files (MP4, WebM, QuickTime) are allowed.' });
+        }
+      }
+    }
+    product.videos = videos;
+  }
+
+  product.updatedAt = Date.now();
+  await saveDatabase(db);
+
+  logAudit(db, user.id, user.name, 'PRODUCT_MEDIA_UPDATED', `Updated media for product #${product.id} (${product.images.length} photos, ${(product.videos || []).length} videos)`);
+
+  res.json({
+    success: true,
+    images: product.images,
+    videos: product.videos || [],
+    message: 'Media successfully saved and updated.',
+  });
 });
 
 // DELETE / REMOVE PRODUCT (STORE OWNER OR ADMIN)
@@ -1530,36 +1714,46 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
 // PART 3: GROUP CREATOR BECOMES MEMBER #1 AND MODERATOR
 // PART 4: GROUP STARTS IMMEDIATELY (ACTIVE STATUS)
 // -------------------------------------------------------------
-// CORE RULE 6: Dedicated My Chamas endpoint - strictly private, matched by server authenticated UID only
+// CORE RULE 6: Dedicated My Groups endpoint - strictly private, matched by server authenticated UID only
 apiRouter.get('/groups/my', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) {
-    return res.status(401).json({ error: 'Authentication required' });
+    return res.status(401).json({ error: 'Authentication required. Please sign in to view My Groups.' });
   }
 
   const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+  const db = await getDatabase();
 
-  // Lenders and Admins are strictly forbidden from opening My Chamas
-  if (activeRole === 'lender' || activeRole === 'admin') {
+  // Admin rule: Admin oversight lives inside Admin Dashboard
+  if (activeRole === 'admin') {
     return res.status(403).json({
-      error: 'Access denied. Lenders and Admins do not have access to My Chamas.',
+      error: 'Access denied. Administrative oversight must live inside the Admin dashboard.',
     });
   }
 
-  const db = await getDatabase();
-
-  // Merchant sees groups created by their store only
+  // Merchant sees products & groups created by their store only (READ-ONLY)
   if (activeRole === 'merchant') {
     const merchantProductIds = db.products.filter(p => p.vendorId === user.id).map(p => p.id);
-    const myMerchantGroups = db.groups.filter(g => g.adminId === user.id || merchantProductIds.includes(g.productId));
-    return res.json({ groups: myMerchantGroups });
+    const myMerchantGroups = db.groups.filter(g => g.vendorId === user.id || g.adminId === user.id || merchantProductIds.includes(g.productId));
+    return res.json({ groups: myMerchantGroups, role: 'merchant' });
   }
 
-  // Member sees groups they belong to
+  // Lender sees groups where they have funded loans to a member (READ-ONLY)
+  if (activeRole === 'lender') {
+    const fundedGroupIds = (db.peerLoans || [])
+      .filter((l: any) => l.lenderId === user.id)
+      .map((l: any) => l.groupId || l.group_id);
+    const myLenderGroups = db.groups.filter(
+      (g: any) => g.lenderId === user.id || fundedGroupIds.includes(g.id)
+    );
+    return res.json({ groups: myLenderGroups, role: 'lender' });
+  }
+
+  // Member sees ALL groups they have joined: past, present, and current (READ-ONLY)
   const myMemberGroups = db.groups.filter(g =>
-    g.slots.some(s => s.userId === user.id && s.status === 'active')
+    g.slots.some(s => s.userId === user.id)
   );
-  return res.json({ groups: myMemberGroups });
+  return res.json({ groups: myMemberGroups, role: 'member' });
 });
 
 apiRouter.get('/groups', async (req: Request, res: Response) => {
@@ -1572,7 +1766,7 @@ apiRouter.get('/groups', async (req: Request, res: Response) => {
   // Merchant rule: Merchants see ONLY groups they created; other merchants' groups are invisible
   if (user && (user.activeRole === 'merchant' || user.role === 'merchant')) {
     const merchantProductIds = db.products.filter(p => p.vendorId === user.id).map(p => p.id);
-    groups = groups.filter(g => g.adminId === user.id || merchantProductIds.includes(g.productId));
+    groups = groups.filter(g => g.vendorId === user.id || g.adminId === user.id || merchantProductIds.includes(g.productId));
   }
 
   if (productId) {
@@ -1607,7 +1801,7 @@ apiRouter.get('/groups/:id', async (req: Request, res: Response) => {
     // Merchant rule: Can only view groups they created, unless opening via authorized notification link
     if (activeRole === 'merchant') {
       const product = db.products.find(p => p.id === group.productId);
-      const isCreator = group.adminId === user.id || product?.vendorId === user.id;
+      const isCreator = group.adminId === user.id || group.vendorId === user.id || product?.vendorId === user.id;
       const hasNotification = (db.userNotifications || []).some(
         (n: any) => n.userId === user.id && (n.groupId === group.id || (n.link && n.link.includes(`/chama/${group.id}`)))
       );
@@ -1636,26 +1830,37 @@ apiRouter.get('/groups/:id', async (req: Request, res: Response) => {
   res.json({ group });
 });
 
-// Create group: Store owners / merchants open groups with choice of speed and Till
+// Create group: Only merchants can create products/groups. Members and lenders cannot.
 apiRouter.post('/groups', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) {
-    return res.status(401).json({ error: 'You must be signed in to start a Chama group' });
+    return res.status(401).json({ error: 'You must be signed in to create a group' });
   }
 
-  // Any authenticated user can start a Chama group or solo Lipa Mdogomdogo plan
+  // Only merchants can create products/groups. Members and lenders cannot.
+  if (user.role !== 'merchant' && user.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Only verified merchants can create groups. Members and lenders cannot create groups.',
+    });
+  }
+
   const { productId, size, name, months, paymentMode } = req.body;
 
   // Merchant check: If merchant, must be verified and active subscription
   if (user.role === 'merchant' && (user.merchantSubscriptionStatus !== 'active' || !user.verified)) {
     return res.status(403).json({
-      error: 'Active merchant subscription and Buyoll verification required to create speed groups.',
+      error: 'Active merchant subscription and Buyoll verification required to create groups.',
     });
   }
 
-  // Mandatory speed check
+  // Mandatory speed check (size 1 to 10)
   if (!size || Number(size) <= 0) {
-    return res.status(400).json({ error: 'Mandatory speed selection required. Please choose a speed to continue.' });
+    return res.status(400).json({ error: 'Mandatory speed selection required. Please choose a speed from 1 to 10 members.' });
+  }
+
+  const speedSize = Number(size);
+  if (speedSize < 1 || speedSize > 10) {
+    return res.status(400).json({ error: 'Group size ("speed") must be between 1 and 10 members.' });
   }
 
   const db = await getDatabase();
@@ -1667,7 +1872,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
   // Strict ownership check: Merchant can only add groups inside products created by their store
   if (user.role === 'merchant') {
     if (product.vendorId !== user.id) {
-      return res.status(403).json({ error: 'You can only create Chama groups inside products created by your store.' });
+      return res.status(403).json({ error: 'You can only create groups for products created by your own store.' });
     }
 
     // Subscription tier group-per-product limit
@@ -1678,103 +1883,71 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
     const currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id).length;
-    if (currentGroupsForProduct >= tier.maxGroupsPerProduct) {
+    if (tier.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= tier.maxGroupsPerProduct) {
       return res.status(403).json({
-        error: `You have reached the maximum of ${tier.maxGroupsPerProduct} groups per product for the ${tier.name}. Please upgrade after your current 30-day subscription ends.`,
+        error: `You have reached your limit of ${tier.maxGroupsPerProduct} groups for "${product.title}" under the ${tier.name}. Upgrade your plan to post more groups.`,
       });
     }
   }
 
-  const speedSize = Number(size);
-  if (speedSize < 1 || speedSize > 10) {
-    return res.status(400).json({ error: 'Group speed must be between 1 and 10 members.' });
-  }
-
+  const isSolo = speedSize === 1;
   const soloDurationMonths = Math.min(6, Math.max(1, Number(months) || 3));
   const validSpeed = product.speedOptions.find(s => s.size === speedSize) || {
     size: speedSize,
-    cycleDays: speedSize === 1 ? soloDurationMonths * 30 : 10,
-    dailyAmount: speedSize === 1
+    cycleDays: isSolo ? soloDurationMonths * 30 : 10,
+    dailyAmount: isSolo
       ? Math.ceil(product.price / (soloDurationMonths * 30))
       : Math.ceil(product.price / speedSize / 10),
     totalAmount: product.price,
-    description: speedSize === 1
+    description: isSolo
       ? `1 Member Solo (Lipa Mdogomdogo) · ${soloDurationMonths} Months`
       : `${speedSize} members · Delivery rotation every 10 days`,
   };
 
-  // Prevent duplicate open group by the same creator for the exact same product if already active
-  const existingActive = db.groups.find(
-    g => g.productId === product.id && g.adminId === user.id && g.status === 'active' && g.slots.some(s => s.userId === user.id)
-  );
-  if (existingActive) {
-    return res.status(400).json({
-      error: `You already have an active group for this product: "${existingActive.name}".`,
-      existingGroupId: existingActive.id,
-    });
-  }
+  const groupNumber = db.groups.filter(g => g.productId === product.id).length + 1;
+  const groupName = (name || `${product.title} (Group ${groupNumber} · ${speedSize} Members)`).trim();
 
-  const groupName = (name || `${user.name}’s ${validSpeed.size}-Member Chama`).trim();
-  const creatorCode = generateCode();
-  const resolvedPaymentMode: 'platform' | 'merchant' =
-    paymentMode === 'merchant' && (user.tillNumber || user.paybillNumber) ? 'merchant' : 'platform';
-
-  // Create slots: slot #1 is assigned to creator immediately
-  const slots: GroupSlot[] = Array.from({ length: validSpeed.size }, (_, i) => {
-    const slotNumber = i + 1;
-    if (slotNumber === 1) {
-      return {
-        slotNumber: 1,
-        userId: user.id,
-        userName: user.name,
-        userPhone: user.phone,
-        status: 'active',
-        inviteCode: creatorCode,
-        paidAmount: 0,
-        targetAmount: product.price,
-        joinedAt: Date.now(),
-        paidDays: [],
-        pendingDays: [],
-        dailyPaymentRecords: [],
-      };
-    }
-    return {
-      slotNumber,
-      userId: null,
-      userName: null,
-      status: 'open',
-      inviteCode: generateCode(),
-      paidAmount: 0,
-      targetAmount: product.price,
-      paidDays: [],
-      pendingDays: [],
-      dailyPaymentRecords: [],
-    };
-  });
+  // Create slots: ALL slots are open for customer members.
+  // The merchant CANNOT join a product/group they created, and cannot join through any other path.
+  const slots: GroupSlot[] = Array.from({ length: speedSize }, (_, i) => ({
+    slotNumber: i + 1,
+    userId: null,
+    userName: null,
+    userPhone: null,
+    userAvatar: null,
+    status: 'open',
+    inviteCode: `JOIN${product.id}G${groupNumber}S${i + 1}`,
+    paidAmount: 0,
+    targetAmount: product.price,
+    paidDays: [],
+    pendingDays: [],
+    dailyPaymentRecords: [],
+  }));
 
   const newGroup: ChamaGroup = {
     id: db.nextIds.group++,
     productId: product.id,
     productTitle: product.title,
     productPrice: product.price,
-    productImage: product.images[0] || '',
+    productImage: product.images?.[0] || './images/cookware_set.jpg',
     name: groupName,
-    size: validSpeed.size,
+    size: speedSize,
+    totalSlots: speedSize,
+    vendorId: user.id,
     adminId: user.id,
-    moderators: [user.id], // Creator is the default moderator
-    status: 'active', // Group starts immediately!
-    inviteCode: creatorCode,
+    moderators: [user.id],
+    status: 'active',
+    inviteCode: `GRP${product.id}X${groupNumber}`,
     dailyAmount: validSpeed.dailyAmount,
-    cycleDays: validSpeed.cycleDays,
+    cycleDays: validSpeed.cycleDays || (isSolo ? 90 : 10),
     slots,
-    occupiedCount: 1,
-    availableCount: validSpeed.size - 1,
-    paymentMode: resolvedPaymentMode,
+    occupiedCount: 0,
+    availableCount: speedSize,
     platformTill: '196853',
     platformPaybill: '522533',
     platformAccount: 'code4363',
     merchantTill: user.tillNumber || '3463533',
-    merchantPaybill: user.paybillNumber || '26253326',
+    merchantPaybill: '26253326',
     merchantAccount: 'Code4533',
     currentRound: 1,
     currentRecipientSlot: 1,
@@ -1785,44 +1958,43 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     deliveredRounds: [],
     lenderId: null,
     lenderName: null,
-    isInviteOnly: true,
-    inviteRequests: [],
-    notifications: [
-      {
-        id: `notif_new_grp_${db.nextIds.group}_${Date.now()}`,
-        groupId: db.nextIds.group,
-        groupName: groupName,
-        title: `🎉 New Chama Launched by ${user.shopName || user.name}!`,
-        message: `${user.shopName || user.name} just created "${groupName}" for "${product.title}" (${validSpeed.size} members @ KSh ${validSpeed.dailyAmount}/day). Click the link to check details & request an invite!`,
-        link: `/chama/${db.nextIds.group}`,
-        type: 'new_group_created',
-        timestamp: Date.now(),
-      },
-    ],
     chat: [
       {
-        id: `chat_${Date.now()}`,
+        id: `chat_${Date.now()}_${speedSize}`,
         senderId: user.id,
-        senderName: user.name,
+        senderName: user.shopName || user.name,
         kind: 'system',
-        text: `Chama group started! ${user.name} is Member #1 and moderator. Platform Till: 196853, Paybill: 522533 (Account: code4363). Group is active immediately. Entry is by invite only.`,
+        text: `Group ${groupNumber} launched with ${speedSize}-member speed. Members can join and save together!`,
         timestamp: Date.now(),
       },
     ],
     createdAt: Date.now(),
   };
 
-  db.groups.unshift(newGroup);
-  logAudit(
-    db,
-    user.id,
-    user.name,
-    'GROUP_CREATED',
-    `Created Chama #${newGroup.id} for "${product.title}" (${newGroup.size} members). Creator became Member #1 and moderator. Group activated immediately.`
-  );
+  db.groups.push(newGroup);
 
+  // Automatically update Announcements section as well
+  if (!db.announcements) db.announcements = [];
+  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
+  db.announcements.unshift({
+    id: db.nextIds.announcement++,
+    title: `🎉 New Group Open: ${product.title}`,
+    body: `${user.shopName || user.name} launched Group #${groupNumber} for "${product.title}" (${speedSize} members speed). Check out this group and start saving!`,
+    imageUrl: product.images[0],
+    category: product.category || 'Product Announcements',
+    createdAt: Date.now(),
+    authorId: user.id,
+    authorName: user.shopName || user.name,
+  });
+
+  logAudit(db, user.id, user.name, 'GROUP_CREATED', `Merchant created group #${newGroup.id} "${groupName}" (${speedSize} members) for product #${product.id}`);
   await saveDatabase(db);
-  res.status(201).json({ group: newGroup, message: 'Your group was created and activated immediately. You are Member #1.' });
+
+  res.status(201).json({
+    success: true,
+    group: newGroup,
+    message: `Group created successfully with ${speedSize} members!`,
+  });
 });
 
 // Group Immutability: Merchants CANNOT edit or delete a group once created!
@@ -1863,6 +2035,14 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
 
   if (group.status !== 'active') {
     return res.status(400).json({ error: `This group is ${group.status} and cannot accept new members.` });
+  }
+
+  // The merchant CANNOT join a product/group they created, and cannot join through any other path.
+  const product = db.products.find(p => p.id === group.productId);
+  if (group.vendorId === user.id || group.adminId === user.id || product?.vendorId === user.id) {
+    return res.status(403).json({
+      error: 'Merchants cannot join groups created for their own products. Only customers and members can join.',
+    });
   }
 
   // Check if user is already in this group

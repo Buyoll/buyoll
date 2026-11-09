@@ -63,6 +63,7 @@ export interface User {
   coins: number;
   points: number;
   merchantCategory?: string;
+  sessionToken?: string;
   merchantLocation?: string;
   lenderName?: string;
   lenderType?: string;
@@ -118,6 +119,9 @@ export interface Product {
   speedOptions: SpeedOption[];
   stockQuantity: number;
   attributes?: Record<string, string>;
+  // Trip / Airbus Media (up to 3 photos, up to 2 videos)
+  videos?: string[];
+  isTripListing?: boolean;
   // Promotions and free bonus items:
   promotionType?: 'none' | 'daily' | 'weekly' | 'monthly';
   promotionDiscount?: number;
@@ -643,6 +647,27 @@ export interface MerchantSubscriptionRecord {
   expiresAt?: number;
   createdAt: number;
   notes?: string;
+}
+
+export interface SubscriptionRequest {
+  id: string;
+  merchantId: number;
+  merchantName?: string;
+  shopName?: string;
+  phone?: string;
+  email?: string;
+  planId: string;
+  planKey?: string;
+  planName: string;
+  amountExpected: number;
+  paymentMethod: 'mpesa' | 'wallet' | 'coins';
+  mpesaCode?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  adminId?: number;
+  reviewedAt?: number;
+  rejectionReason?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ChatStrikeRecord {

@@ -54,7 +54,8 @@
           "coins": 100,
           "points": 250
         }
-      }
+      },
+      "activeSubscription": null
     },
     {
       "id": 3,
@@ -241,6 +242,132 @@
       },
       "lastActive": 1793805223668,
       "createdAt": 1793805223668
+    },
+    {
+      "id": 15,
+      "name": "Test Merchant 824364",
+      "email": "merchant_824364@buyoll.test",
+      "phone": "0782436412",
+      "password": "password123",
+      "role": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "activeRole": "merchant",
+      "platformId": "BYL-V-10015",
+      "shopName": "Auto Store 824364",
+      "shopDescription": "Verified seller on Buyoll",
+      "verified": false,
+      "merchantSubscriptionStatus": "inactive",
+      "credit": 0,
+      "coins": 200,
+      "points": 50,
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 50
+        }
+      },
+      "lastActive": 1794160394628,
+      "createdAt": 1794160394628
+    },
+    {
+      "id": 16,
+      "name": "Test Merchant 458582",
+      "email": "merchant_458582@buyoll.test",
+      "phone": "0745858212",
+      "password": "password123",
+      "role": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "activeRole": "merchant",
+      "platformId": "BYL-V-10016",
+      "shopName": "Auto Store 458582",
+      "shopDescription": "Verified seller on Buyoll",
+      "verified": false,
+      "merchantSubscriptionStatus": "inactive",
+      "credit": 0,
+      "coins": 200,
+      "points": 50,
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 50
+        }
+      },
+      "lastActive": 1794160410569,
+      "createdAt": 1794160410569
+    },
+    {
+      "id": 17,
+      "name": "Test Merchant 673122",
+      "email": "merchant_673122@buyoll.test",
+      "phone": "0767312212",
+      "password": "password123",
+      "role": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "activeRole": "merchant",
+      "platformId": "BYL-V-10017",
+      "shopName": "Auto Store 673122",
+      "shopDescription": "Verified seller on Buyoll",
+      "verified": true,
+      "merchantSubscriptionStatus": "active",
+      "credit": 0,
+      "coins": 200,
+      "points": 50,
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 50
+        }
+      },
+      "lastActive": 1794160462617,
+      "createdAt": 1794160462617,
+      "merchantSubscriptionPlan": "tier_500",
+      "merchantSubscriptionExpiresAt": 1796752462694,
+      "verifiedAt": 1794160462694
+    },
+    {
+      "id": 18,
+      "name": "Test Merchant 717119",
+      "email": "merchant_717119@buyoll.test",
+      "phone": "0771711912",
+      "password": "password123",
+      "role": "merchant",
+      "roles": [
+        "merchant"
+      ],
+      "activeRole": "merchant",
+      "platformId": "BYL-V-10018",
+      "shopName": "Auto Store 717119",
+      "shopDescription": "Verified seller on Buyoll",
+      "verified": true,
+      "merchantSubscriptionStatus": "active",
+      "credit": 0,
+      "coins": 200,
+      "points": 50,
+      "roleWallets": {
+        "merchant": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 50
+        }
+      },
+      "lastActive": 1794160493499,
+      "createdAt": 1794160493499,
+      "merchantSubscriptionPlan": "tier_500",
+      "merchantSubscriptionExpiresAt": 1796752493569,
+      "verifiedAt": 1794160493569
     }
   ],
   "products": [
@@ -751,6 +878,70 @@
   "refundRequests": [],
   "payments": [
     {
+      "id": 20,
+      "userId": 18,
+      "userName": "Auto Store 717119",
+      "userPhone": "0771711912",
+      "code": "XT717120CD",
+      "amount": 500,
+      "status": "approved",
+      "type": "merchant_subscription",
+      "channel": "Buy Goods Till 196853 / Paybill 522533",
+      "createdAt": 1794160493561,
+      "verifiedAt": 1794160493569,
+      "verifiedBy": "Buyoll Primary Administrator",
+      "notes": "Subscription request for Growing Merchant. Code: XT717120CD. Pending Admin Approval.",
+      "approvedAt": 1794160493569
+    },
+    {
+      "id": 19,
+      "userId": 18,
+      "userName": "Auto Store 717119",
+      "userPhone": "0771711912",
+      "code": "QG717119AB",
+      "amount": 1500,
+      "status": "rejected",
+      "type": "merchant_subscription",
+      "channel": "Buy Goods Till 196853 / Paybill 522533",
+      "createdAt": 1794160493526,
+      "verifiedAt": null,
+      "verifiedBy": null,
+      "notes": "Subscription request for Pro Merchant. Code: QG717119AB. Pending Admin Approval.",
+      "rejectionReason": "Code was not found in M-Pesa till statement."
+    },
+    {
+      "id": 18,
+      "userId": 17,
+      "userName": "Auto Store 673122",
+      "userPhone": "0767312212",
+      "code": "XT673123CD",
+      "amount": 500,
+      "status": "approved",
+      "type": "merchant_subscription",
+      "channel": "Buy Goods Till 196853 / Paybill 522533",
+      "createdAt": 1794160462686,
+      "verifiedAt": 1794160462694,
+      "verifiedBy": "Buyoll Primary Administrator",
+      "notes": "Subscription request for Growing Merchant. Code: XT673123CD. Pending Admin Approval.",
+      "approvedAt": 1794160462694
+    },
+    {
+      "id": 17,
+      "userId": 17,
+      "userName": "Auto Store 673122",
+      "userPhone": "0767312212",
+      "code": "QG673122AB",
+      "amount": 1500,
+      "status": "rejected",
+      "type": "merchant_subscription",
+      "channel": "Buy Goods Till 196853 / Paybill 522533",
+      "createdAt": 1794160462644,
+      "verifiedAt": null,
+      "verifiedBy": null,
+      "notes": "Subscription request for Pro Merchant. Code: QG673122AB. Pending Admin Approval.",
+      "rejectionReason": "Code was not found in M-Pesa till statement."
+    },
+    {
       "id": 16,
       "userId": 12,
       "userName": "Amani Electronics",
@@ -948,6 +1139,102 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": 65,
+      "timestamp": 1794160493574,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "SUBSCRIPTION_REQUEST_APPROVED",
+      "details": "Approved subscription request sub_req_1794160493561_orjr for merchant #18 (Growing Merchant)"
+    },
+    {
+      "id": 64,
+      "timestamp": 1794160493562,
+      "actorId": 18,
+      "actorName": "Test Merchant 717119",
+      "action": "SUBSCRIPTION_REQUEST_SUBMITTED",
+      "details": "Submitted M-Pesa code XT717120CD for Growing Merchant (KSh 500)"
+    },
+    {
+      "id": 63,
+      "timestamp": 1794160493555,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "SUBSCRIPTION_REQUEST_REJECTED",
+      "details": "Rejected subscription request sub_req_1794160493526_knht for merchant #18. Reason: Code was not found in M-Pesa till statement."
+    },
+    {
+      "id": 62,
+      "timestamp": 1794160493531,
+      "actorId": 18,
+      "actorName": "Test Merchant 717119",
+      "action": "SUBSCRIPTION_REQUEST_SUBMITTED",
+      "details": "Submitted M-Pesa code QG717119AB for Pro Merchant (KSh 1500)"
+    },
+    {
+      "id": 61,
+      "timestamp": 1794160493499,
+      "actorId": 18,
+      "actorName": "Test Merchant 717119",
+      "action": "USER_REGISTERED",
+      "details": "New merchant account registered (BYL-V-10018)."
+    },
+    {
+      "id": 60,
+      "timestamp": 1794160462702,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "SUBSCRIPTION_REQUEST_APPROVED",
+      "details": "Approved subscription request sub_req_1794160462686_72oy for merchant #17 (Growing Merchant)"
+    },
+    {
+      "id": 59,
+      "timestamp": 1794160462686,
+      "actorId": 17,
+      "actorName": "Test Merchant 673122",
+      "action": "SUBSCRIPTION_REQUEST_SUBMITTED",
+      "details": "Submitted M-Pesa code XT673123CD for Growing Merchant (KSh 500)"
+    },
+    {
+      "id": 58,
+      "timestamp": 1794160462678,
+      "actorId": 1,
+      "actorName": "Buyoll Primary Administrator",
+      "action": "SUBSCRIPTION_REQUEST_REJECTED",
+      "details": "Rejected subscription request sub_req_1794160462644_6t18 for merchant #17. Reason: Code was not found in M-Pesa till statement."
+    },
+    {
+      "id": 57,
+      "timestamp": 1794160462649,
+      "actorId": 17,
+      "actorName": "Test Merchant 673122",
+      "action": "SUBSCRIPTION_REQUEST_SUBMITTED",
+      "details": "Submitted M-Pesa code QG673122AB for Pro Merchant (KSh 1500)"
+    },
+    {
+      "id": 56,
+      "timestamp": 1794160462617,
+      "actorId": 17,
+      "actorName": "Test Merchant 673122",
+      "action": "USER_REGISTERED",
+      "details": "New merchant account registered (BYL-V-10017)."
+    },
+    {
+      "id": 55,
+      "timestamp": 1794160410569,
+      "actorId": 16,
+      "actorName": "Test Merchant 458582",
+      "action": "USER_REGISTERED",
+      "details": "New merchant account registered (BYL-V-10016)."
+    },
+    {
+      "id": 54,
+      "timestamp": 1794160394628,
+      "actorId": 15,
+      "actorName": "Test Merchant 824364",
+      "action": "USER_REGISTERED",
+      "details": "New merchant account registered (BYL-V-10015)."
+    },
     {
       "id": 53,
       "timestamp": 1794068690951,
@@ -1318,14 +1605,14 @@
     }
   ],
   "nextIds": {
-    "user": 15,
+    "user": 19,
     "product": 20,
     "group": 201,
     "defaultRecord": 2,
     "refundRequest": 1,
-    "payment": 17,
+    "payment": 21,
     "ledger": 7,
-    "audit": 54,
+    "audit": 66,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1
@@ -1444,6 +1731,114 @@
     }
   ],
   "userNotifications": [
+    {
+      "id": "notif_1794160493569_o7ry",
+      "userId": 18,
+      "title": "🎉 30-Day Merchant Plan Approved: Growing Merchant",
+      "message": "Your payment code XT717120CD has been approved by Buyoll Admin! Your 30-day selling window and catalog limits are active until 12/8/2026.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160493569
+    },
+    {
+      "id": "notif_adm_1794160493561_zaye",
+      "userId": 1,
+      "title": "🔔 New Merchant Plan Code: Growing Merchant",
+      "message": "Merchant Test Merchant 717119 submitted M-Pesa code XT717120CD (KSh 500). Ready for verification.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160493561
+    },
+    {
+      "id": "notif_1794160493561_oj3y",
+      "userId": 18,
+      "title": "⏳ Subscription Code Submitted: Growing Merchant",
+      "message": "M-Pesa confirmation code XT717120CD for KSh 500 submitted. Admin will verify against statements and activate your store for 30 days.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160493561
+    },
+    {
+      "id": "notif_1794160493555_b34i",
+      "userId": 18,
+      "title": "⚠️ Subscription Request Rejected",
+      "message": "Your merchant plan request was rejected by Admin. Reason: Code was not found in M-Pesa till statement.. Please check your transaction details and resubmit.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160493555
+    },
+    {
+      "id": "notif_adm_1794160493526_8b43",
+      "userId": 1,
+      "title": "🔔 New Merchant Plan Code: Pro Merchant",
+      "message": "Merchant Test Merchant 717119 submitted M-Pesa code QG717119AB (KSh 1,500). Ready for verification.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160493526
+    },
+    {
+      "id": "notif_1794160493526_yhvx",
+      "userId": 18,
+      "title": "⏳ Subscription Code Submitted: Pro Merchant",
+      "message": "M-Pesa confirmation code QG717119AB for KSh 1,500 submitted. Admin will verify against statements and activate your store for 30 days.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160493526
+    },
+    {
+      "id": "notif_1794160462694_0dn9",
+      "userId": 17,
+      "title": "🎉 30-Day Merchant Plan Approved: Growing Merchant",
+      "message": "Your payment code XT673123CD has been approved by Buyoll Admin! Your 30-day selling window and catalog limits are active until 12/8/2026.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160462694
+    },
+    {
+      "id": "notif_adm_1794160462686_uu0m",
+      "userId": 1,
+      "title": "🔔 New Merchant Plan Code: Growing Merchant",
+      "message": "Merchant Test Merchant 673122 submitted M-Pesa code XT673123CD (KSh 500). Ready for verification.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160462686
+    },
+    {
+      "id": "notif_1794160462686_qu5x",
+      "userId": 17,
+      "title": "⏳ Subscription Code Submitted: Growing Merchant",
+      "message": "M-Pesa confirmation code XT673123CD for KSh 500 submitted. Admin will verify against statements and activate your store for 30 days.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160462686
+    },
+    {
+      "id": "notif_1794160462678_2bhk",
+      "userId": 17,
+      "title": "⚠️ Subscription Request Rejected",
+      "message": "Your merchant plan request was rejected by Admin. Reason: Code was not found in M-Pesa till statement.. Please check your transaction details and resubmit.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160462678
+    },
+    {
+      "id": "notif_adm_1794160462644_bpnq",
+      "userId": 1,
+      "title": "🔔 New Merchant Plan Code: Pro Merchant",
+      "message": "Merchant Test Merchant 673122 submitted M-Pesa code QG673122AB (KSh 1,500). Ready for verification.",
+      "type": "system",
+      "read": false,
+      "timestamp": 1794160462644
+    },
+    {
+      "id": "notif_1794160462644_o38o",
+      "userId": 17,
+      "title": "⏳ Subscription Code Submitted: Pro Merchant",
+      "message": "M-Pesa confirmation code QG673122AB for KSh 1,500 submitted. Admin will verify against statements and activate your store for 30 days.",
+      "type": "payment",
+      "read": false,
+      "timestamp": 1794160462644
+    },
     {
       "id": "notif_1794068690951_e06r",
       "userId": 12,
@@ -1624,6 +2019,54 @@
     }
   ],
   "merchantSubscriptions": [
+    {
+      "id": "sub_req_1794160493561_orjr",
+      "merchantId": 18,
+      "tierId": "tier_500",
+      "tierName": "Growing Merchant",
+      "amount": 500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "XT717120CD",
+      "status": "active",
+      "createdAt": 1794160493561,
+      "startDate": 1794160493569,
+      "expiresAt": 1796752493569
+    },
+    {
+      "id": "sub_req_1794160493526_knht",
+      "merchantId": 18,
+      "tierId": "tier_1500",
+      "tierName": "Pro Merchant",
+      "amount": 1500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "QG717119AB",
+      "status": "declined",
+      "createdAt": 1794160493526
+    },
+    {
+      "id": "sub_req_1794160462686_72oy",
+      "merchantId": 17,
+      "tierId": "tier_500",
+      "tierName": "Growing Merchant",
+      "amount": 500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "XT673123CD",
+      "status": "active",
+      "createdAt": 1794160462686,
+      "startDate": 1794160462694,
+      "expiresAt": 1796752462694
+    },
+    {
+      "id": "sub_req_1794160462644_6t18",
+      "merchantId": 17,
+      "tierId": "tier_1500",
+      "tierName": "Pro Merchant",
+      "amount": 1500,
+      "paymentMethod": "mpesa_till_paybill",
+      "paymentCode": "QG673122AB",
+      "status": "declined",
+      "createdAt": 1794160462644
+    },
     {
       "id": "sub_wallet_1794068690945_tier_500",
       "merchantId": 12,
@@ -1928,6 +2371,86 @@
       "updatedBy": "cityandcountyre@gmail.com",
       "updatedAt": 1793859385157,
       "version": 1
+    }
+  ],
+  "subscriptionRequests": [
+    {
+      "id": "sub_req_1794160493561_orjr",
+      "merchantId": 18,
+      "merchantName": "Test Merchant 717119",
+      "shopName": "Auto Store 717119",
+      "phone": "0771711912",
+      "email": "merchant_717119@buyoll.test",
+      "planId": "tier_500",
+      "planKey": "growing",
+      "planName": "Growing Merchant",
+      "amountExpected": 500,
+      "paymentMethod": "mpesa",
+      "mpesaCode": "XT717120CD",
+      "status": "approved",
+      "createdAt": 1794160493561,
+      "updatedAt": 1794160493569,
+      "adminId": 1,
+      "reviewedAt": 1794160493569
+    },
+    {
+      "id": "sub_req_1794160493526_knht",
+      "merchantId": 18,
+      "merchantName": "Test Merchant 717119",
+      "shopName": "Auto Store 717119",
+      "phone": "0771711912",
+      "email": "merchant_717119@buyoll.test",
+      "planId": "tier_1500",
+      "planKey": "pro",
+      "planName": "Pro Merchant",
+      "amountExpected": 1500,
+      "paymentMethod": "mpesa",
+      "mpesaCode": "QG717119AB",
+      "status": "rejected",
+      "createdAt": 1794160493526,
+      "updatedAt": 1794160493555,
+      "rejectionReason": "Code was not found in M-Pesa till statement.",
+      "adminId": 1,
+      "reviewedAt": 1794160493555
+    },
+    {
+      "id": "sub_req_1794160462686_72oy",
+      "merchantId": 17,
+      "merchantName": "Test Merchant 673122",
+      "shopName": "Auto Store 673122",
+      "phone": "0767312212",
+      "email": "merchant_673122@buyoll.test",
+      "planId": "tier_500",
+      "planKey": "growing",
+      "planName": "Growing Merchant",
+      "amountExpected": 500,
+      "paymentMethod": "mpesa",
+      "mpesaCode": "XT673123CD",
+      "status": "approved",
+      "createdAt": 1794160462686,
+      "updatedAt": 1794160462694,
+      "adminId": 1,
+      "reviewedAt": 1794160462694
+    },
+    {
+      "id": "sub_req_1794160462644_6t18",
+      "merchantId": 17,
+      "merchantName": "Test Merchant 673122",
+      "shopName": "Auto Store 673122",
+      "phone": "0767312212",
+      "email": "merchant_673122@buyoll.test",
+      "planId": "tier_1500",
+      "planKey": "pro",
+      "planName": "Pro Merchant",
+      "amountExpected": 1500,
+      "paymentMethod": "mpesa",
+      "mpesaCode": "QG673122AB",
+      "status": "rejected",
+      "createdAt": 1794160462644,
+      "updatedAt": 1794160462678,
+      "rejectionReason": "Code was not found in M-Pesa till statement.",
+      "adminId": 1,
+      "reviewedAt": 1794160462678
     }
   ]
 }

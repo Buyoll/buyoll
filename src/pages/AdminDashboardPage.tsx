@@ -35,6 +35,8 @@ import {
   KeyRound,
   LogOut,
   Lock,
+  Loader2,
+  XCircle,
 } from 'lucide-react';
 
 interface AdminDashboardPageProps {
@@ -151,6 +153,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     open: false,
     merchantId: 0,
     price: 15000,
+  });
+  const [subRejectModal, setSubRejectModal] = useState<{
+    open: boolean;
+    subId: string;
+    merchantName: string;
+    planName: string;
+    reason: string;
+  }>({
+    open: false,
+    subId: '',
+    merchantName: '',
+    planName: '',
+    reason: '',
   });
 
   // Featured Products state (Part E & G)
@@ -440,7 +455,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
-  // Handle Manual Subscription Approval (Part C & D)
+  // Handle Manual Subscription Approval & Rejection (Part C & D)
   async function handleApproveSubscription(subId: string) {
     setProcessingId(subId);
     try {
@@ -454,14 +469,31 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
-  async function handleDeclineSubscription(subId: string) {
-    setProcessingId(subId);
+  function handleOpenRejectSubscription(sub: any) {
+    setSubRejectModal({
+      open: true,
+      subId: sub.id,
+      merchantName: sub.shopName || sub.merchantName || `Merchant #${sub.merchantId}`,
+      planName: sub.tierName || sub.planName || 'Merchant Plan',
+      reason: 'M-Pesa payment code could not be verified against statement records. Please verify transaction details and resubmit.',
+    });
+  }
+
+  async function handleConfirmRejectSubscription(e: React.FormEvent) {
+    e.preventDefault();
+    const reason = subRejectModal.reason.trim();
+    if (!reason || reason.length < 3) {
+      onNotify('error', 'A rejection reason of at least 3 characters is mandatory.');
+      return;
+    }
+    setProcessingId(subRejectModal.subId);
     try {
-      const res = await api.declineAdminMerchantSubscription(subId);
-      onNotify('success', res.message || 'Subscription declined.');
+      const res = await api.declineAdminMerchantSubscription(subRejectModal.subId, reason);
+      onNotify('success', res.message || 'Subscription request rejected.');
+      setSubRejectModal({ open: false, subId: '', merchantName: '', planName: '', reason: '' });
       await loadAllAdminData();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to decline subscription');
+      onNotify('error', err.message || 'Failed to reject subscription');
     } finally {
       setProcessingId(null);
     }
@@ -2440,16 +2472,27 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                 <button
                                   onClick={() => handleApproveSubscription(sub.id)}
                                   disabled={processingId === sub.id}
-                                  className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                                  className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                                 >
-                                  Approve &amp; Activate (30d)
+                                  {processingId === sub.id ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Approving...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>Approve (30d)</span>
+                                    </>
+                                  )}
                                 </button>
                                 <button
-                                  onClick={() => handleDeclineSubscription(sub.id)}
+                                  onClick={() => handleOpenRejectSubscription(sub)}
                                   disabled={processingId === sub.id}
-                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1 disabled:opacity-50"
                                 >
-                                  Decline
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  <span>Reject</span>
                                 </button>
                               </>
                             )}
@@ -2994,6 +3037,84 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
               >
                 Save Agreed Price
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* REJECT SUBSCRIPTION REQUEST MODAL */}
+      {subRejectModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleConfirmRejectSubscription} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Reject Subscription Request</h3>
+                  <p className="text-xs text-slate-500">Provide an audit reason for the merchant</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubRejectModal({ ...subRejectModal, open: false })}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs space-y-1">
+              <div className="flex justify-between text-slate-600">
+                <span>Merchant:</span>
+                <span className="font-bold text-slate-900">{subRejectModal.merchantName}</span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Plan requested:</span>
+                <span className="font-bold text-[#0E5A3C]">{subRejectModal.planName}</span>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Rejection Reason <span className="text-rose-600">*</span>
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={subRejectModal.reason}
+                onChange={(e) => setSubRejectModal({ ...subRejectModal, reason: e.target.value })}
+                placeholder="e.g. M-Pesa code not found in statement or already claimed."
+                className="w-full text-xs p-3 border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-rose-500 resize-none"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                This reason will be recorded in the audit log and sent to the merchant's dashboard notifications.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSubRejectModal({ ...subRejectModal, open: false })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={processingId === subRejectModal.subId || !subRejectModal.reason.trim()}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {processingId === subRejectModal.subId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Rejecting...</span>
+                  </>
+                ) : (
+                  <span>Confirm Rejection</span>
+                )}
               </button>
             </div>
           </form>

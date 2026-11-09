@@ -53,6 +53,7 @@ export interface DatabaseSchema {
   memberOrders: MemberOrder[];
   merchantVerifications: MerchantVerificationRecord[];
   merchantSubscriptions: MerchantSubscriptionRecord[];
+  subscriptionRequests?: import('../src/types.js').SubscriptionRequest[];
   chatStrikes: ChatStrikeRecord[];
   savedItems: Array<{ id: string; userId: number; productId: number; addedAt: number }>;
   followedMerchants: Array<{ id: string; userId: number; merchantId: number; followedAt: number }>;
@@ -1039,12 +1040,14 @@ export async function getDatabase(): Promise<DatabaseSchema> {
 
 export async function saveDatabase(data: DatabaseSchema): Promise<void> {
   dbCache = data;
-  writeLock = writeLock.then(async () => {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const tempFile = `${DB_FILE}.${Date.now()}.tmp`;
-    await fs.writeFile(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-    await fs.rename(tempFile, DB_FILE);
-  });
+  writeLock = writeLock
+    .catch(() => {})
+    .then(async () => {
+      await fs.mkdir(DATA_DIR, { recursive: true });
+      const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      await fs.writeFile(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.rename(tempFile, DB_FILE);
+    });
   return writeLock;
 }
 
@@ -1072,15 +1075,21 @@ export async function runDatabaseTransaction<T>(
   operation: (db: DatabaseSchema) => Promise<T> | T
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    writeLock = writeLock.then(async () => {
-      try {
-        const db = await getDatabase();
-        const result = await operation(db);
-        await saveDatabase(db);
-        resolve(result);
-      } catch (err) {
-        reject(err);
-      }
-    });
+    writeLock = writeLock
+      .catch(() => {})
+      .then(async () => {
+        try {
+          const db = await getDatabase();
+          const result = await operation(db);
+          dbCache = db;
+          await fs.mkdir(DATA_DIR, { recursive: true });
+          const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+          await fs.writeFile(tempFile, JSON.stringify(db, null, 2), 'utf-8');
+          await fs.rename(tempFile, DB_FILE);
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
   });
 }

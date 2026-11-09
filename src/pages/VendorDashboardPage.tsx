@@ -25,6 +25,8 @@ import {
   Building,
   Check,
   AlertTriangle,
+  Loader2,
+  RotateCcw,
 } from 'lucide-react';
 
 interface VendorDashboardPageProps {
@@ -61,6 +63,21 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [subPaymentMethod, setSubPaymentMethod] = useState<'wallet_credit' | 'wallet_coins' | 'mpesa_till'>('mpesa_till');
   const [subPaymentCode, setSubPaymentCode] = useState('');
   const [submittingSubscription, setSubmittingSubscription] = useState(false);
+  const [subCodeTouched, setSubCodeTouched] = useState(false);
+  const [subModalError, setSubModalError] = useState<{
+    field?: string;
+    code?: string;
+    status?: number;
+    message: string;
+    canRetry?: boolean;
+  } | null>(null);
+  const [subModalSuccess, setSubModalSuccess] = useState<{
+    planName: string;
+    amount: number;
+    code?: string;
+    method: string;
+    status: string;
+  } | null>(null);
 
   // Merchant Verification state (Part C & G)
   const [verificationInfo, setVerificationInfo] = useState<{
@@ -91,46 +108,104 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   );
 
   async function handleSubscriptionPay() {
-    setSubmittingSubscription(true);
-    try {
-      if (subPaymentMethod === 'wallet_credit') {
-        const res = await api.paySubscriptionCoins(selectedTierId, 'wallet_credit');
-        onNotify('success', res.message || 'Subscription payment submitted using wallet credit! Pending Admin approval.');
-        setIsSubscriptionModalOpen(false);
-        await loadVendorData();
-      } else if (subPaymentMethod === 'wallet_coins') {
-        const res = await api.paySubscriptionCoins(selectedTierId, 'wallet_coins');
-        onNotify('success', res.message || 'Subscription payment submitted using coins! Pending Admin approval.');
-        setIsSubscriptionModalOpen(false);
-        await loadVendorData();
-      } else {
-        const code = subPaymentCode.trim().toUpperCase();
-        if (!code) {
-          onNotify('error', 'Please enter your M-Pesa transaction code.');
-          setSubmittingSubscription(false);
-          return;
-        }
-        const tierFeeMap: Record<string, number> = {
-          tier_250: 250,
-          tier_500: 500,
-          tier_1500: 1500,
-          tier_3500: 3500,
-          tier_7500: 7500,
-          enterprise: 15000,
-        };
-        const amount = tierFeeMap[selectedTierId] || 500;
-        const res = await api.submitManualSubscription({
-          tierId: selectedTierId,
-          paymentCode: code,
-          amount,
+    setSubModalError(null);
+
+    // Client-side validation mirroring the server
+    if (subPaymentMethod === 'mpesa_till') {
+      const code = subPaymentCode.trim().toUpperCase();
+      if (!code) {
+        setSubModalError({
+          field: 'mpesaCode',
+          message: 'Please enter your 10-character M-Pesa transaction code.',
         });
-        onNotify('success', res.message || 'Payment code submitted for Admin approval! Admin will reconcile against statements.');
-        setIsSubscriptionModalOpen(false);
-        setSubPaymentCode('');
-        await loadVendorData();
+        setSubCodeTouched(true);
+        return;
       }
+      if (!/^[A-Z0-9]{10}$/.test(code)) {
+        setSubModalError({
+          field: 'mpesaCode',
+          message: 'Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN',
+        });
+        setSubCodeTouched(true);
+        return;
+      }
+    }
+
+    setSubmittingSubscription(true);
+
+    try {
+      const tierMap: Record<string, { name: string; fee: number }> = {
+        tier_250: { name: 'Micro-Merchant', fee: 250 },
+        tier_500: { name: 'Growing Merchant', fee: 500 },
+        tier_1500: { name: 'Pro Merchant', fee: 1500 },
+        tier_3500: { name: 'Commercial', fee: 3500 },
+        tier_7500: { name: 'Enterprise Scale', fee: 7500 },
+        enterprise: { name: 'Custom Enterprise', fee: 15000 },
+      };
+      const plan = tierMap[selectedTierId] || { name: 'Growing Merchant', fee: 500 };
+      const normalizedMethod =
+        subPaymentMethod === 'wallet_credit' ? 'wallet' : subPaymentMethod === 'wallet_coins' ? 'coins' : 'mpesa';
+
+      const res = await api.submitSubscriptionRequest({
+        planId: selectedTierId,
+        paymentMethod: normalizedMethod,
+        mpesaCode: normalizedMethod === 'mpesa' ? subPaymentCode.trim().toUpperCase() : undefined,
+      });
+
+      // Successful submission -> Render Success View
+      setSubModalSuccess({
+        planName: plan.name,
+        amount: res.request?.amountExpected || plan.fee,
+        code: res.request?.mpesaCode || (normalizedMethod === 'mpesa' ? subPaymentCode.trim().toUpperCase() : undefined),
+        method:
+          normalizedMethod === 'wallet'
+            ? 'Merchant Wallet (KES)'
+            : normalizedMethod === 'coins'
+            ? 'Applaud Coins'
+            : 'Buy Goods Till 196853 / Paybill 522533',
+        status: res.request?.status === 'approved' ? 'Active' : 'Pending admin approval',
+      });
+
+      onNotify('success', res.message || 'Subscription request submitted successfully!');
+      await loadVendorData();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to process subscription');
+      console.error('Subscription submission failed:', err);
+
+      let message = err.message || 'Something went wrong. Your payment is safe, please try again.';
+      let code = err.code || 'ERROR';
+      const status = err.status || 500;
+      let canRetry = false;
+
+      if (status === 400 || status === 422) {
+        if (code === 'INVALID_MPESA_CODE' || message.toLowerCase().includes('10-character')) {
+          message = 'Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN';
+        }
+      } else if (status === 409) {
+        if (code === 'DUPLICATE_CODE' || message.toLowerCase().includes('already been submitted')) {
+          message = 'This code has already been submitted and is currently pending or approved.';
+        } else if (code === 'PENDING_REQUEST_EXISTS' || message.toLowerCase().includes('pending review')) {
+          message = 'You already have a subscription payment pending admin review.';
+        } else if (code === 'ACTIVE_CYCLE_EXISTS') {
+          message = err.message || 'Your current 30-day subscription is still active. Upgrade becomes available once this cycle expires.';
+        }
+      } else if (status === 401) {
+        message = 'Session expired. Please sign in again to continue.';
+      } else if (status === 429) {
+        message = 'Too many attempts, try again shortly.';
+      } else {
+        message = 'Something went wrong. Your payment is safe, please try again.';
+        canRetry = true;
+      }
+
+      setSubModalError({
+        field: status === 422 ? 'mpesaCode' : undefined,
+        code,
+        status,
+        message,
+        canRetry,
+      });
+
+      onNotify('error', message);
     } finally {
       setSubmittingSubscription(false);
     }
@@ -215,16 +290,24 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       setLoading(true);
     }
     try {
-      const [prodRes, grpRes, subRes, tiersRes, verifRes] = await Promise.all([
+      const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes] = await Promise.all([
         api.getProducts({ vendorId: currentUser.id }),
         api.getGroups(),
         api.getMerchantSubscriptionCurrent().catch(() => null),
         api.getSubscriptionTiers().catch(() => ({ tiers: [] })),
         api.getMerchantVerificationStatus().catch(() => null),
+        api.getMySubscriptionRequest().catch(() => null),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
       if (subRes) setSubscriptionInfo(subRes);
+      if (myReqRes?.request && myReqRes.request.status === 'pending') {
+        setSubscriptionInfo((prev: any) => ({
+          ...(prev || {}),
+          hasSubscription: Boolean(prev?.hasSubscription || myReqRes.hasActiveSubscription),
+          pendingSubscription: myReqRes.request,
+        }));
+      }
       if (tiersRes?.tiers?.length) setTiersList(tiersRes.tiers);
       if (verifRes) setVerificationInfo(verifRes);
     } catch (err: any) {
@@ -647,175 +730,387 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
-              onClick={() => setIsSubscriptionModalOpen(false)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              onClick={() => {
+                setIsSubscriptionModalOpen(false);
+                setSubModalSuccess(null);
+                setSubModalError(null);
+              }}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="pb-3 border-b border-slate-100 mb-4">
-              <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
-                Buyoll Merchant 30-Day Subscriptions
-              </span>
-              <h3 className="text-base font-extrabold text-slate-900">
-                Choose Your 30-Day Merchant Plan
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Each subscription grants an active 30-day selling window. Upgrade to another tier becomes available once this cycle expires.
-              </p>
-            </div>
-
-            {/* 6 Tiers Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-              {[
-                { id: 'tier_250', name: 'Micro-Merchant', fee: 250, prods: 'Max 2 Products', grps: '2 Groups / Product', desc: 'Caters to very small businesses and solo makers' },
-                { id: 'tier_500', name: 'Growing Merchant', fee: 500, prods: 'Up to 10 Products', grps: '5 Groups / Product', desc: 'Ideal for growing neighborhood retailers' },
-                { id: 'tier_1500', name: 'Pro Merchant', fee: 1500, prods: 'Up to 50 Products', grps: '10 Groups / Product', desc: 'For active retail businesses and popular shops' },
-                { id: 'tier_3500', name: 'Commercial', fee: 3500, prods: 'Up to 100 Products', grps: '30 Groups / Product', desc: 'High capacity volume sales for established stores' },
-                { id: 'tier_7500', name: 'Enterprise Scale', fee: 7500, prods: 'Unlimited Products', grps: '50 Groups / Product', desc: 'Unlimited catalog for major retail distributors' },
-                { id: 'enterprise', name: 'Custom Enterprise', fee: 15000, prods: 'Unlimited Products', grps: 'Up to 100 Groups', desc: 'Custom SLA and limits set by Buyoll Admin' },
-              ].map((tier) => (
-                <div
-                  key={tier.id}
-                  onClick={() => setSelectedTierId(tier.id)}
-                  className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                    selectedTierId === tier.id
-                      ? 'border-[#0E5A3C] bg-emerald-50/60 shadow-xs ring-1 ring-[#0E5A3C]'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-900">{tier.name}</span>
-                    <span className="text-xs font-mono font-bold text-[#0E5A3C]">KSh {tier.fee.toLocaleString()}</span>
-                  </div>
-                  <div className="text-[11px] font-semibold text-emerald-800 mb-1">
-                    {tier.prods} · {tier.grps}
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-tight">{tier.desc}</p>
+            {/* CASE 1: SUCCESS VIEW */}
+            {subModalSuccess ? (
+              <div className="text-center py-6 px-2 sm:px-6">
+                <div className="w-16 h-16 bg-emerald-100 text-[#0E5A3C] rounded-full flex items-center justify-center mx-auto mb-4 shadow-xs">
+                  <CheckCircle2 className="w-10 h-10" />
                 </div>
-              ))}
-            </div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 block mb-1">
+                  Buyoll 30-Day Merchant Plan
+                </span>
+                <h3 className="text-2xl font-black text-slate-900 mb-2">
+                  Request submitted!
+                </h3>
+                <p className="text-xs text-slate-600 max-w-md mx-auto mb-6">
+                  Your 30-day merchant plan request has been logged successfully and routed to Buyoll Admin.
+                </p>
 
-            {/* Payment Method Switcher (Part D) */}
-            <div className="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                Select Payment Method:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setSubPaymentMethod('mpesa_till')}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                    subPaymentMethod === 'mpesa_till'
-                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
-                    <CreditCard className="w-4 h-4 text-emerald-600" />
-                    <span>M-Pesa Till / Paybill</span>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left max-w-md mx-auto mb-6 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500 font-medium">Selected Plan:</span>
+                    <span className="font-extrabold text-slate-900">{subModalSuccess.planName}</span>
                   </div>
-                  <p className="text-[10px] text-slate-500">
-                    Till 196853 or Paybill 522533. Submit code for Admin reconciliation.
-                  </p>
-                </button>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500 font-medium">Amount:</span>
+                    <span className="font-mono font-bold text-[#0E5A3C]">KSh {subModalSuccess.amount.toLocaleString()}</span>
+                  </div>
+                  {subModalSuccess.code && (
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <span className="text-slate-500 font-medium">M-Pesa Code:</span>
+                      <span className="font-mono font-bold uppercase text-slate-900 bg-amber-100 px-2 py-0.5 rounded">
+                        {subModalSuccess.code}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Status:</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      Pending admin approval
+                    </span>
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setSubPaymentMethod('wallet_credit')}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                    subPaymentMethod === 'wallet_credit'
-                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
-                    <Wallet className="w-4 h-4 text-emerald-700" />
-                    <span>Merchant Wallet (KES)</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Operating balance: <b>KSh {(currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0).toLocaleString()}</b>
-                  </p>
-                </button>
+                <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900 max-w-md mx-auto mb-6">
+                  We'll notify you once an admin verifies your payment against M-Pesa statements, usually within a few hours.
+                </div>
 
                 <button
                   type="button"
-                  onClick={() => setSubPaymentMethod('wallet_coins')}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                    subPaymentMethod === 'wallet_coins'
-                      ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
-                      : 'border-slate-200 bg-slate-100/50 hover:bg-white'
-                  }`}
+                  onClick={() => {
+                    setIsSubscriptionModalOpen(false);
+                    setSubModalSuccess(null);
+                  }}
+                  className="w-full max-w-md mx-auto py-3 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer block"
                 >
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
-                    <Coins className="w-4 h-4 text-amber-500" />
-                    <span>Applaud Coins</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Coins balance: <b>{currentUser?.coins || 0} coins</b>
-                  </p>
+                  Done
                 </button>
               </div>
-
-              {subPaymentMethod === 'mpesa_till' && (
-                <div className="space-y-2 pt-2 border-t border-slate-200">
-                  <div className="text-[11px] text-emerald-900 font-medium">
-                    Pay KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} to <b>Buy Goods Till 196853</b> (Buyoll Platform) or <b>Paybill 522533</b> (Acc: code4363).
+            ) : subscriptionInfo?.pendingSubscription ? (
+              /* CASE 2: READ-ONLY PENDING STATE */
+              <div className="py-4 px-2 sm:px-6">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                    <Clock className="w-5 h-5 animate-pulse" />
                   </div>
-                  <input
-                    type="text"
-                    value={subPaymentCode}
-                    onChange={(e) => setSubPaymentCode(e.target.value.toUpperCase())}
-                    placeholder="Enter M-Pesa Transaction Code (e.g. QJL890KN12)"
-                    maxLength={12}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg uppercase focus:ring-2 focus:ring-[#0E5A3C] outline-none"
-                  />
-                  <p className="text-[10px] text-slate-500">
-                    Admin verifies your code against M-Pesa statements and activates your store for 30 days.
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
+                      Verification In Progress
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      Pending Approval
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-5 mb-5 text-xs text-slate-700">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-sm mb-0.5">
+                        Your Subscription Request is Awaiting Admin Verification
+                      </h4>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        You have already submitted a payment code for this store. An admin is reconciling it against Till 196853 and Paybill 522533 statements.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-amber-200/80">
+                    <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase block mb-0.5">Requested Plan</span>
+                      <span className="font-extrabold text-slate-900 text-xs">
+                        {subscriptionInfo.pendingSubscription.planName || subscriptionInfo.pendingSubscription.tierName || 'Growing Merchant'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase block mb-0.5">Amount Expected</span>
+                      <span className="font-mono font-bold text-[#0E5A3C] text-xs">
+                        KSh {Number(subscriptionInfo.pendingSubscription.amountExpected || subscriptionInfo.pendingSubscription.amount || 500).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase block mb-0.5">Payment Method</span>
+                      <span className="font-semibold text-slate-800 text-xs">
+                        {subscriptionInfo.pendingSubscription.paymentMethod === 'wallet'
+                          ? 'Merchant Wallet'
+                          : subscriptionInfo.pendingSubscription.paymentMethod === 'coins'
+                          ? 'Applaud Coins'
+                          : 'Buy Goods Till / Paybill'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-white rounded-lg border border-amber-100">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase block mb-0.5">M-Pesa Transaction Code</span>
+                      <span className="font-mono font-bold uppercase text-slate-900 text-xs bg-amber-100 px-2 py-0.5 rounded">
+                        {subscriptionInfo.pendingSubscription.mpesaCode || subscriptionInfo.pendingSubscription.paymentCode || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 mb-5 leading-relaxed">
+                  💡 <b>No further action needed.</b> Your 30-day selling window will activate immediately once Buyoll Admin confirms the transaction on official M-Pesa statements.
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setIsSubscriptionModalOpen(false)}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg cursor-pointer transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* CASE 3: SELECTION & SUBMISSION FORM */
+              <div>
+                <div className="pb-3 border-b border-slate-100 mb-4">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
+                    Buyoll Merchant 30-Day Subscriptions
+                  </span>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Choose Your 30-Day Merchant Plan
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Each subscription grants an active 30-day selling window. Upgrade to another tier becomes available once this cycle expires.
                   </p>
                 </div>
-              )}
 
-              {subPaymentMethod === 'wallet_credit' && (
-                <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
-                  <p className="text-[11px] text-emerald-900">
-                    KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} will be held in escrow from your Merchant Wallet and submitted to Admin for approval.
-                  </p>
+                {/* 6 Tiers Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  {[
+                    { id: 'tier_250', name: 'Micro-Merchant', fee: 250, prods: 'Max 2 Products', grps: '2 Groups / Product', desc: 'Caters to very small businesses and solo makers' },
+                    { id: 'tier_500', name: 'Growing Merchant', fee: 500, prods: 'Up to 10 Products', grps: '5 Groups / Product', desc: 'Ideal for growing neighborhood retailers' },
+                    { id: 'tier_1500', name: 'Pro Merchant', fee: 1500, prods: 'Up to 50 Products', grps: '10 Groups / Product', desc: 'For active retail businesses and popular shops' },
+                    { id: 'tier_3500', name: 'Commercial', fee: 3500, prods: 'Up to 100 Products', grps: '30 Groups / Product', desc: 'High capacity volume sales for established stores' },
+                    { id: 'tier_7500', name: 'Enterprise Scale', fee: 7500, prods: 'Unlimited Products', grps: '50 Groups / Product', desc: 'Unlimited catalog for major retail distributors' },
+                    { id: 'enterprise', name: 'Custom Enterprise', fee: 15000, prods: 'Unlimited Products', grps: 'Up to 100 Groups', desc: 'Custom SLA and limits set by Buyoll Admin' },
+                  ].map((tier) => (
+                    <div
+                      key={tier.id}
+                      onClick={() => {
+                        setSelectedTierId(tier.id);
+                        setSubModalError(null);
+                      }}
+                      className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                        selectedTierId === tier.id
+                          ? 'border-[#0E5A3C] bg-emerald-50/60 shadow-xs ring-1 ring-[#0E5A3C]'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-1">
+                        <span className="font-bold text-xs text-slate-900">{tier.name}</span>
+                        <span className="text-xs font-mono font-bold text-[#0E5A3C]">KSh {tier.fee.toLocaleString()}</span>
+                      </div>
+                      <div className="text-[11px] font-semibold text-emerald-800 mb-1">
+                        {tier.prods} · {tier.grps}
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-tight">{tier.desc}</p>
+                    </div>
+                  ))}
                 </div>
-              )}
 
-              {subPaymentMethod === 'wallet_coins' && (
-                <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
-                  <p className="text-[11px] text-amber-900">
-                    {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} coins will be held in escrow and submitted to Admin for approval.
-                  </p>
+                {/* Payment Method Switcher */}
+                <div className="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Select Payment Method:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubPaymentMethod('mpesa_till');
+                        setSubModalError(null);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        subPaymentMethod === 'mpesa_till'
+                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                        <CreditCard className="w-4 h-4 text-emerald-600" />
+                        <span>M-Pesa Till / Paybill</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Till 196853 or Paybill 522533. Submit code for Admin reconciliation.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubPaymentMethod('wallet_credit');
+                        setSubModalError(null);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        subPaymentMethod === 'wallet_credit'
+                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                        <Wallet className="w-4 h-4 text-emerald-700" />
+                        <span>Merchant Wallet (KES)</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Operating balance: <b>KSh {(currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0).toLocaleString()}</b>
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubPaymentMethod('wallet_coins');
+                        setSubModalError(null);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        subPaymentMethod === 'wallet_coins'
+                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          : 'border-slate-200 bg-slate-100/50 hover:bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900 mb-0.5">
+                        <Coins className="w-4 h-4 text-amber-500" />
+                        <span>Applaud Coins</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Coins balance: <b>{currentUser?.coins || 0} coins</b>
+                      </p>
+                    </button>
+                  </div>
+
+                  {subPaymentMethod === 'mpesa_till' && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200">
+                      <div className="text-[11px] text-emerald-900 font-medium">
+                        Pay KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} to <b>Buy Goods Till 196853</b> (Buyoll Platform) or <b>Paybill 522533</b> (Acc: code4363).
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          value={subPaymentCode}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                            setSubPaymentCode(val);
+                            setSubCodeTouched(true);
+                            setSubModalError(null);
+                          }}
+                          onBlur={() => setSubCodeTouched(true)}
+                          placeholder="Enter 10-character M-Pesa Code (e.g. QGH7K2L9MN)"
+                          maxLength={10}
+                          className={`w-full px-3.5 py-2.5 text-xs font-mono border rounded-lg uppercase tracking-wider focus:ring-2 focus:ring-[#0E5A3C] outline-none ${
+                            subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode)
+                              ? 'border-rose-400 bg-rose-50/30'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        />
+                        {/* Client-side inline error mirroring the server */}
+                        {subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode) && (
+                          <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span>Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN</span>
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Admin verifies your code against M-Pesa statements and activates your store for 30 days.
+                      </p>
+                    </div>
+                  )}
+
+                  {subPaymentMethod === 'wallet_credit' && (
+                    <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                      <p className="text-[11px] text-emerald-900 font-medium">
+                        KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} will be deducted from your Merchant Wallet and your 30-day plan activated immediately!
+                      </p>
+                    </div>
+                  )}
+
+                  {subPaymentMethod === 'wallet_coins' && (
+                    <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                      <p className="text-[11px] text-amber-900 font-medium">
+                        {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} coins will be deducted from your wallet and your 30-day plan activated immediately!
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsSubscriptionModalOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubscriptionPay}
-                disabled={submittingSubscription}
-                className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                {submittingSubscription
-                  ? 'Processing...'
-                  : subPaymentMethod === 'mpesa_till'
-                  ? 'Submit Code for Admin Approval'
-                  : subPaymentMethod === 'wallet_credit'
-                  ? 'Submit Wallet Payment for Admin Approval'
-                  : 'Submit Coins for Admin Approval'}
-              </button>
-            </div>
+                {/* Inline Error Display (Never Silently Fail) */}
+                {subModalError && (
+                  <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start justify-between gap-3 animate-fadeIn">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">Submission Error</span>
+                        <span>{subModalError.message}</span>
+                      </div>
+                    </div>
+                    {subModalError.canRetry && (
+                      <button
+                        type="button"
+                        onClick={handleSubscriptionPay}
+                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-md flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Retry</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSubscriptionModalOpen(false);
+                      setSubModalError(null);
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubscriptionPay}
+                    disabled={
+                      submittingSubscription ||
+                      (subPaymentMethod === 'mpesa_till' && (!subPaymentCode.trim() || !/^[A-Z0-9]{10}$/.test(subPaymentCode.trim())))
+                    }
+                    className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submittingSubscription ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Submitting...</span>
+                      </>
+                    ) : subPaymentMethod === 'mpesa_till' ? (
+                      'Submit Code for Admin Approval'
+                    ) : subPaymentMethod === 'wallet_credit' ? (
+                      'Pay with Wallet & Activate'
+                    ) : (
+                      'Pay with Coins & Activate'
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
