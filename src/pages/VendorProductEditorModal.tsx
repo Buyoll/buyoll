@@ -380,7 +380,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   <option value="none">Standard Listing (No Promo Badge)</option>
                   <option value="daily">🔥 Daily Flash Promotion</option>
                   <option value="weekly">⭐ Weekly Special Promotion</option>
-                  <option value="monthly">🌟 Monthly Mega Chama Deal</option>
+                  <option value="monthly">🌟 Monthly Mega Group Deal</option>
                 </select>
               </div>
 
@@ -403,7 +403,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             {/* FREE ENTICING BONUS GIFT (small phone, watch, soap, airtime) */}
             <div className="pt-2 border-t border-amber-200/60">
               <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                🎁 Bonus Free Gift Enticement for Chama Buyers (Optional)
+                🎁 Bonus Free Gift Enticement for Group Buyers (Optional)
               </label>
               <input
                 type="text"
@@ -634,7 +634,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Configured Chama Speeds
+                  Configured Group Speeds
                 </h3>
                 <p className="text-[11px] text-slate-500">
                   Define member counts and daily rates buyers can select on the product page.

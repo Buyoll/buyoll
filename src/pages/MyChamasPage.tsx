@@ -83,7 +83,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       );
 
       if (!match) {
-        onNotify('error', 'That Chama code is not valid.');
+        onNotify('error', 'That Group code is not valid.');
         setSubmittingJoin(false);
         return;
       }
@@ -93,7 +93,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       setQuickJoinCode('');
       onNavigate('group', match.id);
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to join Chama');
+      onNotify('error', err.message || 'Failed to join Group');
     } finally {
       setSubmittingJoin(false);
     }

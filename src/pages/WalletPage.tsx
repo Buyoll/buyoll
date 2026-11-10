@@ -72,7 +72,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   // PROMPT 7: Reward Platform Modal State
   const [showPlatformModal, setShowPlatformModal] = useState(false);
   const [platformAmount, setPlatformAmount] = useState(10);
-  const [platformMessage, setPlatformMessage] = useState('Support for Buyoll social fintech & Chama escrow infrastructure');
+  const [platformMessage, setPlatformMessage] = useState('Support for Buyoll social fintech & Group escrow infrastructure');
   const [rewardingPlatform, setRewardingPlatform] = useState(false);
 
   // Active ledger view tab
@@ -251,7 +251,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
         <h2 className="text-lg font-bold text-slate-900 mb-1">Sign in to Access Wallet</h2>
         <p className="text-xs text-slate-500 mb-4">
-          View your store credit balance, rewards, Chama refund requests, and M-Pesa ledger.
+          View your store credit balance, rewards, Group refund requests, and M-Pesa ledger.
         </p>
         <button
           onClick={onOpenAuth}
@@ -329,7 +329,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               KSh {roleBalance.toLocaleString()}
             </div>
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
-              <span>Locked Chama Balance:</span>
+              <span>Locked Group Balance:</span>
               <span className="font-bold text-emerald-800 tabular-nums">
                 KSh {(currentUser.nonWithdrawableBalance || 0).toLocaleString()}
               </span>
@@ -416,7 +416,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             </h2>
           </div>
           <p className="text-xs text-amber-900 mb-4 leading-relaxed">
-            When a Chama slot is vacated due to missed contributions, your historical paid amounts are protected. You can claim a cash M-Pesa refund, convert the full value to store credit, or apply it to an alternate order.
+            When a Group slot is vacated due to missed contributions, your historical paid amounts are protected. You can claim a cash M-Pesa refund, convert the full value to store credit, or apply it to an alternate order.
           </p>
 
           <div className="space-y-3">
@@ -932,7 +932,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   type="text"
                   value={depositNotes}
                   onChange={(e) => setDepositNotes(e.target.value)}
-                  placeholder="e.g. Chama deposit for Solar station"
+                  placeholder="e.g. Group deposit for Solar station"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
                 />
               </div>
@@ -1127,7 +1127,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                     Option C: Apply Value to Alternate Order
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Transfer the credit to join a different Chama group of your choice.
+                    Transfer the credit to join a different Group of your choice.
                   </div>
                 </div>
               </button>

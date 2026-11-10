@@ -186,7 +186,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
 
   // Copy code with formatted share message
   function handleCopyCode(groupName: string, code: string) {
-    const text = `Join my Chama group '${groupName}' on Buyoll using my referral code: ${code}. Note: I will need to confirm I know you, and a moderator will call me to verify your workplace and residence before you're admitted.`;
+    const text = `Join my group '${groupName}' on Buyoll using my referral code: ${code}. Note: I will need to confirm I know you, and a moderator will call me to verify your workplace and residence before you're admitted.`;
     navigator.clipboard.writeText(text);
     onNotify('success', `Referral code ${code} and invite message copied to clipboard!`);
   }
@@ -376,7 +376,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
         cycleType: newGroupCycle,
         rules: newGroupRules.trim(),
       });
-      onNotify('success', `Chama '${res.group.name}' created! You are the first moderator. Your code: ${res.memberCode}`);
+      onNotify('success', `Group '${res.group.name}' created! You are the first moderator. Your code: ${res.memberCode}`);
       setShowCreateModal(false);
       setNewGroupName('');
       setNewGroupDesc('');
@@ -403,7 +403,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </span>
             <h2 className="text-xl font-black tracking-tight">
-              Community Trust Chamas
+              Community Trust Groups
             </h2>
             <span className="px-2.5 py-0.5 bg-emerald-700/80 text-emerald-100 text-[10px] font-black rounded-full uppercase tracking-wider">
               Referral Vetted Only
@@ -429,7 +429,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition-all border border-white/20 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Start a Chama</span>
+            <span>Start a Group</span>
           </button>
         </div>
       </div>
@@ -520,10 +520,10 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
               <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
               <h3 className="text-base font-bold text-slate-900 mb-1">
-                You have not joined any Trust Chama yet
+                You have not joined any Trust Group yet
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto mb-6">
-                Chama groups in this tier are strictly referral-only. Ask an active member for their personal <b className="text-slate-700">CH-XXXX-XXXX</b> member code, or launch your own group to become its first moderator.
+                Group circles in this tier are strictly referral-only. Ask an active member for their personal <b className="text-slate-700">CH-XXXX-XXXX</b> member code, or launch your own group to become its first moderator.
               </p>
               <div className="flex items-center justify-center gap-3">
                 <button
@@ -538,7 +538,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   onClick={() => setShowCreateModal(true)}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl"
                 >
-                  Start New Chama
+                  Start New Group
                 </button>
               </div>
             </div>
@@ -679,7 +679,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          const text = `Join my Chama group '${selectedGroup.name}' on Buyoll using my referral code: ${selectedGroup.myCode}. Note: I will need to confirm I know you, and a moderator will call me to verify your workplace and residence before you're admitted.`;
+                          const text = `Join my group '${selectedGroup.name}' on Buyoll using my referral code: ${selectedGroup.myCode}. Note: I will need to confirm I know you, and a moderator will call me to verify your workplace and residence before you're admitted.`;
                           window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
                         }}
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold rounded-xl border border-emerald-200 transition-colors cursor-pointer"
@@ -719,7 +719,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           {/* 4-Step Process Banner */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-4 text-center">
-              How Joining a Chama Works (4-Step Integrity Protocol)
+              How Joining a Group Works (4-Step Integrity Protocol)
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-center">
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100">
@@ -760,7 +760,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           <form onSubmit={handleJoinSubmit} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div className="pb-3 border-b border-slate-100">
               <h3 className="text-base font-extrabold text-slate-900">
-                Chama Membership Application
+                Group Membership Application
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Every detail is strictly verified with your referring member by phone.
@@ -1565,7 +1565,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">
-                    Start a New Trust Chama
+                    Start a New Trust Group
                   </h3>
                   <p className="text-xs text-slate-500">
                     You will be the first moderator with your own member code.
@@ -1584,14 +1584,14 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Chama Name <span className="text-red-500">*</span>
+                  Group Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="e.g. Westlands Traders Trust Chama"
+                  placeholder="e.g. Westlands Traders Trust Group"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
                 />
               </div>
@@ -1667,7 +1667,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                 disabled={creatingGroup}
                 className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs"
               >
-                {creatingGroup ? 'Creating...' : 'Launch Chama'}
+                {creatingGroup ? 'Creating...' : 'Launch Group'}
               </button>
             </div>
           </form>

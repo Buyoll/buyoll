@@ -116,7 +116,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
               <Activity className="w-4 h-4" />
             </div>
             <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-              Chama Activity Feed
+              Group Activity Feed
             </h3>
             <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-xs rounded-full">
               {activities.length} Events
@@ -160,7 +160,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
                     Financial Transparency Summary
                   </h4>
                   <p className="text-[11px] text-emerald-800/80">
-                    Total member contributions vs. individual goals across {group.size} Chama slots
+                    Total member contributions vs. individual goals across {group.size} Group slots
                   </p>
                 </div>
               </div>
@@ -318,7 +318,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
       {loading ? (
         <div className="py-12 text-center text-slate-400 space-y-2">
           <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#0E5A3C]" />
-          <p className="text-xs font-semibold">Loading Chama live activity log...</p>
+          <p className="text-xs font-semibold">Loading Group live activity log...</p>
         </div>
       ) : filteredActivities.length === 0 ? (
         <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">

@@ -240,7 +240,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
                 <option value="inquiry">General Question</option>
                 <option value="complaint">Complaint / Dispute</option>
                 <option value="feedback">Platform Feedback</option>
-                <option value="general">Chama Guidance</option>
+                <option value="general">Group Guidance</option>
               </select>
             </div>
           </div>

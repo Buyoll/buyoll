@@ -43,7 +43,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     maxProducts: 50,
     maxGroupsPerProduct: 10,
     description: 'For active retail businesses and popular shops.',
-    features: ['Up to 50 products', '10 groups per product', 'Priority Chama matching'],
+    features: ['Up to 50 products', '10 groups per product', 'Priority Group matching'],
   },
   {
     id: 'tier_3500',
@@ -1361,7 +1361,7 @@ prompt2Router.post('/groups/:id/chat-moderated', async (req: Request, res: Respo
 
   if (strikeRec?.isBlacklisted) {
     return res.status(403).json({
-      error: 'You have been blacklisted from Chama chat due to repeated policy violations. You may appeal to Buyoll Admin.',
+      error: 'You have been blacklisted from Group chat due to repeated policy violations. You may appeal to Buyoll Admin.',
       isBlacklisted: true,
       appealAllowed: true,
     });
@@ -1399,7 +1399,7 @@ prompt2Router.post('/groups/:id/chat-moderated', async (req: Request, res: Respo
         isMuted: false,
         isBlacklisted: false,
         lastViolationAt: Date.now(),
-        warnings: [{ reason: 'Offensive or defamatory language detected in Chama chat.', timestamp: Date.now() }],
+        warnings: [{ reason: 'Offensive or defamatory language detected in Group chat.', timestamp: Date.now() }],
       });
     } else {
       strikeRec.strikeCount += 1;

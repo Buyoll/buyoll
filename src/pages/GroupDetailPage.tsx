@@ -68,13 +68,13 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   // Moderator actions modal state
   const [selectedSlotForAction, setSelectedSlotForAction] = useState<GroupSlot | null>(null);
   const [actionType, setActionType] = useState<'moderator' | 'default' | null>(null);
-  const [defaultReason, setDefaultReason] = useState('Missed scheduled Chama contribution');
+  const [defaultReason, setDefaultReason] = useState('Missed scheduled Group contribution');
   const [submittingModAction, setSubmittingModAction] = useState(false);
 
   // Peer-to-Peer Loan state
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [loanRequestAmount, setLoanRequestAmount] = useState<number>(0);
-  const [loanRequestPurpose, setLoanRequestPurpose] = useState('To pay for an arrears (clear missed Chama days)');
+  const [loanRequestPurpose, setLoanRequestPurpose] = useState('To pay for an arrears (clear missed Group days)');
   const [loanRepaymentPeriod, setLoanRepaymentPeriod] = useState<string>('Within 7 Days (Emergency Arrears Catch-up)');
   const [submittingLoanRequest, setSubmittingLoanRequest] = useState(false);
   const [exportingMembers, setExportingMembers] = useState(false);
@@ -88,7 +88,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
   // Member removal modal state (for moderators)
   const [slotToRemove, setSlotToRemove] = useState<GroupSlot | null>(null);
-  const [removeReason, setRemoveReason] = useState('Non-participation in mandatory daily Chama payment');
+  const [removeReason, setRemoveReason] = useState('Non-participation in mandatory daily Group payment');
   const [submittingRemove, setSubmittingRemove] = useState(false);
   const [claimingLender, setClaimingLender] = useState(false);
 
@@ -103,7 +103,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       await api.updateGroupTheme(group.id, nextTheme);
       setGroup((prev) => (prev ? { ...prev, theme: nextTheme } : null));
-      onNotify('success', `Chama group theme switched to ${nextTheme} mode.`);
+      onNotify('success', `Group theme switched to ${nextTheme} mode.`);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to update group theme');
     } finally {
@@ -142,7 +142,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [showAwardCoinsModal, setShowAwardCoinsModal] = useState(false);
   const [selectedAwardRecipientIds, setSelectedAwardRecipientIds] = useState<number[]>([]);
   const [coinsToAward, setCoinsToAward] = useState<number>(5);
-  const [coinAwardNote, setCoinAwardNote] = useState<string>('Applauding great Chama commitment & prompt payments! 🌟');
+  const [coinAwardNote, setCoinAwardNote] = useState<string>('Applauding great Group commitment & prompt payments! 🌟');
   const [submittingCoinAward, setSubmittingCoinAward] = useState(false);
 
   // Moderator Dormant Warning Modal state (Chama Status Engine)
@@ -229,13 +229,13 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       const res = await api.requestPeerLoan(group.id, {
         amount: Number(loanRequestAmount),
-        purpose: loanRequestPurpose.trim() || 'To pay for an arrears (clear missed Chama days)',
+        purpose: loanRequestPurpose.trim() || 'To pay for an arrears (clear missed Group days)',
         repaymentPeriod: loanRepaymentPeriod,
       });
       onNotify('success', res.message);
       setShowLoanModal(false);
       setLoanRequestAmount(0);
-      setLoanRequestPurpose('To pay for an arrears (clear missed Chama days)');
+      setLoanRequestPurpose('To pay for an arrears (clear missed Group days)');
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to submit loan request');
@@ -334,7 +334,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       await api.sendGroupChat(group.id, {
         kind: 'system',
-        text: `🔔 MODERATOR NOTICE: Chama members are seeking optional peer-to-peer installment loans. 3rd-party lenders in this group can review open loan requests below and fund member wallets directly (3% platform commission applies). Loan agreements and repayments are settled manually outside Buyoll.`,
+        text: `🔔 MODERATOR NOTICE: Group members are seeking optional peer-to-peer installment loans. 3rd-party lenders in this group can review open loan requests below and fund member wallets directly (3% platform commission applies). Loan agreements and repayments are settled manually outside Buyoll.`,
       });
       onNotify('success', 'Notification alert sent to group chat and 3rd-party lenders.');
       loadGroup();
@@ -382,7 +382,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       const res = await api.claimGroupLender(group.id);
       setGroup(res.group);
-      onNotify('success', res.message || 'You are now the authorized Third-Party Lender for this Chama group!');
+      onNotify('success', res.message || 'You are now the authorized Third-Party Lender for this Group!');
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to claim group lender desk');
@@ -590,7 +590,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   // PROMPT 3: 3-step slot picking flow with Invite-Only Gate
   function handleDirectJoin(slot: GroupSlot) {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to join this Chama slot.');
+      onNotify('info', 'Please sign in to join this Group slot.');
       onOpenAuth();
       return;
     }
@@ -609,7 +609,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
   async function handleConfirmSlotPick() {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to join this Chama slot.');
+      onNotify('info', 'Please sign in to join this Group slot.');
       onOpenAuth();
       return;
     }
@@ -718,7 +718,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="w-8 h-8 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-sm text-slate-500">Loading Chama details...</p>
+        <p className="text-sm text-slate-500">Loading Group details...</p>
       </div>
     );
   }
@@ -726,7 +726,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   if (error || !group) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
-        <div className="p-4 bg-red-50 text-red-700 rounded-xl mb-4 text-sm">{error || 'Chama not found'}</div>
+        <div className="p-4 bg-red-50 text-red-700 rounded-xl mb-4 text-sm">{error || 'Group not found'}</div>
         <button
           onClick={() => onNavigate('home')}
           className="px-4 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg"
@@ -775,7 +775,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                       type="button"
                       onClick={handleToggleGroupTheme}
                       disabled={togglingTheme}
-                      title={isDarkGroup ? 'Switch this Chama group to Light theme' : 'Switch this Chama group to Dark theme'}
+                      title={isDarkGroup ? 'Switch this Group to Light theme' : 'Switch this Group to Dark theme'}
                       className={`text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 border transition-all cursor-pointer shadow-xs ${
                         isDarkGroup
                           ? 'bg-amber-400 text-slate-950 border-amber-300 hover:bg-amber-300'
@@ -884,7 +884,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     Your Admission Request Has Been Approved by the Moderator!
                   </h4>
                   <p className="text-xs text-emerald-800">
-                    You can now join Slot #{myApprovedInvite.desiredSlot || 'Any Open Slot'} in this Chama. Click on your slot below to activate your rotation!
+                    You can now join Slot #{myApprovedInvite.desiredSlot || 'Any Open Slot'} in this Group. Click on your slot below to activate your rotation!
                   </p>
                 </div>
               </div>
@@ -929,10 +929,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </span>
                   </div>
                   <h4 className="text-sm font-extrabold text-slate-900 mt-0.5">
-                    Join This Chama by Moderator Invitation
+                    Join This Group by Moderator Invitation
                   </h4>
                   <p className="text-xs text-slate-600">
-                    This Chama requires an approved entry code to guarantee member payment commitment. Request an invite or enter your code to claim a slot.
+                    This Group requires an approved entry code to guarantee member payment commitment. Request an invite or enter your code to claim a slot.
                   </p>
                 </div>
               </div>
@@ -966,7 +966,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
               <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
-                Real-Time Chama Broadcast Feed
+                Real-Time Group Broadcast Feed
               </h3>
             </div>
             <span className="text-[11px] font-mono text-emerald-700">
@@ -1087,7 +1087,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               <p className="text-xs text-slate-600 leading-relaxed flex items-center gap-2">
                 <span className="text-base">📢</span>
                 <span>
-                  <b>Group Motivation:</b> All Chama members: maintain scheduled daily contributions! Members lacking behind, please <b>pull up your socks</b> so {currentRecipientName} picks their item on schedule without delay.
+                  <b>Group Motivation:</b> All Group members: maintain scheduled daily contributions! Members lacking behind, please <b>pull up your socks</b> so {currentRecipientName} picks their item on schedule without delay.
                 </span>
               </p>
 
@@ -1478,7 +1478,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               <button
                                 onClick={() => {
                                   setDormantTargetSlot(slot);
-                                  setDormantWarningReason('Unpaid daily Chama contributions exceeding 3 consecutive cycles');
+                                  setDormantWarningReason('Unpaid daily Group contributions exceeding 3 consecutive cycles');
                                   setShowDormantWarningModal(true);
                                 }}
                                 title="Issue Dormant / Missed Payment Warning"
@@ -1494,7 +1494,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               <button
                                 onClick={() => {
                                   setSlotToRemove(slot);
-                                  setRemoveReason('Non-participation in mandatory daily Chama payment');
+                                  setRemoveReason('Non-participation in mandatory daily Group payment');
                                 }}
                                 title="Remove Member for non-payment (Refunds balance to wallet & vacates slot)"
                                 className="flex items-center gap-1 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-[10px] font-bold rounded transition-colors cursor-pointer"
@@ -1545,7 +1545,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <span>P2P Chama Loan Desk</span>
+                    <span>P2P Group Loan Desk</span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase">
                       Optional
                     </span>
@@ -1643,7 +1643,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 mb-3">
-                  Review open loan requests from standard members below. Disburse the external payment, then click <b>Mark as 'Funded'</b> to deposit credit directly to the member's wallet for Chama installment continuity.
+                  Review open loan requests from standard members below. Disburse the external payment, then click <b>Mark as 'Funded'</b> to deposit credit directly to the member's wallet for Group installment continuity.
                 </p>
 
                 {/* 3% Fee Summary Log */}
@@ -1674,7 +1674,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             {loans.length === 0 ? (
               <div className="text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                 <HandCoins className="w-6 h-6 text-slate-300 mx-auto mb-1" />
-                <p className="text-xs text-slate-500">No active loan requests in this Chama group.</p>
+                <p className="text-xs text-slate-500">No active loan requests in this Group.</p>
                 {mySlot && !isThirdPartyLender && currentUser?.role !== 'lender' && (
                   <p className="text-[11px] text-slate-400 mt-1">
                     Need help keeping your slot active? Click "Request Loan" above.
@@ -1881,7 +1881,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           ) : (
             <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-xs">
               <Users className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <h3 className="text-sm font-bold text-slate-900 mb-1">Join this Chama to Contribute</h3>
+              <h3 className="text-sm font-bold text-slate-900 mb-1">Join this Group to Contribute</h3>
               <p className="text-xs text-slate-500 mb-4">
                 Choose an open slot from the list to join and receive this product on your rotation day.
               </p>
@@ -1904,7 +1904,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           {/* Group Chat & Rewards Activity */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col h-[400px]">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Chama Chat & Peer Rewards</h3>
+              <h3 className="text-sm font-bold text-slate-900">Group Chat & Peer Rewards</h3>
               <span className="text-[11px] text-slate-400">Your coins: {currentUser?.coins || 0}</span>
             </div>
 
@@ -2027,7 +2027,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-500">
-              Check out other active Chama products from verified merchants across Kenya.
+              Check out other active Group products from verified merchants across Kenya.
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full shrink-0">
@@ -2129,7 +2129,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-              Moderator action to remove a member for failing to participate in mandatory daily Chama payments.
+              Moderator action to remove a member for failing to participate in mandatory daily Group payments.
             </p>
 
             <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs mb-4">
@@ -2145,7 +2145,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <b>Full Refund to Wallet:</b> The total contributed amount of <b>KSh {(slotToRemove.paidAmount || 0).toLocaleString()}</b> will be automatically refunded to <b>{slotToRemove.userName}'s wallet</b> balance.
                 </li>
                 <li>
-                  <b>Re-entry / Another Group:</b> The removed member can use their refunded wallet money to join another Chama group or start saving immediately.
+                  <b>Re-entry / Another Group:</b> The removed member can use their refunded wallet money to join another Group or start saving immediately.
                 </li>
               </ul>
             </div>
@@ -2158,7 +2158,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 type="text"
                 value={removeReason}
                 onChange={(e) => setRemoveReason(e.target.value)}
-                placeholder="e.g. Non-participation in mandatory daily Chama payment"
+                placeholder="e.g. Non-participation in mandatory daily Group payment"
                 className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
@@ -2299,7 +2299,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   Request P2P Installment Loan
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Apply for funding from third-party lenders in this Chama group
+                  Apply for funding from third-party lenders in this Group
                 </p>
               </div>
             </div>
@@ -2308,7 +2308,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               {/* Member Slot Status Summary */}
               <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1.5 border border-slate-200">
                 <div className="flex justify-between">
-                  <span className="text-slate-600">Your Chama Slot:</span>
+                  <span className="text-slate-600">Your Group Slot:</span>
                   <span className="font-bold text-slate-900">Slot #{mySlot.slotNumber} ({mySlot.userName})</span>
                 </div>
                 <div className="flex justify-between">
@@ -2401,7 +2401,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <option value="Within 7 Days (Emergency Arrears Catch-up)">Within 7 Days (Emergency Arrears Catch-up)</option>
                   <option value="Within 14 Days (Standard Grace Period)">Within 14 Days (Standard Grace Period)</option>
                   <option value="Within 30 Days (1 Month Installment)">Within 30 Days (1 Month Installment)</option>
-                  <option value={`1 Chama Cycle (${group.cycleDays} Days)`}>1 Chama Cycle ({group.cycleDays} Days)</option>
+                  <option value={`1 Group Cycle (${group.cycleDays} Days)`}>1 Group Cycle ({group.cycleDays} Days)</option>
                   <option value="Custom Negotiation with Lender">Custom Negotiation with Lender</option>
                 </select>
               </div>
@@ -2419,23 +2419,23 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="flex flex-col gap-1.5 mb-2">
                   <button
                     type="button"
-                    onClick={() => setLoanRequestPurpose('To pay for an arrears (clear missed Chama days)')}
+                    onClick={() => setLoanRequestPurpose('To pay for an arrears (clear missed Group days)')}
                     className={`text-left p-2 rounded-lg border text-xs transition-colors flex items-center justify-between ${
-                      loanRequestPurpose === 'To pay for an arrears (clear missed Chama days)'
+                      loanRequestPurpose === 'To pay for an arrears (clear missed Group days)'
                         ? 'bg-amber-50 border-amber-300 text-amber-950 font-bold'
                         : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 font-medium'
                     }`}
                   >
-                    <span>🎯 To pay for an arrears (clear missed Chama days)</span>
+                    <span>🎯 To pay for an arrears (clear missed Group days)</span>
                     <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded uppercase">Recommended</span>
                   </button>
 
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setLoanRequestPurpose('Cover upcoming Chama cycle installment payment')}
+                      onClick={() => setLoanRequestPurpose('Cover upcoming Group cycle installment payment')}
                       className={`text-left p-1.5 rounded-lg border text-[11px] truncate transition-colors ${
-                        loanRequestPurpose === 'Cover upcoming Chama cycle installment payment'
+                        loanRequestPurpose === 'Cover upcoming Group cycle installment payment'
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
@@ -2461,7 +2461,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   required
                   value={loanRequestPurpose}
                   onChange={(e) => setLoanRequestPurpose(e.target.value)}
-                  placeholder="e.g. To pay for an arrears (clear missed Chama days)"
+                  placeholder="e.g. To pay for an arrears (clear missed Group days)"
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
                 />
               </div>
@@ -2469,7 +2469,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               {/* Regulatory & Peer Terms Notice */}
               <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] leading-relaxed space-y-1 text-amber-950">
                 <div>⚖️ <b>Notice:</b> Interest rates, repayment schedule, and loan agreements are negotiated and settled manually outside the Buyoll platform.</div>
-                <div>Lender pays an upfront <b>3% platform facilitation fee</b> to Platform Till: <b>196853</b> or Paybill: <b>522533</b> (Acc: <b>4363</b>). Loan proceeds credited to your wallet are locked for Chama contributions and product purchases only.</div>
+                <div>Lender pays an upfront <b>3% platform facilitation fee</b> to Platform Till: <b>196853</b> or Paybill: <b>522533</b> (Acc: <b>4363</b>). Loan proceeds credited to your wallet are locked for Group contributions and product purchases only.</div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -2598,7 +2598,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 mb-4">
                 <span className="font-bold text-slate-900 block">Step 2: External Agreement & Wallet Credit</span>
                 <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Loan terms and repayments are conducted manually outside Buyoll. The principal KSh {principal.toLocaleString()} will be credited directly to {selectedLoanToFund.requesterName}’s wallet as locked loan proceeds (non-withdrawable, strictly for shopping & Chama contributions).
+                  Loan terms and repayments are conducted manually outside Buyoll. The principal KSh {principal.toLocaleString()} will be credited directly to {selectedLoanToFund.requesterName}’s wallet as locked loan proceeds (non-withdrawable, strictly for shopping & Group contributions).
                 </p>
                 <label className="flex items-start gap-2 pt-1 cursor-pointer">
                   <input
@@ -2693,7 +2693,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </div>
                   </div>
                   <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <div className="text-[10px] uppercase font-bold text-slate-500">Active Chama Slots</div>
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Active Group Slots</div>
                     <div className="text-lg font-black text-slate-900 mt-0.5">
                       {statementData.activeSlots.length} slot{statementData.activeSlots.length !== 1 ? 's' : ''}
                     </div>
@@ -2703,7 +2703,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 {/* Dynamic Progress for this Chama */}
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                    Active Chama Obligations & Dynamic Progress
+                    Active Group Obligations & Dynamic Progress
                   </h4>
                   <div className="space-y-2.5">
                     {statementData.activeSlots.map((s, idx) => (
@@ -2868,7 +2868,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="p-3 bg-emerald-50 text-emerald-900 rounded-xl text-xs flex items-start gap-2">
                   <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
                   <span>
-                    Chama rotation is strictly sequential. As Member #{slotPickerTarget.slotNumber}, your delivery is scheduled when cycle round #{slotPickerTarget.slotNumber} is reached!
+                    Group rotation is strictly sequential. As Member #{slotPickerTarget.slotNumber}, your delivery is scheduled when cycle round #{slotPickerTarget.slotNumber} is reached!
                   </span>
                 </div>
 
@@ -2953,7 +2953,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     <span>Slot #{slotPickerTarget.slotNumber} Ready for Activation</span>
                   </div>
                   <p className="text-emerald-900 leading-relaxed">
-                    By clicking "Confirm & Join Slot", you become an active member of this Chama group. You will start making daily contributions of <b>KSh {group.dailyAmount.toLocaleString()}</b> and can begin tracking your progress immediately.
+                    By clicking "Confirm & Join Slot", you become an active member of this Group. You will start making daily contributions of <b>KSh {group.dailyAmount.toLocaleString()}</b> and can begin tracking your progress immediately.
                   </p>
                 </div>
 
@@ -3138,7 +3138,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <form onSubmit={handleSubmitInviteRequest} className="mt-4 space-y-4">
               <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200/80 text-xs text-emerald-950 space-y-1">
                 <span className="font-bold flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-[#0E5A3C]" /> Invite-Only Chama Protection
+                  <Lock className="w-3.5 h-3.5 text-[#0E5A3C]" /> Invite-Only Group Protection
                 </span>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
                   To protect members from missed rotations, store owners & moderators approve applicants before issuing unique entry codes.
@@ -3227,7 +3227,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <Users className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-slate-900">Chama Entry & Invite Requests</h3>
+                  <h3 className="font-extrabold text-sm text-slate-900">Group Entry & Invite Requests</h3>
                   <p className="text-[11px] text-slate-500">
                     Review and admit verified members into {group.name}
                   </p>
@@ -3247,7 +3247,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <Shield className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <p className="text-xs font-bold text-slate-700">No Entry Requests Yet</p>
                   <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
-                    When prospective buyers request to join this Chama, their applications will appear here for your review and approval.
+                    When prospective buyers request to join this Group, their applications will appear here for your review and approval.
                   </p>
                 </div>
               ) : (
@@ -3350,7 +3350,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-[#0E5A3C]" />
-                <h3 className="font-extrabold text-sm text-slate-900">Enter Chama Invite Code</h3>
+                <h3 className="font-extrabold text-sm text-slate-900">Enter Group Invite Code</h3>
               </div>
               <button
                 onClick={() => setShowManualCodeModal(false)}
@@ -3416,7 +3416,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <Coins className="w-5 h-5 text-amber-500" />
                 <div>
                   <h3 className="font-extrabold text-sm text-slate-900">Award Coins to Members & Admin</h3>
-                  <span className="text-[11px] text-slate-500">Applaud active Chama contributors or award platform directly</span>
+                  <span className="text-[11px] text-slate-500">Applaud active Group contributors or award platform directly</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -3580,7 +3580,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   {/* Empty fallback if no other members have joined yet */}
                   {group.slots.filter(s => s.status === 'active' && s.userId && s.userId !== currentUser?.id).length === 0 && currentUser?.id === 1 && (
                     <div className="text-center py-4 text-xs text-slate-400 italic">
-                      No other active members in this Chama yet.
+                      No other active members in this Group yet.
                     </div>
                   )}
                 </div>
@@ -3626,7 +3626,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   type="text"
                   value={coinAwardNote}
                   onChange={(e) => setCoinAwardNote(e.target.value)}
-                  placeholder="e.g. Great consistency in daily Chama contributions!"
+                  placeholder="e.g. Great consistency in daily Group contributions!"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
                 />
               </div>
@@ -3716,7 +3716,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   rows={2}
                   value={dormantWarningReason}
                   onChange={(e) => setDormantWarningReason(e.target.value)}
-                  placeholder="e.g. Unpaid daily Chama contributions exceeding 3 consecutive cycles"
+                  placeholder="e.g. Unpaid daily Group contributions exceeding 3 consecutive cycles"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
                 />
               </div>

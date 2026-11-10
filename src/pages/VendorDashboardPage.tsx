@@ -257,8 +257,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       });
       onNotify('success', `Created ${selectedSpeedSize}-Member Speed Group!`);
       triggerVisualPushAlert({
-        title: '🎉 New Chama Group Launched!',
-        body: `${(currentUser as any)?.businessName || currentUser?.name || 'A merchant'} launched "${selectedProductForGroup.title}" Chama (${selectedSpeedSize} members). Request entry now!`,
+        title: '🎉 New Group Launched!',
+        body: `${(currentUser as any)?.businessName || currentUser?.name || 'A merchant'} launched "${selectedProductForGroup.title}" Group (${selectedSpeedSize} members). Request entry now!`,
         url: `/chama/${res.group.id}`,
         tag: `new-group-${res.group.id}`,
       });
@@ -343,7 +343,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Merchant Portal</h2>
         <p className="text-xs text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-          Sign in or register your merchant store to post genuine verified items, manage Chama rotation orders, and activate 10-day speed groups.
+          Sign in or register your merchant store to post genuine verified items, manage Group rotation orders, and activate 10-day speed groups.
         </p>
         <button
           onClick={() => onNavigate('home')}
@@ -388,7 +388,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500">
-            Manage your catalog, edit pricing and speed configurations, and track Chama orders.
+            Manage your catalog, edit pricing and speed configurations, and track Group orders.
           </p>
         </div>
 
@@ -585,7 +585,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <h3 className="text-sm font-bold text-slate-900 mb-1">No products listed yet</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
-              Add your first genuine product listing with customized Chama speeds and start selling.
+              Add your first genuine product listing with customized Group speeds and start selling.
             </p>
             <button
               onClick={() => {
@@ -1361,11 +1361,11 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 <Users className="w-4 h-4" />
               </div>
               <h3 className="text-base font-extrabold text-slate-900">
-                Launch Speed Chama Group
+                Launch Speed Group
               </h3>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Open a new Chama group for <b>{selectedProductForGroup.title}</b> (KSh {selectedProductForGroup.price.toLocaleString()}) with 1 to 10 member speed options.
+              Open a new Group for <b>{selectedProductForGroup.title}</b> (KSh {selectedProductForGroup.price.toLocaleString()}) with 1 to 10 member speed options.
             </p>
 
             <form onSubmit={handleCreateSpeedGroup} className="space-y-4">

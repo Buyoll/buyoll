@@ -143,9 +143,9 @@ export function addMemberFromApprovedRequest(
     db.userNotifications.unshift({
       id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       userId: applicantUser.id,
-      title: 'Karibu! Your Chama Membership is Approved 🎉',
+      title: 'Karibu! Your Group Membership is Approved 🎉',
       message: `You are now an active member! Your personal referral code is ${code}. Save, borrow, and contribute with trust.`,
-      type: 'chama',
+      type: 'group',
       read: false,
       timestamp: Date.now(),
     });
@@ -159,9 +159,9 @@ export function addMemberFromApprovedRequest(
       db.userNotifications.unshift({
         id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         userId: referrerUser.id,
-        title: 'Referral Admitted to Chama',
-        message: `${request.applicantName}, who you vouched for, has been admitted to the Chama!`,
-        type: 'chama',
+        title: 'Referral Admitted to Group',
+        message: `${request.applicantName}, who you vouched for, has been admitted to the Group!`,
+        type: 'group',
         read: false,
         timestamp: Date.now(),
       });
@@ -275,7 +275,7 @@ chamaTrustRouter.post('/groups', async (req: Request, res: Response) => {
       memberCode: creatorMember.memberCode,
       joinedAt: creatorMember.joinedAt,
     },
-    message: `Chama group "${newGroup.name}" created! You are the moderator. Your referral code is ${creatorCode}.`,
+    message: `Group "${newGroup.name}" created! You are the moderator. Your referral code is ${creatorCode}.`,
   });
 });
 
@@ -337,7 +337,7 @@ chamaTrustRouter.get('/groups/:id', async (req: Request, res: Response) => {
   );
 
   if (!myMem && user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied. You are not a member of this Chama.' });
+    return res.status(403).json({ error: 'Access denied. You are not a member of this Group.' });
   }
 
   const isMod = myMem?.role === 'moderator' || group.moderatorEmails.includes(userEmail) || user.role === 'admin';
@@ -473,7 +473,7 @@ chamaTrustRouter.post('/groups/join-requests', async (req: Request, res: Respons
     (m) => m.groupId === targetGroup.id && m.userEmail.toLowerCase() === userKey && m.status !== 'removed'
   );
   if (alreadyMember) {
-    return res.status(409).json({ error: 'You are already an active member of this Chama.' });
+    return res.status(409).json({ error: 'You are already an active member of this Group.' });
   }
 
   // Prevent duplicate open join requests for this group
@@ -485,7 +485,7 @@ chamaTrustRouter.post('/groups/join-requests', async (req: Request, res: Respons
   );
   if (existingOpenRequest) {
     return res.status(409).json({
-      error: 'You already have a pending join request for this Chama. Please wait for verification.',
+      error: 'You already have a pending join request for this Group. Please wait for verification.',
     });
   }
 
@@ -529,7 +529,7 @@ chamaTrustRouter.post('/groups/join-requests', async (req: Request, res: Respons
     db.userNotifications.unshift({
       id: `notif_${Date.now()}_ref`,
       userId: referrerUser.id,
-      title: 'Someone Used Your Chama Referral Code',
+      title: 'Someone Used Your Group Referral Code',
       message: `${user.name} applied to join "${targetGroup.name}" using your code. Please confirm if you know them.`,
       type: 'group',
       link: '/chamas',
@@ -576,7 +576,7 @@ chamaTrustRouter.get('/groups/join-requests/mine', async (req: Request, res: Res
       return {
         id: r.id,
         groupId: r.groupId,
-        groupName: group?.name || 'Chama Circle',
+        groupName: group?.name || 'Group Circle',
         referrerName: referrer?.userName || 'Member',
         status: r.status,
         referrerConfirmed: r.referrerConfirmed,
@@ -637,7 +637,7 @@ chamaTrustRouter.get('/groups/referrals/pending', async (req: Request, res: Resp
       return {
         id: r.id,
         groupId: r.groupId,
-        groupName: grp?.name || 'Chama Circle',
+        groupName: grp?.name || 'Group Circle',
         applicantName: r.applicantName,
         relationship: r.relationship,
         yearsKnown: r.yearsKnown,
@@ -716,7 +716,7 @@ chamaTrustRouter.post('/groups/join-requests/:rid/referrer-response', async (req
         db.userNotifications.unshift({
           id: `notif_${Date.now()}_mod`,
           userId: u.id,
-          title: `New Chama Vetting Queue: ${request.applicantName}`,
+          title: `New Group Vetting Queue: ${request.applicantName}`,
           message: `${request.applicantName} was confirmed by ${user.name}. Please phone the referrer to complete vetting.`,
           type: 'group',
           link: `/chamas`,
@@ -973,7 +973,7 @@ chamaTrustRouter.post('/groups/:id/join-requests/:rid/reject', async (req: Reque
     db.userNotifications.unshift({
       id: `notif_${Date.now()}_rej`,
       userId: applicantUser.id,
-      title: 'Update on Your Chama Application',
+      title: 'Update on Your Group Application',
       message: `Your request to join "${group.name}" was not approved at this time: ${request.rejectionReason}`,
       type: 'group',
       read: false,

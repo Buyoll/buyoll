@@ -34,7 +34,7 @@ const SUGGESTED_PROMPTS = [
   'What features and specifications does it have?',
   'Is there a discount or promotion available?',
   'Can I buy this using my Buyoll wallet?',
-  'Can I join a Chama group to contribute gradually?',
+  'Can I join a Group to contribute gradually?',
   'Are there free promotional items or gifts?',
   'Can I pay via 1-member speed over 1 to 6 months?',
 ];
@@ -69,7 +69,7 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
       setMessages([
         {
           sender: 'ai',
-          text: `Hello! I am your dedicated Buyoll.ai Assistant for "${product.title}". How can I help you discover its great benefits, specifications, and flexible Chama contribution speeds today?`,
+          text: `Hello! I am your dedicated Buyoll.ai Assistant for "${product.title}". How can I help you discover its great benefits, specifications, and flexible Group contribution speeds today?`,
           timestamp: Date.now(),
         },
       ]);
@@ -97,7 +97,7 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
     } catch (err: any) {
       // Positive fallback
       const bonusText = product.bonusGift ? ` plus you receive an enticing free merchant bonus: ${product.bonusGift}!` : '!';
-      const fallbackAns = `The ${product.title} is an exceptional, high-grade product offering premium durability, outstanding performance, and superb value${bonusText} At only KSh ${product.price.toLocaleString()}, you can acquire it immediately or start saving with our flexible Chama daily contribution speeds. We warmly encourage you to join a group or buy today!`;
+      const fallbackAns = `The ${product.title} is an exceptional, high-grade product offering premium durability, outstanding performance, and superb value${bonusText} At only KSh ${product.price.toLocaleString()}, you can acquire it immediately or start saving with our flexible Group daily contribution speeds. We warmly encourage you to join a group or buy today!`;
       setMessages(prev => [...prev, { sender: 'ai', text: fallbackAns, timestamp: Date.now() }]);
     } finally {
       setLoading(false);
@@ -312,7 +312,7 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
             <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 text-[#0E5A3C] shrink-0 mt-0.5" />
               <div>
-                <b>Buyoll Chama Savings & Solo Speed Breakdown:</b>
+                <b>Buyoll Group Savings & Solo Speed Breakdown:</b>
                 <p className="text-slate-600 mt-0.5">
                   Acquire <b>{product.title}</b> (KSh {product.price.toLocaleString()}) comfortably by choosing any speed from 10 down to 1-member Lipa Mdogomdogo.
                 </p>

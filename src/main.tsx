@@ -57,7 +57,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
               style={{ height: '44px', width: 'auto', margin: '0 auto 16px', display: 'block' }}
             />
             <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 8px' }}>
-              Buyoll Chama Marketplace
+              Buyoll Group Marketplace
             </h2>
             <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5, margin: '0 0 20px' }}>
               The application encountered a rendering issue. Click below to reload.

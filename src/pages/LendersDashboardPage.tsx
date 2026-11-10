@@ -82,7 +82,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
     setClaimingGroupId(groupId);
     try {
       const res = await api.claimGroupLender(groupId);
-      onNotify('success', res.message || 'You have entered this Chama group as the dedicated lender!');
+      onNotify('success', res.message || 'You have entered this Group as the dedicated lender!');
       // Navigate straight to the group page
       onNavigate('group', groupId);
     } catch (err: any) {
@@ -142,14 +142,14 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-bold uppercase tracking-wider mb-3 border border-emerald-500/30">
               <HandCoins className="w-3.5 h-3.5" />
-              <span>Chama Peer-to-Peer Capital Desk</span>
+              <span>Group Peer-to-Peer Capital Desk</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight mb-2">
               Lenders Hub & Group Financing Requests
             </h1>
             <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-              Review individual Chama group financing alerts, enter groups directly, and fund member wallets. 
-              Each Chama group accepts strictly <b>1 lender at a time (first-come, first-served)</b>. 
+              Review individual Group financing alerts, enter groups directly, and fund member wallets. 
+              Each Group accepts strictly <b>1 lender at a time (first-come, first-served)</b>. 
               Lenders pay a mandatory <b>3% platform commission</b> (Platform Till: <b>196853</b>, Paybill: <b>522533</b>, Acc: <b>4363</b>) before loan disbursement console unlocks. Disbursed funds are non-withdrawable. Loan contracts and manual repayments are handled externally.
             </p>
           </div>
@@ -203,7 +203,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
           <div>
             <span className="font-bold text-slate-900 block mb-0.5">Non-Withdrawable Proceeds</span>
             <span className="text-slate-500 leading-normal">
-              Disbursed principal is deposited into member wallet as non-withdrawable funds for shopping/chama only.
+              Disbursed principal is deposited into member wallet as non-withdrawable funds for shopping/group only.
             </span>
           </div>
         </div>
@@ -406,7 +406,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             No loan alerts in this filter
           </h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
-            When standard members in Chama groups request loan support for their daily contributions, their requests appear here with direct group links.
+            When standard members in Groups request loan support for their daily contributions, their requests appear here with direct group links.
           </p>
         </div>
       ) : (
@@ -430,7 +430,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                   {/* Card Header: Group & Status */}
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md">
-                      Chama #{alert.groupId}
+                      Group #{alert.groupId}
                     </span>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
@@ -516,7 +516,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                     onClick={() => onNavigate('group', alert.groupId)}
                     className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
                   >
-                    <span>Deep Link into Chama #{alert.groupId}</span>
+                    <span>Deep Link into Group #{alert.groupId}</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -559,7 +559,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                 <b className="text-slate-900 font-mono">{selectedLoanToFund.requesterPhone || '0722000000'}</b>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Chama Group:</span>
+                <span className="text-slate-500">Group:</span>
                 <span className="text-slate-700">{selectedLoanToFund.groupName}</span>
               </div>
               <div className="h-px bg-slate-200" />
@@ -588,7 +588,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 mb-4 flex items-start gap-2">
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-relaxed">
-                <b>External Repayment Disclaimer:</b> Buyoll provides non-withdrawable shopping and Chama installment credit only. All repayment schedules, interest, and debt collection are arranged and executed manually between you and the borrower off-platform.
+                <b>External Repayment Disclaimer:</b> Buyoll provides non-withdrawable shopping and Group installment credit only. All repayment schedules, interest, and debt collection are arranged and executed manually between you and the borrower off-platform.
               </div>
             </div>
 

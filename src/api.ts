@@ -246,7 +246,7 @@ function getInitialClientDb(): ClientDatabase {
     },
     {
       id: 30,
-      name: 'Grace Wambui (3rd-Party Chama Lender)',
+      name: 'Grace Wambui (3rd-Party Group Lender)',
       phone: '0711223344',
       email: 'grace.lender@buyoll.com',
       role: 'buyer',
@@ -549,7 +549,7 @@ function getInitialClientDb(): ClientDatabase {
       productTitle: 'EcoFlow Portable Solar Power Station (1024Wh / 1800W)',
       productPrice: 68000,
       productImage: './images/solar_power.jpg',
-      name: 'Mwangi Solar Chama',
+      name: 'Mwangi Solar Group',
       size: 10,
       adminId: 3,
       moderators: [3],
@@ -566,7 +566,7 @@ function getInitialClientDb(): ClientDatabase {
           senderId: 3,
           senderName: 'Samuel Mwangi',
           kind: 'system',
-          text: 'Chama started! Member #1 joined and is ready for Day 10.',
+          text: 'Group started! Member #1 joined and is ready for Day 10.',
           timestamp: now - 2 * dayMs,
         },
         {
@@ -597,7 +597,7 @@ function getInitialClientDb(): ClientDatabase {
         code: 'QJK4X8L2PA',
         amount: 6800,
         groupId: 101,
-        groupName: 'Mwangi Solar Chama',
+        groupName: 'Mwangi Solar Group',
         slotNumber: 1,
         productId: 1,
         status: 'approved',
@@ -613,7 +613,7 @@ function getInitialClientDb(): ClientDatabase {
         actorId: 3,
         actorName: 'Samuel Mwangi',
         action: 'GROUP_CREATED',
-        details: 'Created Chama group #101. Joined as Member #1 and moderator. Activated immediately.',
+        details: 'Created Group #101. Joined as Member #1 and moderator. Activated immediately.',
       },
     ],
     nextIds: {
@@ -875,7 +875,7 @@ export const api = {
         password: payload.password.trim(),
         role: cleanRole,
         shopName: cleanRole === 'merchant' ? (payload.shopName || payload.name).trim() : undefined,
-        shopDescription: cleanRole === 'merchant' ? (payload.shopDescription || 'Verified store on Buyoll. Authentic goods with Chama installment plan.').trim() : undefined,
+        shopDescription: cleanRole === 'merchant' ? (payload.shopDescription || 'Verified store on Buyoll. Authentic goods with Group installment plan.').trim() : undefined,
         verified: cleanRole === 'merchant' ? false : undefined,
         credit: cleanRole === 'lender' ? 50000 : 0,
         coins: 100,
@@ -1083,7 +1083,7 @@ export const api = {
       const title = product?.title || 'This product';
       const price = product?.price ? `KSh ${product.price.toLocaleString()}` : 'our unbeatable rate';
       const bonus = product?.bonusGift ? ` plus a free merchant bonus gift: ${product.bonusGift}!` : '!';
-      const positiveAns = `The ${title} is an outstanding, top-tier choice designed for maximum durability, performance, and daily satisfaction${bonus} At only ${price}, you can secure it right now or join an active Chama group (10 down to 1-member Lipa Mdogomdogo) to pay slowly every day. We strongly encourage you to secure your slot today!`;
+      const positiveAns = `The ${title} is an outstanding, top-tier choice designed for maximum durability, performance, and daily satisfaction${bonus} At only ${price}, you can secure it right now or join an active Group (10 down to 1-member Lipa Mdogomdogo) to pay slowly every day. We strongly encourage you to secure your slot today!`;
       const inquiry: ProductAIInquiry = {
         id: `ai_${Date.now()}`,
         userId: user?.id,
@@ -1157,7 +1157,7 @@ export const api = {
     } catch {
       const db = getClientDb();
       const group = db.groups.find(g => g.id === Number(id));
-      if (!group) throw new Error('Chama group not found');
+      if (!group) throw new Error('Group not found');
       return { group };
     }
   },
@@ -1172,7 +1172,7 @@ export const api = {
       if (err.message?.includes('Mandatory speed selection required')) throw err;
       const db = getClientDb();
       const user = getStoredUser();
-      if (!user) throw new Error('You must be signed in to start a Chama group');
+      if (!user) throw new Error('You must be signed in to start a Group');
       if (!data.size || Number(data.size) <= 0) {
         throw new Error('Mandatory speed selection required. Please choose a speed to continue.');
       }
@@ -1215,7 +1215,7 @@ export const api = {
         productTitle: product.title,
         productPrice: product.price,
         productImage: product.images[0] || '',
-        name: data.name?.trim() || `${user.name}’s ${validSpeed.size}-Member Chama`,
+        name: data.name?.trim() || `${user.name}’s ${validSpeed.size}-Member Group`,
         size: validSpeed.size,
         adminId: user.id,
         moderators: [user.id],
@@ -1232,7 +1232,7 @@ export const api = {
             senderId: user.id,
             senderName: user.name,
             kind: 'system',
-            text: `Chama group started! ${user.name} is Member #1 and moderator. Group is active immediately.`,
+            text: `Group started! ${user.name} is Member #1 and moderator. Group is active immediately.`,
             timestamp: Date.now(),
           },
         ],
@@ -1254,9 +1254,9 @@ export const api = {
     } catch {
       const db = getClientDb();
       const user = getStoredUser();
-      if (!user) throw new Error('You must be signed in to join a Chama group');
+      if (!user) throw new Error('You must be signed in to join a Group');
       const group = db.groups.find(g => g.id === Number(id));
-      if (!group) throw new Error('Chama group not found');
+      if (!group) throw new Error('Group not found');
 
       let targetSlot: GroupSlot | undefined;
       if (slotNumber) {
@@ -1265,7 +1265,7 @@ export const api = {
       if (!targetSlot) {
         targetSlot = group.slots.find(s => s.status === 'replacement_eligible') || group.slots.find(s => s.status === 'open');
       }
-      if (!targetSlot) throw new Error('This Chama group is full.');
+      if (!targetSlot) throw new Error('This Group is full.');
 
       targetSlot.userId = user.id;
       targetSlot.userName = user.name;
@@ -1351,7 +1351,7 @@ export const api = {
         amountPaid,
         amountOutstanding: Math.max(0, group.productPrice - amountPaid),
         defaultDate: Date.now(),
-        reason: (reason || 'Missed scheduled Chama contribution').trim(),
+        reason: (reason || 'Missed scheduled Group contribution').trim(),
         replacementStatus: 'available',
         resolutionStatus: 'pending',
       };
@@ -1408,7 +1408,7 @@ export const api = {
           balanceAfter: member.credit,
           type: 'default_conversion',
           referenceId: `REFUND_REMOVE_${group.id}_S${slot.slotNumber}`,
-          note: `Automatic wallet refund of KSh ${paidAmount.toLocaleString()} upon removal from Chama #${group.id} (${group.name}) for non-payment. Usable to join another group.`,
+          note: `Automatic wallet refund of KSh ${paidAmount.toLocaleString()} upon removal from Group #${group.id} (${group.name}) for non-payment. Usable to join another group.`,
           createdAt: Date.now(),
         });
       }
@@ -1807,7 +1807,7 @@ export const api = {
         productImage: grp.productImage,
         amount: data.amount,
         approvedAmount: data.amount,
-        purpose: data.purpose || `To pay for an arrears (clear missed Chama days)`,
+        purpose: data.purpose || `To pay for an arrears (clear missed Group days)`,
         repaymentPeriod: period,
         repaymentDays: data.repaymentDays || 7,
         status: 'open',
@@ -1831,7 +1831,7 @@ export const api = {
       });
 
       saveClientDb(db);
-      return { loan: newLoan, message: 'Peer loan request posted to Chama chat and loan board.' };
+      return { loan: newLoan, message: 'Peer loan request posted to Group chat and loan board.' };
     }
   },
 
@@ -1957,7 +1957,7 @@ export const api = {
         balanceAfter: requester.credit,
         type: 'admin_adjustment',
         referenceId: `P2P_LOAN_${loan.id}`,
-        note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Chama #${groupId} Slot #${loan.slotNumber}. Non-withdrawable; usable for shopping & Chama contributions. Repayment external.`,
+        note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}. Non-withdrawable; usable for shopping & Group contributions. Repayment external.`,
         createdAt: Date.now(),
       });
 
@@ -2048,7 +2048,7 @@ export const api = {
         const product = group ? db.products.find(p => p.id === group.productId) : null;
         return {
           ...loan,
-          productTitle: group?.productTitle || product?.title || 'Chama Product',
+          productTitle: group?.productTitle || product?.title || 'Group Product',
           productImage: group?.productImage || product?.images?.[0] || './images/cookware_set.jpg',
           groupLenderId: group?.lenderId || null,
           groupLenderName: group?.lenderName || null,
@@ -2073,7 +2073,7 @@ export const api = {
       if (!group) throw new Error('Group not found');
 
       if (group.lenderId && group.lenderId !== user.id) {
-        throw new Error(`This Chama group is already served by dedicated lender ${group.lenderName || 'Assigned Lender'}. Groups only accept 1 lender at a time.`);
+        throw new Error(`This Group is already served by dedicated lender ${group.lenderName || 'Assigned Lender'}. Groups only accept 1 lender at a time.`);
       }
 
       group.lenderId = user.id;
@@ -2085,12 +2085,12 @@ export const api = {
         senderId: user.id,
         senderName: user.name,
         kind: 'system',
-        text: `🤝 3rd-Party Lender ${user.name} has officially entered this Chama group as the dedicated lender (1 lender per group limit).`,
+        text: `🤝 3rd-Party Lender ${user.name} has officially entered this Group as the dedicated lender (1 lender per group limit).`,
         timestamp: Date.now(),
       });
 
       saveClientDb(db);
-      return { group, message: `You have entered Chama #${group.id} as the dedicated lender!` };
+      return { group, message: `You have entered Group #${group.id} as the dedicated lender!` };
     }
   },
 
@@ -2230,7 +2230,7 @@ export const api = {
         balanceAfter: dbUser.credit,
         type: 'purchase_deduction',
         referenceId: refCode,
-        note: `Paid Chama Slot #${slot.slotNumber} installment for "${grp.productTitle}" from wallet balance`,
+        note: `Paid Group Slot #${slot.slotNumber} installment for "${grp.productTitle}" from wallet balance`,
         createdAt: Date.now(),
       });
 
@@ -2289,7 +2289,7 @@ export const api = {
           id: p.id,
           date: p.createdAt,
           reference: p.code,
-          type: p.type === 'group_installment' ? 'Chama Installment' : p.type,
+          type: p.type === 'group_installment' ? 'Group Installment' : p.type,
           description: p.groupName ? `${p.groupName} (Slot #${p.slotNumber || 1})` : 'Buyoll Payment',
           credit: p.amount,
           status: p.status,

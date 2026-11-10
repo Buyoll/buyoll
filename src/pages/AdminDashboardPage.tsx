@@ -106,7 +106,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   // Points modal state
   const [pointsUser, setPointsUser] = useState<User | null>(null);
   const [pointsAmount, setPointsAmount] = useState(50);
-  const [pointsReason, setPointsReason] = useState('Faithful Chama contributions & excellent repayment streak');
+  const [pointsReason, setPointsReason] = useState('Faithful Group contributions & excellent repayment streak');
 
   // Moderation state
   const [chatLogs, setChatLogs] = useState<{
@@ -225,7 +225,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       if (chatLogsRes) {
         const recent = chatLogsRes.recentChats || (chatLogsRes.logs || []).map((l: any) => ({
           groupId: l.groupId || 1,
-          groupName: l.groupName || 'Chama Group',
+          groupName: l.groupName || 'Group',
           messageId: l.id || `msg_${l.timestamp}`,
           senderId: l.senderId || 0,
           senderName: l.senderName || 'Member',
@@ -777,7 +777,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Reconcile payments against Till 196853 & Paybill 522533 statements, oversee wallets, manage users, and moderate Chama chats.
+            Reconcile payments against Till 196853 & Paybill 522533 statements, oversee wallets, manage users, and moderate Group chats.
           </p>
         </div>
 
@@ -1263,7 +1263,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <div className="text-2xl font-black text-slate-900 tabular-nums">
                 KSh {walletsData?.summary?.totalCredit?.toLocaleString() || '0'}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">Platform shopping & locked Chama balances</p>
+              <p className="text-[11px] text-slate-500 mt-1">Platform shopping & locked Group balances</p>
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
@@ -1331,7 +1331,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     <th className="py-3 px-4">User Details</th>
                     <th className="py-3 px-4">Role</th>
                     <th className="py-3 px-4">Withdrawable / Shopping Credit</th>
-                    <th className="py-3 px-4">Locked Chama Balance</th>
+                    <th className="py-3 px-4">Locked Group Balance</th>
                     <th className="py-3 px-4">Coins</th>
                     <th className="py-3 px-4">Points</th>
                     <th className="py-3 px-4">Status</th>
@@ -1542,7 +1542,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
               <h3 className="text-xs font-black text-amber-950 uppercase tracking-wider">
-                Chama Group Chat Supervision & Enforcement
+                Group Chat Supervision & Enforcement
               </h3>
               <p className="text-xs text-amber-900 mt-0.5">
                 Inspect group discussions, flag inappropriate content, issue formal warnings, mute disruptive users (`isMuted`), or purge malicious messages.
@@ -1975,12 +1975,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               Type
                             </label>
                             <select
-                              value={card.badge === 'NOTICE' ? 'Notice' : 'Announcement'}
+                              value={card.badge ? (card.badge.charAt(0).toUpperCase() + card.badge.slice(1).toLowerCase()) : 'Announcement'}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'badge', e.target.value.toUpperCase())}
                               className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C] bg-white"
                             >
                               <option value="Announcement">Announcement</option>
                               <option value="Notice">Notice</option>
+                              <option value="Alert">Alert</option>
+                              <option value="Promo">Promo</option>
+                              <option value="Update">Update</option>
                             </select>
                           </div>
                           <div>
@@ -2598,7 +2601,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   <b className="text-xs text-amber-900">Featured Listing Placements</b>
                 </div>
                 <p className="text-xs text-slate-600 leading-normal">
-                  Merchants pay KES 30/day via wallet coins or M-Pesa. Featured items appear in the hero showcase carousel with top priority across Chama searches.
+                  Merchants pay KES 30/day via wallet coins or M-Pesa. Featured items appear in the hero showcase carousel with top priority across Group searches.
                 </p>
               </div>
             </div>
@@ -3227,7 +3230,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 mb-4">
-              Rewarding points directly increases <b>{pointsUser.name}</b>'s credit standing and Chama trustworthiness score.
+              Rewarding points directly increases <b>{pointsUser.name}</b>'s credit standing and Group trustworthiness score.
             </p>
 
             <div className="space-y-4 mb-6">
