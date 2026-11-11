@@ -338,7 +338,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   if (!currentUser) {
     return (
       <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Store className="w-8 h-8" />
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Merchant Portal</h2>
@@ -347,7 +347,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </p>
         <button
           onClick={() => onNavigate('home')}
-          className="px-6 py-2.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+          className="px-6 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
         >
           Explore Public Marketplace
         </button>
@@ -451,7 +451,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-teal-500/10 border-2 border-emerald-600/30 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="px-2 py-0.5 bg-[#0E5A3C] text-white text-[10px] font-black uppercase rounded-full">
+              <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-black uppercase rounded-full">
                 Merchant Subscription (30 Days)
               </span>
               <span className="text-xs font-bold text-amber-800">
@@ -469,7 +469,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           </div>
           <button
             onClick={() => setIsSubscriptionModalOpen(true)}
-            className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors shadow-xs shrink-0 flex items-center gap-2 cursor-pointer"
           >
             <span>Upgrade / Choose Plan</span>
             <ArrowRight className="w-4 h-4" />
@@ -528,7 +528,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 <span>Total Value In Escrow</span>
                 <TrendingUp className="w-4 h-4 text-amber-500" />
               </div>
-              <div className="text-2xl font-black text-[#0E5A3C] tabular-nums">
+              <div className="text-2xl font-black text-[#ff6600] tabular-nums">
                 KSh {totalRevenue.toLocaleString()}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">Released as slots mature</div>
@@ -538,7 +538,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       })()}
 
       {/* FEATURED DEAL HERO SHOWCASE PROMOTION */}
-      <div className="bg-gradient-to-r from-emerald-900 to-[#0E5A3C] rounded-2xl p-6 text-white mb-8 shadow-sm border border-emerald-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-emerald-900 to-[#ff6600] rounded-2xl p-6 text-white mb-8 shadow-sm border border-emerald-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="p-1 bg-amber-400 text-slate-900 rounded-md">
@@ -592,7 +592,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 setEditingProduct(null);
                 setIsEditorOpen(true);
               }}
-              className="px-4 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg"
+              className="px-4 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-lg"
             >
               Post First Product
             </button>
@@ -686,7 +686,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                               setEditingProduct(p);
                               setIsEditorOpen(true);
                             }}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-semibold rounded-lg text-xs"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-semibold rounded-lg text-xs"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Edit Listing</span>
@@ -767,7 +767,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     {/* Progress Bar */}
                     <div className="bg-slate-200 rounded-full h-1.5 w-full mb-1.5 overflow-hidden">
                       <div
-                        className="bg-[#0E5A3C] h-full rounded-full transition-all"
+                        className="bg-[#ff6600] h-full rounded-full transition-all"
                         style={{ width: `${percent}%` }}
                       />
                     </div>
@@ -820,7 +820,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             {/* CASE 1: SUCCESS VIEW */}
             {subModalSuccess ? (
               <div className="text-center py-6 px-2 sm:px-6">
-                <div className="w-16 h-16 bg-emerald-100 text-[#0E5A3C] rounded-full flex items-center justify-center mx-auto mb-4 shadow-xs">
+                <div className="w-16 h-16 bg-emerald-100 text-[#ff6600] rounded-full flex items-center justify-center mx-auto mb-4 shadow-xs">
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 block mb-1">
@@ -840,7 +840,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   </div>
                   <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500 font-medium">Amount:</span>
-                    <span className="font-mono font-bold text-[#0E5A3C]">KSh {subModalSuccess.amount.toLocaleString()}</span>
+                    <span className="font-mono font-bold text-[#ff6600]">KSh {subModalSuccess.amount.toLocaleString()}</span>
                   </div>
                   {subModalSuccess.code && (
                     <div className="flex items-center justify-between pb-2 border-b border-slate-200">
@@ -869,7 +869,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     setIsSubscriptionModalOpen(false);
                     setSubModalSuccess(null);
                   }}
-                  className="w-full max-w-md mx-auto py-3 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer block"
+                  className="w-full max-w-md mx-auto py-3 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer block"
                 >
                   Done
                 </button>
@@ -916,7 +916,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
 
                     <div className="p-2.5 bg-white rounded-lg border border-amber-100">
                       <span className="text-[10px] text-slate-500 font-bold uppercase block mb-0.5">Amount Expected</span>
-                      <span className="font-mono font-bold text-[#0E5A3C] text-xs">
+                      <span className="font-mono font-bold text-[#ff6600] text-xs">
                         KSh {Number(subscriptionInfo.pendingSubscription.amountExpected || subscriptionInfo.pendingSubscription.amount || 500).toLocaleString()}
                       </span>
                     </div>
@@ -959,7 +959,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               /* CASE 3: SELECTION & SUBMISSION FORM */
               <div>
                 <div className="pb-3 border-b border-slate-100 mb-4">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#ff6600] block">
                     Buyoll Merchant 30-Day Subscriptions
                   </span>
                   <h3 className="text-base font-extrabold text-slate-900">
@@ -988,13 +988,13 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       }}
                       className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
                         selectedTierId === tier.id
-                          ? 'border-[#0E5A3C] bg-emerald-50/60 shadow-xs ring-1 ring-[#0E5A3C]'
+                          ? 'border-[#ff6600] bg-emerald-50/60 shadow-xs ring-1 ring-[#ff6600]'
                           : 'border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-start justify-between mb-1">
                         <span className="font-bold text-xs text-slate-900">{tier.name}</span>
-                        <span className="text-xs font-mono font-bold text-[#0E5A3C]">KSh {tier.fee.toLocaleString()}</span>
+                        <span className="text-xs font-mono font-bold text-[#ff6600]">KSh {tier.fee.toLocaleString()}</span>
                       </div>
                       <div className="text-[11px] font-semibold text-emerald-800 mb-1">
                         {tier.prods} · {tier.grps}
@@ -1018,7 +1018,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       }}
                       className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         subPaymentMethod === 'mpesa_till'
-                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          ? 'border-[#ff6600] bg-white ring-2 ring-[#ff6600]/20 shadow-xs'
                           : 'border-slate-200 bg-slate-100/50 hover:bg-white'
                       }`}
                     >
@@ -1039,7 +1039,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       }}
                       className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         subPaymentMethod === 'wallet_credit'
-                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          ? 'border-[#ff6600] bg-white ring-2 ring-[#ff6600]/20 shadow-xs'
                           : 'border-slate-200 bg-slate-100/50 hover:bg-white'
                       }`}
                     >
@@ -1060,7 +1060,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       }}
                       className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         subPaymentMethod === 'wallet_coins'
-                          ? 'border-[#0E5A3C] bg-white ring-2 ring-[#0E5A3C]/20 shadow-xs'
+                          ? 'border-[#ff6600] bg-white ring-2 ring-[#ff6600]/20 shadow-xs'
                           : 'border-slate-200 bg-slate-100/50 hover:bg-white'
                       }`}
                     >
@@ -1092,7 +1092,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                           onBlur={() => setSubCodeTouched(true)}
                           placeholder="Enter 10-character M-Pesa Code (e.g. QGH7K2L9MN)"
                           maxLength={10}
-                          className={`w-full px-3.5 py-2.5 text-xs font-mono border rounded-lg uppercase tracking-wider focus:ring-2 focus:ring-[#0E5A3C] outline-none ${
+                          className={`w-full px-3.5 py-2.5 text-xs font-mono border rounded-lg uppercase tracking-wider focus:ring-2 focus:ring-[#ff6600] outline-none ${
                             subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode)
                               ? 'border-rose-400 bg-rose-50/30'
                               : 'border-slate-300 bg-white'
@@ -1170,7 +1170,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       submittingSubscription ||
                       (subPaymentMethod === 'mpesa_till' && (!subPaymentCode.trim() || !/^[A-Z0-9]{10}$/.test(subPaymentCode.trim())))
                     }
-                    className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submittingSubscription ? (
                       <>
@@ -1205,7 +1205,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             </button>
 
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center">
                 <Shield className="w-4 h-4" />
               </div>
               <div>
@@ -1259,7 +1259,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   value={verifLocation}
                   onChange={(e) => setVerifLocation(e.target.value)}
                   placeholder="e.g. Stall B14, Luthuli Avenue, Nairobi CBD"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#ff6600] outline-none"
                 />
               </div>
 
@@ -1274,7 +1274,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     value={verifLicence}
                     onChange={(e) => setVerifLicence(e.target.value)}
                     placeholder="e.g. NCC-TL-2026-981"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#ff6600] outline-none"
                   />
                 </div>
                 <div>
@@ -1287,7 +1287,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     value={verifNationalId}
                     onChange={(e) => setVerifNationalId(e.target.value)}
                     placeholder="e.g. 29384756"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#ff6600] outline-none"
                   />
                 </div>
               </div>
@@ -1303,7 +1303,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     max={50}
                     value={verifYears}
                     onChange={(e) => setVerifYears(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#ff6600] outline-none"
                   />
                 </div>
                 <div>
@@ -1315,7 +1315,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     value={verifBusinessType}
                     onChange={(e) => setVerifBusinessType(e.target.value)}
                     placeholder="e.g. Electronics & Solar"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] outline-none"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#ff6600] outline-none"
                   />
                 </div>
               </div>
@@ -1335,7 +1335,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingVerification}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
                 >
                   {submittingVerification ? 'Submitting Application...' : 'Submit Verification Request'}
                 </button>
@@ -1388,7 +1388,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                         onClick={() => setSelectedSpeedSize(sz)}
                         className={`p-2.5 rounded-xl border text-center transition-all ${
                           selectedSpeedSize === sz
-                            ? 'border-[#0E5A3C] bg-emerald-50 text-[#0E5A3C] font-black ring-2 ring-[#0E5A3C]/30'
+                            ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600] font-black ring-2 ring-[#ff6600]/30'
                             : 'border-slate-200 hover:border-slate-300 text-slate-700 font-bold'
                         }`}
                       >
@@ -1412,7 +1412,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     onClick={() => setSelectedPaymentMode('merchant')}
                     className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
                       selectedPaymentMode === 'merchant'
-                        ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
+                        ? 'border-[#ff6600] bg-emerald-50/50 shadow-xs'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -1428,7 +1428,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     onClick={() => setSelectedPaymentMode('platform')}
                     className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
                       selectedPaymentMode === 'platform'
-                        ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs'
+                        ? 'border-[#ff6600] bg-emerald-50/50 shadow-xs'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -1453,7 +1453,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingSpeedGroup}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
                 >
                   {submittingSpeedGroup ? 'Opening Group...' : `Launch ${selectedSpeedSize}-Member Speed Group`}
                 </button>

@@ -2,33 +2,129 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
 
+@theme {
+  --color-emerald-50: #fff7ed;
+  --color-emerald-100: #ffedd5;
+  --color-emerald-200: #fed7aa;
+  --color-emerald-300: #fdba74;
+  --color-emerald-400: #fb923c;
+  --color-emerald-500: #ff8000;
+  --color-emerald-600: #ff6600;
+  --color-emerald-700: #ea580c;
+  --color-emerald-800: #c2410c;
+  --color-emerald-900: #9a3412;
+  --color-emerald-950: #431407;
+
+  --color-green-50: #fff7ed;
+  --color-green-100: #ffedd5;
+  --color-green-200: #fed7aa;
+  --color-green-300: #fdba74;
+  --color-green-400: #fb923c;
+  --color-green-500: #ff8000;
+  --color-green-600: #ff6600;
+  --color-green-700: #ea580c;
+  --color-green-800: #c2410c;
+  --color-green-900: #9a3412;
+  --color-green-950: #431407;
+}
+
 :root {
-  --g: #0F5C3A;
-  --gl: #E7F3EC;
-  --o: #F97316;
-  --bg: #F9FAFB;
-  --sf: #FFFFFF;
-  --tx: #111827;
-  --mu: #4B5563;
-  --bd: #E5E7EB;
-  --in: #F3F4F6;
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --text: #333333;
+  --muted: #666666;
+  --line: #e5e5e5;
+  --field: #f5f5f5;
+  --orange: #ff6600;
+  --orange-2: #ff8000;
+  --red: #f91c3f;
+  --red-d: #d9102f;
+  --admin: #7c3aed;
+
+  /* Buyoll legacy variable mapping to Suning palette */
+  --g: #ff6600;
+  --gl: #fff4ec;
+  --o: #ff6600;
+  --sf: #ffffff;
+  --tx: #333333;
+  --mu: #666666;
+  --bd: #e5e5e5;
+  --in: #f5f5f5;
+
   color-scheme: light dark;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141414;
+    --surface: #1e1e1e;
+    --text: #e8e8e8;
+    --muted: #a3a3a3;
+    --line: #333333;
+    --field: #2a2a2a;
+    --admin: #a78bfa;
+    --g: #ff8000;
+    --gl: #2a1608;
+    --o: #ff8000;
+    --sf: #1e1e1e;
+    --tx: #e8e8e8;
+    --mu: #a3a3a3;
+    --bd: #333333;
+    --in: #2a2a2a;
+    color-scheme: dark;
+  }
 }
 
 :root[data-theme="dark"],
 .dark {
-  --g: #4ADE9A;
-  --gl: #12372A;
-  --bg: #0B1210;
-  --sf: #111A17;
-  --tx: #F3F4F6;
-  --mu: #A7B0AB;
-  --bd: #24312C;
-  --in: #1A2622;
+  --bg: #141414;
+  --surface: #1e1e1e;
+  --text: #e8e8e8;
+  --muted: #a3a3a3;
+  --line: #333333;
+  --field: #2a2a2a;
+  --admin: #a78bfa;
+  --g: #ff8000;
+  --gl: #2a1608;
+  --o: #ff8000;
+  --sf: #1e1e1e;
+  --tx: #e8e8e8;
+  --mu: #a3a3a3;
+  --bd: #333333;
+  --in: #2a2a2a;
+  color-scheme: dark;
 }
 
 body {
   background-color: var(--bg);
-  color: var(--tx);
+  color: var(--text);
+  font-family: "IBM Plex Sans", "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Custom Suning Header and Admin Classes */
+[data-admin] {
+  position: relative;
+}
+body.adm [data-admin] {
+  outline: 2px dashed var(--admin);
+  outline-offset: -2px;
+}
+body.adm [data-admin]::after {
+  content: "Admin: " attr(data-admin);
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--admin);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 0 0 4px 0;
+  z-index: 5;
+  pointer-events: none;
+  white-space: nowrap;
 }

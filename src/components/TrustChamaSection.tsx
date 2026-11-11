@@ -396,7 +396,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Header Card */}
-      <div className="bg-gradient-to-r from-emerald-900 via-[#0E5A3C] to-emerald-950 text-white rounded-2xl p-6 shadow-md border border-emerald-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-emerald-900 via-[#ff6600] to-emerald-950 text-white rounded-2xl p-6 shadow-md border border-emerald-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="p-2 bg-amber-400 text-slate-950 rounded-xl font-black">
@@ -440,7 +440,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           type="button"
           onClick={() => setSubTab('my-groups')}
           className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap cursor-pointer ${
-            subTab === 'my-groups' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            subTab === 'my-groups' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -451,7 +451,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           type="button"
           onClick={() => setSubTab('join')}
           className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap cursor-pointer ${
-            subTab === 'join' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            subTab === 'join' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <UserCheck className="w-4 h-4" />
@@ -462,7 +462,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           type="button"
           onClick={() => setSubTab('referrals')}
           className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap cursor-pointer ${
-            subTab === 'referrals' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            subTab === 'referrals' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -479,7 +479,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             type="button"
             onClick={() => setSubTab('queue')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap cursor-pointer ${
-              subTab === 'queue' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+              subTab === 'queue' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <PhoneCall className="w-4 h-4" />
@@ -499,7 +499,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             type="button"
             onClick={() => setSubTab('members')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap cursor-pointer ${
-              subTab === 'members' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+              subTab === 'members' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
@@ -529,7 +529,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                 <button
                   type="button"
                   onClick={() => setSubTab('join')}
-                  className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl"
+                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl"
                 >
                   Enter Member Code
                 </button>
@@ -555,7 +555,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                       onClick={() => setSelectedGroupId(group.id)}
                       className={`p-5 rounded-2xl border transition-all cursor-pointer ${
                         isSelected
-                          ? 'border-[#0E5A3C] bg-emerald-50/20 shadow-sm ring-1 ring-[#0E5A3C]'
+                          ? 'border-[#ff6600] bg-emerald-50/20 shadow-sm ring-1 ring-[#ff6600]'
                           : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
@@ -624,7 +624,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                                 setSelectedGroupId(group.id);
                                 setSubTab('queue');
                               }}
-                              className="px-2.5 py-1 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg"
+                              className="px-2.5 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg"
                             >
                               Vetting Queue
                             </button>
@@ -658,7 +658,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                       <span className="text-[10px] font-semibold text-emerald-800 block mb-1">
                         YOUR EXCLUSIVE INVITE CODE
                       </span>
-                      <div className="font-mono text-xl font-black text-[#0E5A3C] tracking-widest my-1 select-all">
+                      <div className="font-mono text-xl font-black text-[#ff6600] tracking-widest my-1 select-all">
                         {selectedGroup.myCode || 'CH-MEMBER-CODE'}
                       </div>
                       <p className="text-[11px] text-slate-500 mt-1">
@@ -670,7 +670,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => handleCopyCode(selectedGroup.name, selectedGroup.myCode || '')}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         <span>Copy Code & Instructions</span>
@@ -723,7 +723,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-center">
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                <span className="w-6 h-6 rounded-full bg-[#0E5A3C] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
+                <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
                   1
                 </span>
                 <p className="text-xs font-bold text-slate-900">Enter Code</p>
@@ -731,7 +731,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                <span className="w-6 h-6 rounded-full bg-[#0E5A3C] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
+                <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
                   2
                 </span>
                 <p className="text-xs font-bold text-slate-900">Referrer Confirms</p>
@@ -739,7 +739,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                <span className="w-6 h-6 rounded-full bg-[#0E5A3C] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
+                <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
                   3
                 </span>
                 <p className="text-xs font-bold text-slate-900">Phone Vetting</p>
@@ -747,7 +747,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                <span className="w-6 h-6 rounded-full bg-[#0E5A3C] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
+                <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white text-xs font-bold flex items-center justify-center mx-auto mb-1.5">
                   4
                 </span>
                 <p className="text-xs font-bold text-slate-900">Admitted</p>
@@ -778,7 +778,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                 value={applyCode}
                 onChange={(e) => setApplyCode(e.target.value.toUpperCase())}
                 placeholder="e.g. CH-74B9-A12C"
-                className="w-full px-3 py-2.5 text-xs font-mono font-bold uppercase tracking-wider border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C] bg-slate-50"
+                className="w-full px-3 py-2.5 text-xs font-mono font-bold uppercase tracking-wider border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600] bg-slate-50"
               />
               <p className="text-[10px] text-slate-400 mt-1">
                 Obtained directly from an active member of the group you wish to join.
@@ -796,7 +796,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   required
                   value={applicantName}
                   onChange={(e) => setApplicantName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -810,7 +810,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={applicantPhone}
                   onChange={(e) => setApplicantPhone(e.target.value)}
                   placeholder="07XX XXX XXX"
-                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -827,7 +827,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={employer}
                   onChange={(e) => setEmployer(e.target.value)}
                   placeholder="e.g. Safaricom PLC / Nairobi Electronics"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -841,7 +841,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={workplaceAddress}
                   onChange={(e) => setWorkplaceAddress(e.target.value)}
                   placeholder="e.g. Delta Corner Annex, 4th Floor, Westlands"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -858,7 +858,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={residentialAddress}
                   onChange={(e) => setResidentialAddress(e.target.value)}
                   placeholder="e.g. Kilimani, Rose Avenue, House #14"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -872,7 +872,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={residentialLandmark}
                   onChange={(e) => setResidentialLandmark(e.target.value)}
                   placeholder="e.g. Opposite Quickmart Kilimani"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -886,7 +886,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                 <select
                   value={relationship}
                   onChange={(e) => setRelationship(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C] bg-white"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600] bg-white"
                 >
                   <option value="close_friend">Close Personal Friend</option>
                   <option value="coworker">Coworker / Colleague</option>
@@ -907,7 +907,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   required
                   value={yearsKnown}
                   onChange={(e) => setYearsKnown(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -920,7 +920,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   required
                   checked={consentSigned}
                   onChange={(e) => setConsentSigned(e.target.checked)}
-                  className="mt-0.5 rounded text-[#0E5A3C] focus:ring-[#0E5A3C]"
+                  className="mt-0.5 rounded text-[#ff6600] focus:ring-[#ff6600]"
                 />
                 <span className="text-[11px] text-amber-950 leading-relaxed">
                   <b className="font-extrabold text-amber-900 block mb-0.5">Mandatory Verification & Recovery Consent:</b>
@@ -941,7 +941,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               <button
                 type="submit"
                 disabled={submittingApply || !consentSigned}
-                className="px-6 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                className="px-6 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {submittingApply ? 'Verifying & Submitting...' : 'Submit Join Request'}
               </button>
@@ -1022,7 +1022,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                       type="button"
                       disabled={processingRefId === req.id}
                       onClick={() => handleReferralResponse(req.id, 'confirm')}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>Yes, I Know Them Well</span>
@@ -1073,7 +1073,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
 
           {loadingQueue ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-xs text-slate-500">
-              <div className="w-6 h-6 border-2 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <div className="w-6 h-6 border-2 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
               Loading vetting queue...
             </div>
           ) : vettingQueue.length === 0 ? (
@@ -1154,9 +1154,9 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                           <div className="flex items-center gap-2 mt-1">
                             <a
                               href={`tel:${req.referrerPhone}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-emerald-200 text-[#0E5A3C] font-mono font-bold text-xs rounded-lg hover:bg-emerald-100 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-emerald-200 text-[#ff6600] font-mono font-bold text-xs rounded-lg hover:bg-emerald-100 transition-colors"
                             >
-                              <Phone className="w-3 h-3 text-[#0E5A3C]" />
+                              <Phone className="w-3 h-3 text-[#ff6600]" />
                               <span>{req.referrerPhone || 'Call Phone'}</span>
                             </a>
                             <span className="text-[10px] text-slate-500">
@@ -1209,7 +1209,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                           type="button"
                           disabled={isProcessing || !callLogged}
                           onClick={() => handleApproveRequest(req.id)}
-                          className="flex items-center gap-1.5 px-4 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          className="flex items-center gap-1.5 px-4 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" />
                           <span>Approve & Admit Member</span>
@@ -1366,7 +1366,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   required
                   value={callLogModal.phoneCalled}
                   onChange={(e) => setCallLogModal(prev => ({ ...prev, phoneCalled: e.target.value }))}
-                  className="w-full px-3 py-2 font-mono text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 font-mono text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -1377,7 +1377,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                     required
                     checked={callLogModal.spokeWithReferrer}
                     onChange={(e) => setCallLogModal(prev => ({ ...prev, spokeWithReferrer: e.target.checked }))}
-                    className="mt-0.5 rounded text-[#0E5A3C]"
+                    className="mt-0.5 rounded text-[#ff6600]"
                   />
                   <span className="text-[11px] font-semibold text-slate-800">
                     I have spoken directly with the referring member ({callLogModal.request.referrerName}) on the phone
@@ -1390,7 +1390,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                     required
                     checked={callLogModal.confirmedWorkplaceResidence}
                     onChange={(e) => setCallLogModal(prev => ({ ...prev, confirmedWorkplaceResidence: e.target.checked }))}
-                    className="mt-0.5 rounded text-[#0E5A3C]"
+                    className="mt-0.5 rounded text-[#ff6600]"
                   />
                   <span className="text-[11px] font-semibold text-slate-800">
                     The referring member confirmed they personally know the applicant and can identify their workplace or residence if needed
@@ -1407,7 +1407,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={callLogModal.notes}
                   onChange={(e) => setCallLogModal(prev => ({ ...prev, notes: e.target.value }))}
                   placeholder="e.g. Referrer works with applicant at Westlands branch for 4 years; vouched strongly."
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -1423,7 +1423,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               <button
                 type="submit"
                 disabled={callLogModal.submitting || !callLogModal.spokeWithReferrer || !callLogModal.confirmedWorkplaceResidence}
-                className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl disabled:opacity-50"
+                className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl disabled:opacity-50"
               >
                 {callLogModal.submitting ? 'Saving...' : 'Save Call Verification'}
               </button>
@@ -1560,7 +1560,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#0E5A3C] text-white flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-[#ff6600] text-white flex items-center justify-center font-bold">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
@@ -1592,7 +1592,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
                   placeholder="e.g. Westlands Traders Trust Group"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -1605,7 +1605,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   value={newGroupDesc}
                   onChange={(e) => setNewGroupDesc(e.target.value)}
                   placeholder="e.g. Monthly rotational capital pool for verified local shop owners."
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
 
@@ -1621,7 +1621,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                     required
                     value={newGroupAmount}
                     onChange={(e) => setNewGroupAmount(Number(e.target.value))}
-                    className="w-full px-3 py-2 font-mono text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                    className="w-full px-3 py-2 font-mono text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
 
@@ -1632,7 +1632,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   <select
                     value={newGroupCycle}
                     onChange={(e) => setNewGroupCycle(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C] bg-white"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600] bg-white"
                   >
                     <option value="weekly">Weekly</option>
                     <option value="biweekly">Bi-Weekly</option>
@@ -1649,7 +1649,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
                   rows={2}
                   value={newGroupRules}
                   onChange={(e) => setNewGroupRules(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                 />
               </div>
             </div>
@@ -1665,7 +1665,7 @@ export const TrustChamaSection: React.FC<TrustChamaSectionProps> = ({
               <button
                 type="submit"
                 disabled={creatingGroup}
-                className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs"
+                className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 {creatingGroup ? 'Creating...' : 'Launch Group'}
               </button>

@@ -81,7 +81,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
               style={{
                 width: '100%',
                 padding: '12px',
-                background: '#0E5A3C',
+                background: '#ff6600',
                 color: '#FFFFFF',
                 border: 'none',
                 borderRadius: '10px',

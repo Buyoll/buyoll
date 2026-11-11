@@ -725,7 +725,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </p>
         <button
           onClick={() => onNavigate('home')}
-          className="px-5 py-2.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
+          className="px-5 py-2.5 bg-[#ff6600] text-white text-xs font-bold rounded-xl"
         >
           Return to Marketplace
         </button>
@@ -736,7 +736,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   if (loading || !data) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <div className="w-10 h-10 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <div className="w-10 h-10 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-xs font-semibold text-slate-600">Loading Buyoll Admin Control Center...</p>
       </div>
     );
@@ -766,7 +766,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-[#0E5A3C] text-white flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-lg bg-[#ff6600] text-white flex items-center justify-center font-bold">
               <Shield className="w-4 h-4" />
             </div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
@@ -786,7 +786,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             onClick={() => setActiveTab('settings')}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
               activeTab === 'settings'
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
@@ -826,7 +826,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('payments')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'payments' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'payments' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <CreditCard className="w-4 h-4" />
@@ -836,7 +836,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('deposits')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'deposits' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'deposits' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Wallet className="w-4 h-4" />
@@ -846,7 +846,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('wallets')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'wallets' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'wallets' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Download className="w-4 h-4" />
@@ -856,7 +856,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('users')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'users' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'users' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -866,7 +866,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('moderation')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'moderation' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'moderation' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <MessageSquare className="w-4 h-4" />
@@ -876,7 +876,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('refunds')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'refunds' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'refunds' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <RotateCcw className="w-4 h-4" />
@@ -886,7 +886,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('verifications')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'verifications' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'verifications' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Shield className="w-4 h-4" />
@@ -896,7 +896,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('subscriptions')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'subscriptions' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'subscriptions' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Sparkles className="w-4 h-4" />
@@ -906,7 +906,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('featured')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'featured' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'featured' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Tag className="w-4 h-4" />
@@ -916,7 +916,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('announcements')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'announcements' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'announcements' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Megaphone className="w-4 h-4" />
@@ -926,7 +926,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('audit')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors ${
-            activeTab === 'audit' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'audit' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -936,7 +936,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         <button
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
-            activeTab === 'settings' ? 'bg-[#0E5A3C] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'settings' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <KeyRound className="w-4 h-4" />
@@ -1006,7 +1006,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               {new Date(p.createdAt).toLocaleDateString()}
                             </div>
                             {p.groupName && (
-                              <div className="text-[11px] text-[#0E5A3C] font-semibold mt-0.5">
+                              <div className="text-[11px] text-[#ff6600] font-semibold mt-0.5">
                                 {p.groupName} {p.slotNumber ? `(Slot #${p.slotNumber})` : ''}
                               </div>
                             )}
@@ -1093,7 +1093,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               <button
                                 onClick={() => handlePaymentDecision(p.id, 'approve')}
                                 disabled={processingId === p.id}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b462f] text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
+                                className="flex items-center gap-1 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
                               >
                                 <Check className="w-3.5 h-3.5" />
                                 <span>Approve</span>
@@ -1221,7 +1221,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               <button
                                 onClick={() => handleDepositDecision(dep.id, 'approve')}
                                 disabled={processingId === dep.id}
-                                className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50 cursor-pointer"
+                                className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50 cursor-pointer"
                               >
                                 {processingId === dep.id ? 'Crediting...' : 'Approve & Credit'}
                               </button>
@@ -1308,14 +1308,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 value={walletSearch}
                 onChange={(e) => setWalletSearch(e.target.value)}
                 placeholder="Search member by name, phone or role..."
-                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
             </div>
 
             <a
               href="/api/admin/wallets/export-csv"
               download="buyoll_wallets_export.csv"
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b462f] text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
             >
               <Download className="w-4 h-4" />
               <span>Download Wallets CSV</span>
@@ -1393,14 +1393,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
                   placeholder="Search by name, phone, shop..."
-                  className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-xl bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-xl bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               >
                 <option value="all">All Roles</option>
                 <option value="merchant">Merchants</option>
@@ -1492,7 +1492,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         </div>
                         <button
                           onClick={() => setPointsUser(u)}
-                          className="text-[10px] text-[#0E5A3C] hover:underline font-bold mt-0.5 flex items-center gap-0.5"
+                          className="text-[10px] text-[#ff6600] hover:underline font-bold mt-0.5 flex items-center gap-0.5"
                         >
                           <Award className="w-3 h-3" />
                           <span>+ Award Points</span>
@@ -1713,7 +1713,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="p-2 bg-emerald-50 text-[#0E5A3C] rounded-xl">
+                <span className="p-2 bg-emerald-50 text-[#ff6600] rounded-xl">
                   <Megaphone className="w-4 h-4" />
                 </span>
                 <h2 className="text-base font-extrabold text-slate-900">
@@ -1742,7 +1742,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
           {loadingHeroCards && adminHeroCards.length === 0 ? (
             <div className="text-center py-12 text-slate-500 text-xs">
-              <div className="w-8 h-8 border-3 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <div className="w-8 h-8 border-3 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
               Loading Hero Announcement Slots...
             </div>
           ) : (
@@ -1892,7 +1892,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             value={card.title}
                             onChange={(e) => handleCardFieldChange(slotNumber, 'title', e.target.value)}
                             placeholder="e.g. Scheduled System Maintenance"
-                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                           />
                         </div>
 
@@ -1912,7 +1912,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             value={card.message}
                             onChange={(e) => handleCardFieldChange(slotNumber, 'message', e.target.value)}
                             placeholder="e.g. Details regarding this notice..."
-                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                           />
                         </div>
 
@@ -1932,7 +1932,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             value={card.badge}
                             onChange={(e) => handleCardFieldChange(slotNumber, 'badge', e.target.value.toUpperCase())}
                             placeholder="e.g. RULE, MAINTENANCE, POLICY"
-                            className="w-full px-3 py-2 text-xs uppercase font-mono font-bold border border-slate-200 rounded-xl focus:outline-none focus:border-[#0E5A3C]"
+                            className="w-full px-3 py-2 text-xs uppercase font-mono font-bold border border-slate-200 rounded-xl focus:outline-none focus:border-[#ff6600]"
                           />
                         </div>
 
@@ -1977,7 +1977,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             <select
                               value={card.badge ? (card.badge.charAt(0).toUpperCase() + card.badge.slice(1).toLowerCase()) : 'Announcement'}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'badge', e.target.value.toUpperCase())}
-                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C] bg-white"
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#ff6600] bg-white"
                             >
                               <option value="Announcement">Announcement</option>
                               <option value="Notice">Notice</option>
@@ -1994,7 +1994,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               type="date"
                               value={card.startsAt ? new Date(card.startsAt).toISOString().split('T')[0] : ''}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'startsAt', e.target.value ? new Date(e.target.value).getTime() : null)}
-                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#ff6600]"
                             />
                           </div>
                           <div>
@@ -2005,7 +2005,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               type="date"
                               value={card.endsAt ? new Date(card.endsAt).toISOString().split('T')[0] : ''}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'endsAt', e.target.value ? new Date(e.target.value).getTime() : null)}
-                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#ff6600]"
                             />
                           </div>
                         </div>
@@ -2022,7 +2022,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               value={card.ctaLabel || ''}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'ctaLabel', e.target.value)}
                               placeholder="e.g. Read Rules"
-                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#ff6600]"
                             />
                           </div>
                           <div>
@@ -2034,7 +2034,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               value={card.ctaUrl || ''}
                               onChange={(e) => handleCardFieldChange(slotNumber, 'ctaUrl', e.target.value)}
                               placeholder="e.g. /groups"
-                              className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-[#0E5A3C]"
+                              className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-[#ff6600]"
                             />
                           </div>
                         </div>
@@ -2053,7 +2053,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           type="button"
                           onClick={() => handleSaveCard(slotNumber)}
                           disabled={isSaving}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs disabled:opacity-50"
                         >
                           <Save className="w-3.5 h-3.5" />
                           <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
@@ -2315,7 +2315,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           <button
                             onClick={() => handleVerificationDecision(verif.merchantId, 'verify')}
                             disabled={processingId === `dec_${verif.merchantId}`}
-                            className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                            className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Verify (Badge)</span>
@@ -2468,7 +2468,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         <td className="py-3 px-3">
                           <span className="font-semibold text-slate-900">{sub.tierName}</span>
                         </td>
-                        <td className="py-3 px-3 font-mono font-bold text-[#0E5A3C]">
+                        <td className="py-3 px-3 font-mono font-bold text-[#ff6600]">
                           KSh {Number(sub.amount || 0).toLocaleString()}
                         </td>
                         <td className="py-3 px-3">
@@ -2514,7 +2514,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                 <button
                                   onClick={() => handleApproveSubscription(sub.id)}
                                   disabled={processingId === sub.id}
-                                  className="px-3 py-1 bg-[#0E5A3C] hover:bg-[#0a452e] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-3 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                                 >
                                   {processingId === sub.id ? (
                                     <>
@@ -2583,10 +2583,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="px-2 py-0.5 bg-[#0E5A3C] text-white text-[10px] font-black uppercase rounded">
+                  <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-black uppercase rounded">
                     Free
                   </span>
-                  <b className="text-xs text-[#0E5A3C]">System Announcements</b>
+                  <b className="text-xs text-[#ff6600]">System Announcements</b>
                 </div>
                 <p className="text-xs text-slate-600 leading-normal">
                   Free of charge. When posted by admin or merchant, updates fan out automatically to all members' private notification center in their customer portal.
@@ -2831,7 +2831,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           {/* Header Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#E7F3EC] text-[#0F5C3A] flex items-center justify-center font-bold">
+              <div className="w-12 h-12 rounded-2xl bg-[#fff4ec] text-[#ff6600] flex items-center justify-center font-bold">
                 <KeyRound className="w-6 h-6" />
               </div>
               <div>
@@ -2844,7 +2844,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 bg-emerald-100 text-[#0F5C3A] text-xs font-extrabold rounded-full">
+              <span className="px-3 py-1 bg-emerald-100 text-[#ff6600] text-xs font-extrabold rounded-full">
                 Single Platform Administrator
               </span>
             </div>
@@ -2873,7 +2873,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                  <UserCheck className="w-4 h-4 text-[#0E5A3C]" />
+                  <UserCheck className="w-4 h-4 text-[#ff6600]" />
                   <h3 className="text-sm font-bold text-slate-900">Administrator Identity</h3>
                 </div>
 
@@ -2888,7 +2888,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       value={adminName}
                       onChange={(e) => setAdminName(e.target.value)}
                       placeholder="e.g. Buyoll Lead Admin"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                     <p className="text-[11px] text-slate-400 mt-1">
                       Appears on audit records, announcement revisions, and system notices.
@@ -2905,7 +2905,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       value={adminEmail}
                       onChange={(e) => setAdminEmail(e.target.value)}
                       placeholder="e.g. admin@buyoll.com"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                     <p className="text-[11px] text-slate-400 mt-1">
                       Used for signing in to the private administrator portal.
@@ -2916,7 +2916,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     <button
                       type="submit"
                       disabled={savingSettings}
-                      className="w-full py-2.5 px-4 bg-[#0E5A3C] hover:bg-[#0a452d] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="w-full py-2.5 px-4 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       <Save className="w-3.5 h-3.5" />
                       <span>{savingSettings ? 'Saving...' : 'Save Profile Changes'}</span>
@@ -2937,7 +2937,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                  <Lock className="w-4 h-4 text-[#0E5A3C]" />
+                  <Lock className="w-4 h-4 text-[#ff6600]" />
                   <h3 className="text-sm font-bold text-slate-900">Change Password</h3>
                 </div>
 
@@ -2952,7 +2952,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="Enter current password"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                   </div>
 
@@ -2966,7 +2966,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Minimum 6 characters"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
 
                     {/* Live Strength Meter */}
@@ -2998,7 +2998,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Re-enter new password"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                     {confirmPassword && confirmPassword !== newPassword && (
                       <p className="text-[11px] text-red-500 mt-1">Passwords do not match.</p>
@@ -3076,7 +3076,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
+                className="px-5 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-xl"
               >
                 Save Agreed Price
               </button>
@@ -3115,7 +3115,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>Plan requested:</span>
-                <span className="font-bold text-[#0E5A3C]">{subRejectModal.planName}</span>
+                <span className="font-bold text-[#ff6600]">{subRejectModal.planName}</span>
               </div>
             </div>
 
@@ -3190,7 +3190,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   rows={3}
                   value={verificationNotes}
                   onChange={(e) => setVerificationNotes(e.target.value)}
-                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   placeholder="e.g. Physical inventory verified; tax and business permit documentation on file."
                 />
               </div>
@@ -3206,7 +3206,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <button
                 onClick={submitUserVerification}
                 disabled={processingId === verifyingUser.id}
-                className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-xs"
+                className="px-5 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Confirm Verification
               </button>
@@ -3244,7 +3244,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   max="1000"
                   value={pointsAmount}
                   onChange={(e) => setPointsAmount(Number(e.target.value))}
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -3256,7 +3256,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   type="text"
                   value={pointsReason}
                   onChange={(e) => setPointsReason(e.target.value)}
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   placeholder="e.g. Completed 10-day cycle with zero missed contributions."
                 />
               </div>
@@ -3272,7 +3272,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <button
                 onClick={submitAwardPoints}
                 disabled={processingId === pointsUser.id}
-                className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-xs"
+                className="px-5 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Award Points
               </button>

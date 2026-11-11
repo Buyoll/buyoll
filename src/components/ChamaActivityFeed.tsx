@@ -112,7 +112,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-100">
         <div>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center font-bold">
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center font-bold">
               <Activity className="w-4 h-4" />
             </div>
             <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
@@ -152,7 +152,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
           <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-slate-50 border border-emerald-200/80 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-emerald-200/60">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-[#0E5A3C] text-white rounded-lg shadow-xs">
+                <div className="p-1.5 bg-[#ff6600] text-white rounded-lg shadow-xs">
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div>
@@ -166,7 +166,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs font-mono font-black text-[#0E5A3C] bg-white px-2.5 py-1 rounded-full border border-emerald-300 shadow-2xs">
+                <span className="text-xs font-mono font-black text-[#ff6600] bg-white px-2.5 py-1 rounded-full border border-emerald-300 shadow-2xs">
                   {progressPercent}% Complete
                 </span>
               </div>
@@ -178,7 +178,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                   Total Collected
                 </span>
-                <span className="text-base sm:text-lg font-black text-[#0E5A3C] tabular-nums">
+                <span className="text-base sm:text-lg font-black text-[#ff6600] tabular-nums">
                   KSh {totalContributed.toLocaleString()}
                 </span>
                 <span className="text-[10px] text-emerald-700 block mt-0.5">
@@ -227,11 +227,11 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
             <div className="mb-4">
               <div className="flex justify-between items-center text-[11px] mb-1.5 font-bold text-slate-700">
                 <span>Round Delivery Progress</span>
-                <span className="text-[#0E5A3C]">KSh {totalContributed.toLocaleString()} / KSh {groupTarget.toLocaleString()}</span>
+                <span className="text-[#ff6600]">KSh {totalContributed.toLocaleString()} / KSh {groupTarget.toLocaleString()}</span>
               </div>
               <div className="w-full bg-emerald-100/70 rounded-full h-2.5 overflow-hidden">
                 <div
-                  className="bg-gradient-to-r from-[#0E5A3C] to-emerald-500 h-2.5 rounded-full transition-all duration-500 shadow-xs"
+                  className="bg-gradient-to-r from-[#ff6600] to-emerald-500 h-2.5 rounded-full transition-all duration-500 shadow-xs"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -239,9 +239,9 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
 
             {/* Individual Member Contributions vs. Goals Mini-Breakdown */}
             <details className="group/details mt-2">
-              <summary className="text-xs font-bold text-[#0E5A3C] hover:text-emerald-800 cursor-pointer flex items-center justify-between list-none select-none py-1">
+              <summary className="text-xs font-bold text-[#ff6600] hover:text-emerald-800 cursor-pointer flex items-center justify-between list-none select-none py-1">
                 <span>View Member-by-Member Goal Progress ({group.slots.length} slots)</span>
-                <span className="text-[11px] bg-emerald-100 text-[#0E5A3C] px-2 py-0.5 rounded-full group-open/details:rotate-180 transition-transform">
+                <span className="text-[11px] bg-emerald-100 text-[#ff6600] px-2 py-0.5 rounded-full group-open/details:rotate-180 transition-transform">
                   ▼
                 </span>
               </summary>
@@ -305,7 +305,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
             onClick={() => setFilterType(tab.key)}
             className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
               filterType === tab.key
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
             }`}
           >
@@ -317,7 +317,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
       {/* Feed Content */}
       {loading ? (
         <div className="py-12 text-center text-slate-400 space-y-2">
-          <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#0E5A3C]" />
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#ff6600]" />
           <p className="text-xs font-semibold">Loading Group live activity log...</p>
         </div>
       ) : filteredActivities.length === 0 ? (
@@ -333,7 +333,7 @@ export const ChamaActivityFeed: React.FC<ChamaActivityFeedProps> = ({
           {filteredActivities.map((act) => (
             <div key={act.id} className="relative group">
               {/* Timeline Pin Dot */}
-              <div className="absolute -left-6 top-1.5 w-6 h-6 rounded-full bg-white border-2 border-slate-300 group-hover:border-[#0E5A3C] flex items-center justify-center transition-colors shadow-xs">
+              <div className="absolute -left-6 top-1.5 w-6 h-6 rounded-full bg-white border-2 border-slate-300 group-hover:border-[#ff6600] flex items-center justify-center transition-colors shadow-xs">
                 {getActivityIcon(act.type)}
               </div>
 

@@ -255,7 +255,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         </p>
         <button
           onClick={onOpenAuth}
-          className="px-5 py-2.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
+          className="px-5 py-2.5 bg-[#ff6600] text-white text-xs font-bold rounded-xl"
         >
           Sign In / Register
         </button>
@@ -298,7 +298,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
           <button
             onClick={() => setShowDepositModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <ArrowDownLeft className="w-4 h-4" />
             <span>Deposit Funds (M-Pesa)</span>
@@ -323,7 +323,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {roleWalletName} Balance
               </span>
-              <Wallet className="w-5 h-5 text-[#0E5A3C]" />
+              <Wallet className="w-5 h-5 text-[#ff6600]" />
             </div>
             <div className="text-3xl font-black text-slate-900 tabular-nums mb-1">
               KSh {roleBalance.toLocaleString()}
@@ -340,7 +340,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <span className="text-[11px] text-slate-500">Till 196853 / Paybill 522533</span>
             <button
               onClick={() => setShowDepositModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
             >
               <ArrowDownLeft className="w-3.5 h-3.5" />
               <span>+ Deposit Funds</span>
@@ -367,7 +367,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <button
               onClick={handleRedeemPoints}
               disabled={(currentUser.points || 0) < 100}
-              className="px-3 py-1.5 bg-[#0E5A3C] disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-[#ff6600] disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-lg transition-colors"
             >
               Redeem
             </button>
@@ -398,7 +398,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 const depositElem = document.getElementById('coin-deposit-section');
                 if (depositElem) depositElem.scrollIntoView({ behavior: 'smooth' });
               }}
-              className="text-xs font-bold text-[#0E5A3C] hover:underline"
+              className="text-xs font-bold text-[#ff6600] hover:underline"
             >
               + Deposit Coins
             </button>
@@ -497,7 +497,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   }}
                   className={`p-2 rounded-xl text-xs font-bold border transition-colors ${
                     coinAmount === pkg
-                      ? 'border-[#0E5A3C] bg-emerald-50 text-[#0E5A3C]'
+                      ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600]'
                       : 'border-slate-200 hover:border-slate-300 text-slate-700'
                   }`}
                 >
@@ -522,7 +522,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   setCoinAmount(Number(e.target.value));
                   setSelectedPackage(null);
                 }}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
             </div>
 
@@ -536,7 +536,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 value={coinMpesaCode}
                 onChange={(e) => setCoinMpesaCode(e.target.value.toUpperCase())}
                 placeholder="e.g. QJK4X8L2PA"
-                className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
               <span className="text-[10px] text-slate-400 mt-1 block">8 to 12 alphanumeric characters</span>
             </div>
@@ -544,7 +544,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <button
               type="submit"
               disabled={submittingCoin || !coinMpesaCode.trim()}
-              className="w-full py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-xl transition-colors shadow-xs"
+              className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:bg-slate-200 text-white disabled:text-slate-400 text-xs font-bold rounded-xl transition-colors shadow-xs"
             >
               {submittingCoin ? 'Submitting...' : `Deposit ${coinAmount} Coins`}
             </button>
@@ -557,7 +557,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <History className="w-4 h-4 text-[#0E5A3C]" />
+                  <History className="w-4 h-4 text-[#ff6600]" />
                   <span>Statements & History</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -568,7 +568,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowStatementModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs shrink-0"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   <span>Print Statement</span>
@@ -833,7 +833,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center font-bold">
                   <ArrowDownLeft className="w-4 h-4" />
                 </div>
                 <div>
@@ -853,7 +853,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               {/* Payment Details Box */}
               <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1.5 text-emerald-950">
                 <span className="font-bold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[#0E5A3C]" />
+                  <ShieldCheck className="w-4 h-4 text-[#ff6600]" />
                   Pay via M-Pesa Buy Goods Till or Paybill:
                 </span>
                 <div className="font-mono text-[11px] space-y-0.5 bg-white/70 p-2 rounded-lg border border-emerald-100">
@@ -867,7 +867,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   </div>
                   <div className="flex justify-between">
                     <span>Account:</span>
-                    <b className="text-[#0E5A3C]">WALLET-{currentUser.id}</b> or <b>{currentUser.phone}</b>
+                    <b className="text-[#ff6600]">WALLET-{currentUser.id}</b> or <b>{currentUser.phone}</b>
                   </div>
                 </div>
                 <p className="text-[10px] text-emerald-800 leading-relaxed">
@@ -888,7 +888,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                       onClick={() => setDepositAmount(amt)}
                       className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                         depositAmount === amt
-                          ? 'border-[#0E5A3C] bg-emerald-50 text-[#0E5A3C]'
+                          ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600]'
                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -902,7 +902,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   required
                   value={depositAmount}
                   onChange={(e) => setDepositAmount(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] font-mono font-bold"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-mono font-bold"
                   placeholder="Enter exact amount paid"
                 />
               </div>
@@ -919,7 +919,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   value={depositMpesaCode}
                   onChange={(e) => setDepositMpesaCode(e.target.value.toUpperCase())}
                   placeholder="e.g. RJL798K2MN (8-12 alphanumeric characters)"
-                  className="w-full px-3 py-2 text-xs font-mono uppercase tracking-wider border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs font-mono uppercase tracking-wider border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -933,7 +933,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   value={depositNotes}
                   onChange={(e) => setDepositNotes(e.target.value)}
                   placeholder="e.g. Group deposit for Solar station"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -948,7 +948,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingDeposit || !depositMpesaCode.trim() || depositAmount <= 0}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   {submittingDeposit ? 'Processing...' : 'Process Deposit Request'}
                 </button>
@@ -1067,7 +1067,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </button>
             </div>
 
-            <div className="p-3 bg-emerald-50 text-[#0E5A3C] rounded-xl text-xs mb-4">
+            <div className="p-3 bg-emerald-50 text-[#ff6600] rounded-xl text-xs mb-4">
               Verified Paid Amount Eligible for Resolution:{' '}
               <b className="text-sm font-black">KSh {selectedDefault.amountPaid.toLocaleString()}</b>
             </div>
@@ -1081,7 +1081,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               <button
                 onClick={() => handleResolveDefault(selectedDefault.id, 'refund')}
                 disabled={resolving}
-                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-[#0E5A3C] hover:bg-slate-50 transition-all flex items-start gap-3"
+                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-[#ff6600] hover:bg-slate-50 transition-all flex items-start gap-3"
               >
                 <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">
                   A
@@ -1152,7 +1152,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             {/* Modal Header & Actions */}
             <div className="flex items-start justify-between pb-4 border-b border-slate-200 mb-6">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#0E5A3C] text-white flex items-center justify-center font-black text-base shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-[#ff6600] text-white flex items-center justify-center font-black text-base shadow-sm">
                   B
                 </div>
                 <div>
@@ -1200,7 +1200,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Platform Escrow</span>
-                <span className="font-bold text-[#0E5A3C]">196853 / 522533</span>
+                <span className="font-bold text-[#ff6600]">196853 / 522533</span>
               </div>
             </div>
 
@@ -1208,7 +1208,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
                 <span className="text-[11px] font-semibold text-emerald-800 block">Total Approved</span>
-                <span className="text-base font-black text-[#0E5A3C] tabular-nums">
+                <span className="text-base font-black text-[#ff6600] tabular-nums">
                   KSh{' '}
                   {payments
                     .filter(p => p.status === 'approved')

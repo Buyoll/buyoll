@@ -82,11 +82,11 @@ export const PROMO_CONFIG: PromoConfig = {
     },
   ],
   colors: {
-    greenGradient: ['#0b8a3e', '#2fbf62', '#7be39a'],
+    greenGradient: ['#ff6600', '#ff8000', '#ff8000'],
     orange: '#ff8a00',
     orangeLight: '#ffb347',
     white: '#ffffff',
-    backdrop: 'rgba(8, 30, 16, 0.6)',
+    backdrop: 'rgba(0, 0, 0, 0.65)',
   },
 };
 

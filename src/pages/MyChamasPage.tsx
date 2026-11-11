@@ -109,7 +109,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
         </p>
         <button
           onClick={onOpenAuth}
-          className="px-5 py-2.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-xs"
+          className="px-5 py-2.5 bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-xs"
         >
           Sign In
         </button>
@@ -126,7 +126,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
           onClick={() => setActiveTab('product')}
           className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeTab === 'product'
-              ? 'bg-[#0E5A3C] text-white shadow-xs'
+              ? 'bg-[#ff6600] text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -139,7 +139,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
           onClick={() => setActiveTab('trust')}
           className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeTab === 'trust'
-              ? 'bg-[#0E5A3C] text-white shadow-xs'
+              ? 'bg-[#ff6600] text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -183,7 +183,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                 value={quickJoinCode}
                 onChange={(e) => setQuickJoinCode(e.target.value.toUpperCase())}
                 placeholder="Enter Invite / Group Code"
-                className="flex-1 px-3 py-2 text-xs uppercase font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white"
+                className="flex-1 px-3 py-2 text-xs uppercase font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] bg-white"
               />
               <button
                 type="submit"
@@ -214,7 +214,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
               </p>
               <button
                 onClick={() => onNavigate('home')}
-                className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs"
+                className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Browse Announcements
               </button>
@@ -262,7 +262,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                         </div>
                         <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-[#0E5A3C] rounded-full transition-all"
+                            className="h-full bg-[#ff6600] rounded-full transition-all"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
@@ -286,7 +286,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
 
                     <button
                       onClick={() => onNavigate('group', g.id)}
-                      className="w-full py-2.5 bg-slate-900 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 bg-slate-900 hover:bg-[#ff6600] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <span>Open Group Dashboard (Read-Only)</span>
                       <ArrowRight className="w-3.5 h-3.5" />
@@ -311,7 +311,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                 </div>
                 <button
                   onClick={() => onNavigate('home')}
-                  className="text-xs font-bold text-[#0E5A3C] hover:underline"
+                  className="text-xs font-bold text-[#ff6600] hover:underline"
                 >
                   View All Announcements
                 </button>
@@ -337,7 +337,7 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
                         </div>
                         <div className="text-xs text-slate-500 flex justify-between mb-3">
                           <span>Speed: <b>{rg.size} members</b></span>
-                          <span className="text-[#0E5A3C] font-bold">KSh {rg.dailyAmount?.toLocaleString()}/day</span>
+                          <span className="text-[#ff6600] font-bold">KSh {rg.dailyAmount?.toLocaleString()}/day</span>
                         </div>
                       </div>
 

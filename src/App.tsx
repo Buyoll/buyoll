@@ -399,7 +399,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F9FBF9] dark:bg-[#0B1210] text-slate-900 dark:text-[#F3F4F6] font-sans selection:bg-[#0E5A3C] selection:text-white transition-colors duration-200">
+    <div className="min-h-screen flex flex-col bg-[#F9FBF9] dark:bg-[#0B1210] text-slate-900 dark:text-[#F3F4F6] font-sans selection:bg-[#ff6600] selection:text-white transition-colors duration-200">
       {/* Toast Notification */}
       {notification && (
         <div className="fixed top-20 right-4 z-50 max-w-sm w-full animate-in fade-in slide-in-from-top-4 duration-200">
@@ -530,7 +530,7 @@ export default function App() {
             <React.Suspense
               fallback={
                 <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-                  <div className="w-10 h-10 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <div className="w-10 h-10 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                   <p className="text-xs font-semibold text-slate-600">Loading Secure Admin Console...</p>
                 </div>
               }
@@ -581,7 +581,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Home className="w-5 h-5 mb-0.5" />
@@ -589,7 +589,7 @@ export default function App() {
             </button>
             <button
               onClick={() => handleOpenAuth('member')}
-              className="flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium text-[#0E5A3C] dark:text-[#4ADE9A]"
+              className="flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium text-[#ff6600] dark:text-[#ff8000]"
             >
               <Users className="w-5 h-5 mb-0.5" />
               <span>Sign In / Join</span>
@@ -602,7 +602,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Home className="w-5 h-5 mb-0.5" />
@@ -611,7 +611,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('my-chamas')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'my-chamas' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'my-chamas' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Users className="w-5 h-5 mb-0.5" />
@@ -620,10 +620,10 @@ export default function App() {
             <button
               onClick={() => handleNavigate('profile')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'profile' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[9px] font-bold">
                 {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'M'}
               </span>
               <span>Profile</span>
@@ -636,7 +636,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('vendor-dashboard')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'vendor-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'vendor-dashboard' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Store className="w-5 h-5 mb-0.5" />
@@ -645,7 +645,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Home className="w-5 h-5 mb-0.5" />
@@ -654,10 +654,10 @@ export default function App() {
             <button
               onClick={() => handleNavigate('profile')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'profile' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[9px] font-bold">
                 {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'M'}
               </span>
               <span>Profile</span>
@@ -670,7 +670,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('lenders-dashboard')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'lenders-dashboard' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'lenders-dashboard' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Landmark className="w-5 h-5 mb-0.5" />
@@ -679,7 +679,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Home className="w-5 h-5 mb-0.5" />
@@ -688,10 +688,10 @@ export default function App() {
             <button
               onClick={() => handleNavigate('profile')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'profile' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[9px] font-bold">
                 {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'L'}
               </span>
               <span>Profile</span>
@@ -704,7 +704,7 @@ export default function App() {
             <button
               onClick={() => handleNavigate('home')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'home' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'home' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
               <Home className="w-5 h-5 mb-0.5" />
@@ -713,10 +713,10 @@ export default function App() {
             <button
               onClick={() => handleNavigate('profile')}
               className={`flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors ${
-                currentView === 'profile' ? 'text-[#0E5A3C] dark:text-[#4ADE9A] font-bold' : 'text-slate-500 dark:text-slate-400'
+                currentView === 'profile' ? 'text-[#ff6600] dark:text-[#ff8000] font-bold' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#0E5A3C] text-white flex items-center justify-center text-[9px] font-bold">
+              <span className="w-5 h-5 mb-0.5 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[9px] font-bold">
                 {currentUser.name ? currentUser.name.slice(0, 1).toUpperCase() : 'A'}
               </span>
               <span>Profile</span>

@@ -294,14 +294,14 @@ export const HomePage: React.FC<HomePageProps> = ({
           className="mb-5 flex items-center gap-2 flex-wrap text-xs animate-in fade-in duration-150"
         >
           <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5 shrink-0 select-none">
-            <Clock className="w-3.5 h-3.5 text-[#0F5C3A] dark:text-[#4ADE9A]" aria-hidden="true" />
+            <Clock className="w-3.5 h-3.5 text-[#ff6600] dark:text-[#ff8000]" aria-hidden="true" />
             <span>Recent searches:</span>
           </span>
           <div className="flex items-center gap-1.5 flex-wrap">
             {history.map((query) => (
               <div
                 key={query}
-                className="inline-flex items-center gap-1 pl-3 pr-1 py-0.5 bg-slate-100 dark:bg-[#1A2622] hover:bg-[#E7F3EC] dark:hover:bg-[#12372A] text-slate-700 dark:text-slate-300 hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] rounded-full transition-colors border border-slate-200 dark:border-[#24312C] text-xs"
+                className="inline-flex items-center gap-1 pl-3 pr-1 py-0.5 bg-slate-100 dark:bg-[#1A2622] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] text-slate-700 dark:text-slate-300 hover:text-[#ff6600] dark:hover:text-[#ff8000] rounded-full transition-colors border border-slate-200 dark:border-[#24312C] text-xs"
               >
                 <button
                   type="button"
@@ -341,7 +341,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       {/* Guest Welcome & Authentication Prompt Strip (Public Announcements Landing) */}
       {!currentUser && (
-        <div className="bg-gradient-to-r from-emerald-900 via-[#0E5A3C] to-emerald-950 text-white rounded-2xl p-4 sm:p-5 mb-8 shadow-md border border-emerald-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-gradient-to-r from-emerald-900 via-[#ff6600] to-emerald-950 text-white rounded-2xl p-4 sm:p-5 mb-8 shadow-md border border-emerald-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 shadow-sm font-black">
               <Megaphone className="w-5 h-5 text-slate-900" />
@@ -375,7 +375,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         <section className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl sm:rounded-3xl p-5 sm:p-6 mb-8 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#1E2B26] mb-5">
             <div className="flex items-center gap-2.5">
-              <span className="p-2 bg-emerald-50 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] rounded-xl">
+              <span className="p-2 bg-emerald-50 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] rounded-xl">
                 <Bell className="w-4 h-4" />
               </span>
               <div>
@@ -383,7 +383,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                     Announcements & Notices
                   </h2>
-                  <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-extrabold rounded-full uppercase tracking-wider">
+                  <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] text-[10px] font-extrabold rounded-full uppercase tracking-wider">
                     Verified
                   </span>
                 </div>
@@ -499,7 +499,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           id="featured-deals"
           onMouseEnter={() => setIsFeaturedPaused(true)}
           onMouseLeave={() => setIsFeaturedPaused(false)}
-          className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-[#072418] via-[#0E5A3C] to-[#0a422c] text-white p-6 sm:p-10 mb-10 shadow-xl border border-emerald-900/40"
+          className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-[#072418] via-[#ff6600] to-[#ff8000] text-white p-6 sm:p-10 mb-10 shadow-xl border border-emerald-900/40"
         >
           {/* Header Metadata Strip */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-white/10">
@@ -690,7 +690,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <h2 className="text-lg font-bold text-slate-900 tracking-tight">
                   Newly Posted Announcements
                 </h2>
-                <span className="px-2 py-0.5 bg-emerald-100 text-[#0E5A3C] text-[11px] font-bold rounded-full">
+                <span className="px-2 py-0.5 bg-emerald-100 text-[#ff6600] text-[11px] font-bold rounded-full">
                   1-Week Active Window
                 </span>
               </div>
@@ -854,7 +854,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     <div
                       key={`${prod.id}-${idx}`}
                       onClick={() => onSelectProduct(prod.id)}
-                      className="w-64 shrink-0 bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden hover:border-[#0E5A3C] hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                      className="w-64 shrink-0 bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden hover:border-[#ff6600] hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
                     >
                       <div>
                         {/* Image */}
@@ -903,7 +903,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                             )}
                           </div>
 
-                          <div className="text-[11px] text-[#0E5A3C] font-semibold">
+                          <div className="text-[11px] text-[#ff6600] font-semibold">
                             Group: KSh {minDaily.toLocaleString()} / day
                           </div>
                         </div>
@@ -934,7 +934,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {!searchQuery && selectedCategory === 'All' && (
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#0E5A3C] flex items-center justify-center font-black text-sm shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#ff6600] flex items-center justify-center font-black text-sm shrink-0">
               01
             </div>
             <div>
@@ -1019,7 +1019,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       {loading ? (
         <div className="py-20 text-center">
-          <div className="w-8 h-8 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="w-8 h-8 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
           <p className="text-xs text-slate-400">Loading catalog...</p>
         </div>
       ) : products.length === 0 ? (

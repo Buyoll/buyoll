@@ -47,7 +47,7 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
         </p>
         <button
           onClick={() => onNavigate(getRoleHomeRoute(activeRole).view)}
-          className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+          className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
         >
           Go to My Dashboard
         </button>

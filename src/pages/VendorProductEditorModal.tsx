@@ -274,7 +274,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. EcoFlow Portable Solar Power Station"
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
               />
             </div>
 
@@ -285,7 +285,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none bg-white"
               >
                 <option>Appliances</option>
                 <option>Kitchen</option>
@@ -311,7 +311,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 required
                 value={price}
                 onChange={(e) => handlePriceChange(Number(e.target.value))}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
               />
             </div>
 
@@ -333,7 +333,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   }
                 }}
                 placeholder="Optional strike price"
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
               />
             </div>
 
@@ -346,7 +346,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 min="1"
                 value={stockQuantity}
                 onChange={(e) => setStockQuantity(Number(e.target.value))}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
               />
             </div>
           </div>
@@ -375,7 +375,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 <select
                   value={promotionType}
                   onChange={(e) => setPromotionType(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none bg-white"
                 >
                   <option value="none">Standard Listing (No Promo Badge)</option>
                   <option value="daily">🔥 Daily Flash Promotion</option>
@@ -395,7 +395,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   value={promotionDiscount || ''}
                   onChange={(e) => setPromotionDiscount(Number(e.target.value))}
                   placeholder="e.g. 10% off"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none bg-white"
                 />
               </div>
             </div>
@@ -410,7 +410,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 value={bonusGift}
                 onChange={(e) => setBonusGift(e.target.value)}
                 placeholder="e.g. Free Feature Phone, Digital Watch, Multipurpose Soap Set, KSh 500 Airtime"
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none bg-white"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none bg-white"
               />
               <p className="text-[11px] text-slate-500 mt-1">
                 Add cheap enticing items (phone, watch, soap, airtime voucher) that members receive for free to drive rapid sales.
@@ -422,10 +422,10 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
           {!isEditing && (
             <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-[#0E5A3C] uppercase tracking-wide">
+                <label className="text-xs font-bold text-[#ff6600] uppercase tracking-wide">
                   Initial Group Speed (1 to 10 Members)
                 </label>
-                <span className="text-xs font-black text-[#0E5A3C] bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                <span className="text-xs font-black text-[#ff6600] bg-white px-2 py-0.5 rounded-full border border-emerald-200">
                   {launchGroupSpeed} {launchGroupSpeed === 1 ? 'Member (Solo)' : 'Members'}
                 </span>
               </div>
@@ -439,7 +439,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   max="10"
                   value={launchGroupSpeed}
                   onChange={(e) => setLaunchGroupSpeed(Number(e.target.value))}
-                  className="w-full accent-[#0E5A3C]"
+                  className="w-full accent-[#ff6600]"
                 />
               </div>
               <div className="flex justify-between text-[10px] text-slate-400 mt-1">
@@ -461,7 +461,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   Photos ({images.length}/3)
                 </span>
                 {images.length < 3 && (
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0b4830] transition-colors">
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-[#ff6600] text-white text-xs font-bold rounded-lg hover:bg-[#ff8000] transition-colors">
                     <Upload className="w-3.5 h-3.5" />
                     <span>Upload Photo</span>
                     <input
@@ -555,7 +555,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Detailed technical specifications, materials, warranty, and package contents..."
-              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
             />
           </div>
 
@@ -588,14 +588,14 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                     value={attr.key}
                     onChange={(e) => updateAttribute(idx, 'key', e.target.value)}
                     placeholder="Feature (e.g. Warranty)"
-                    className="w-1/3 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                    className="w-1/3 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
                   />
                   <input
                     type="text"
                     value={attr.value}
                     onChange={(e) => updateAttribute(idx, 'value', e.target.value)}
                     placeholder="Value (e.g. 2 Years Replacement)"
-                    className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0E5A3C] focus:outline-none"
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
                   />
                   <button
                     type="button"
@@ -616,7 +616,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                 type="checkbox"
                 checked={isFeatured}
                 onChange={(e) => setIsFeatured(e.target.checked)}
-                className="mt-0.5 rounded text-[#0E5A3C] focus:ring-[#0E5A3C]"
+                className="mt-0.5 rounded text-[#ff6600] focus:ring-[#ff6600]"
               />
               <div>
                 <span className="text-xs font-bold text-slate-900 block">
@@ -726,7 +726,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-1.5 px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? 'Saving to Database...' : 'Save Changes'}</span>

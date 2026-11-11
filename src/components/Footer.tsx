@@ -76,7 +76,7 @@ export const Footer: React.FC<FooterProps> = ({
                       }
                     }}
                   />
-                  <span className="font-extrabold text-[17px] text-[#111827] dark:text-[#F3F4F6] leading-tight group-hover:text-[#0F5C3A] dark:group-hover:text-[#4ADE9A] transition-colors">
+                  <span className="font-extrabold text-[17px] text-[#111827] dark:text-[#F3F4F6] leading-tight group-hover:text-[#ff6600] dark:group-hover:text-[#ff8000] transition-colors">
                     Buyoll Social Fintech Marketplace
                   </span>
                   <svg
@@ -117,9 +117,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => setEarnModal('rider')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="6" cy="16" r="3.5" /><circle cx="18" cy="16" r="3.5" /><path d="M6 16 9 8h4l3 8M13 8l-2-3h-2" />
                     </svg>
                     <span>Become a Rider / Delivery Partner</span>
@@ -132,9 +132,9 @@ export const Footer: React.FC<FooterProps> = ({
                       else if (onNavigate) onNavigate('vendor-dashboard');
                       else setEarnModal('merchant');
                     }}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M4 9 5.5 4h13L20 9M4 9v10h16V9M4 9a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0A2.7 2.7 0 0 0 20 9M10 19v-5h4v5" />
                     </svg>
                     <span>Become a Verified Merchant</span>
@@ -143,9 +143,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => setEarnModal('referral')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6" />
                     </svg>
                     <span>Become a Referral Partner</span>
@@ -157,9 +157,9 @@ export const Footer: React.FC<FooterProps> = ({
                       if (onOpenAuth) onOpenAuth('lender');
                       else onNavigate?.('lenders-dashboard');
                     }}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
                     </svg>
                     <span>Become group lender</span>
@@ -188,9 +188,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => onOpenHelp?.('inquiry')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M4 5h16v11H9l-5 4Z" />
                     </svg>
                     <span>Community Questions &amp; Feed</span>
@@ -199,9 +199,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => onOpenHelp?.('complaint')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="9" /><path d="M12 7.5v5M12 16h.01" />
                     </svg>
                     <span>Complaints &amp; Dispute Feedback</span>
@@ -210,9 +210,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => onOpenHelp?.('faq')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
                     </svg>
                     <span>Frequently Asked Questions (FAQ)</span>
@@ -224,9 +224,9 @@ export const Footer: React.FC<FooterProps> = ({
               </div>
               <a
                 href="mailto:cityandcountyre@gmail.com"
-                className="inline-flex gap-2 items-center text-[#0F5C3A] dark:text-[#4ADE9A] font-semibold text-sm hover:underline break-all"
+                className="inline-flex gap-2 items-center text-[#ff6600] dark:text-[#ff8000] font-semibold text-sm hover:underline break-all"
               >
-                <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
                 </svg>
                 <span>cityandcountyre@gmail.com</span>
@@ -253,9 +253,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => openLegalDoc('Terms & Conditions')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M7 3h7l4 4v14H7ZM14 3v4h4M10 12h5M10 16h5" />
                     </svg>
                     <span>Terms &amp; Conditions</span>
@@ -264,9 +264,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => openLegalDoc('Privacy Policy')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" />
                     </svg>
                     <span>Privacy Policy</span>
@@ -275,9 +275,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => openLegalDoc('Cookie Policy')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 3a9 9 0 1 0 9 9 4 4 0 0 1-4-4 4 4 0 0 1-5-5Z" /><path d="M9 10h.01M13 15h.01M8 15h.01" />
                     </svg>
                     <span>Cookie Policy</span>
@@ -286,9 +286,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => openLegalDoc('Refund & Dispute Policy')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" />
                     </svg>
                     <span>Refund &amp; Dispute Policy</span>
@@ -297,9 +297,9 @@ export const Footer: React.FC<FooterProps> = ({
                 <li>
                   <button
                     onClick={() => openLegalDoc('Group & Lender Agreement')}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#E7F3EC] dark:hover:bg-[#1A2621] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg text-left text-sm text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#fff4ec] dark:hover:bg-[#1A2621] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
                   >
-                    <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 4v16M6 20h12M5 7h14M5 7l-3 7a3 3 0 0 0 6 0Zm14 0-3 7a3 3 0 0 0 6 0Z" />
                     </svg>
                     <span>Group &amp; Lender Agreement</span>
@@ -314,7 +314,7 @@ export const Footer: React.FC<FooterProps> = ({
           {/* Section: Transparent Manual Payments */}
           <details className="mt-6 border border-[#E5E7EB] dark:border-[#24312C] rounded-xl bg-[#F9FAFB] dark:bg-[#15201C] group" open>
             <summary className="list-none cursor-pointer flex items-center gap-2.5 p-3.5 sm:p-4 font-bold text-sm text-[#111827] dark:text-[#F3F4F6]">
-              <svg className="w-[18px] h-[18px] shrink-0 text-[#0F5C3A] dark:text-[#4ADE9A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" /><path d="m9 12 2 2 4-4" />
               </svg>
               <span>Transparent Manual Payments</span>
@@ -361,7 +361,7 @@ export const Footer: React.FC<FooterProps> = ({
             <nav aria-label="Help and Legal" className="flex items-center gap-4 sm:gap-6 flex-wrap">
               <button
                 onClick={() => onOpenHelp?.('faq')}
-                className="font-bold text-[#0F5C3A] dark:text-[#4ADE9A] hover:underline transition-colors flex items-center gap-1.5"
+                className="font-bold text-[#ff6600] dark:text-[#ff8000] hover:underline transition-colors flex items-center gap-1.5"
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
@@ -370,19 +370,19 @@ export const Footer: React.FC<FooterProps> = ({
               </button>
               <button
                 onClick={() => openLegalDoc('Terms & Conditions')}
-                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
               >
                 Terms
               </button>
               <button
                 onClick={() => openLegalDoc('Privacy Policy')}
-                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
               >
                 Privacy
               </button>
               <button
                 onClick={() => openLegalDoc('Cookie Policy')}
-                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#0F5C3A] dark:hover:text-[#4ADE9A] transition-colors"
+                className="text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors"
               >
                 Cookies
               </button>
@@ -492,7 +492,7 @@ export const Footer: React.FC<FooterProps> = ({
               </button>
               <a
                 href="mailto:cityandcountyre@gmail.com?subject=Buyoll%20Inquiry"
-                className="px-4 py-2 bg-[#0F5C3A] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
+                className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs"
               >
                 Contact Support
               </a>

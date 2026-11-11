@@ -102,7 +102,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
       <div className="bg-white rounded-2xl max-w-2xl w-full flex flex-col shadow-2xl my-auto overflow-hidden border border-slate-200 max-h-[92vh]">
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-950 via-[#0E5A3C] to-slate-900 text-white p-4 sm:p-5 flex items-center justify-between gap-3 shrink-0">
+        <div className="bg-gradient-to-r from-emerald-950 via-[#ff6600] to-slate-900 text-white p-4 sm:p-5 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20">
               <HelpCircle className="w-5 h-5 text-amber-300" />
@@ -128,8 +128,8 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
         {/* Top Info Banner with Email & Manual Payment Destination */}
         <div className="p-3 bg-slate-50 border-b border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
-            <Mail className="w-4 h-4 text-[#0E5A3C] shrink-0" />
-            <span>Support Email: <a href="mailto:cityandcountyre@gmail.com" className="font-mono font-bold text-[#0E5A3C] hover:underline">cityandcountyre@gmail.com</a></span>
+            <Mail className="w-4 h-4 text-[#ff6600] shrink-0" />
+            <span>Support Email: <a href="mailto:cityandcountyre@gmail.com" className="font-mono font-bold text-[#ff6600] hover:underline">cityandcountyre@gmail.com</a></span>
           </div>
           <div className="text-[11px] text-slate-500">
             Platform Till: <b className="font-mono text-slate-900">196853</b> · Paybill: <b className="font-mono text-slate-900">522533</b> (Acc: <b>4363</b>)
@@ -167,7 +167,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search help feed..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
             />
           </div>
         </div>
@@ -176,7 +176,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 min-h-[240px] max-h-[38vh] bg-slate-50/40">
           {loading ? (
             <div className="py-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
-              <RefreshCw className="w-4 h-4 animate-spin text-[#0E5A3C]" />
+              <RefreshCw className="w-4 h-4 animate-spin text-[#ff6600]" />
               <span>Loading questions...</span>
             </div>
           ) : filteredMessages.length === 0 ? (
@@ -205,7 +205,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
 
                 {msg.adminReply ? (
                   <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 text-emerald-950 mt-2">
-                    <div className="flex items-center gap-1 text-[11px] font-bold text-[#0E5A3C] mb-1">
+                    <div className="flex items-center gap-1 text-[11px] font-bold text-[#ff6600] mb-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Official Buyoll Support Reply:</span>
                     </div>
@@ -235,7 +235,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
               <select
                 value={postCategory}
                 onChange={(e) => setPostCategory(e.target.value as any)}
-                className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#0E5A3C]"
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#ff6600]"
               >
                 <option value="inquiry">General Question</option>
                 <option value="complaint">Complaint / Dispute</option>
@@ -252,7 +252,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
                 value={guestName}
                 onChange={(e) => setGuestName(e.target.value)}
                 placeholder="Your Name (e.g. Samuel K.)"
-                className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0E5A3C]"
+                className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff6600]"
               />
             </div>
           )}
@@ -263,12 +263,12 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
               value={newQuestionText}
               onChange={(e) => setNewQuestionText(e.target.value)}
               placeholder="Type your question or complaint here... (Never post private M-Pesa PINs or passwords)"
-              className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-slate-50 resize-none"
+              className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600] bg-slate-50 resize-none"
             />
             <button
               type="submit"
               disabled={submitting || !newQuestionText.trim()}
-              className="px-5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs disabled:opacity-50 flex flex-col items-center justify-center gap-1 shrink-0"
+              className="px-5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors shadow-xs disabled:opacity-50 flex flex-col items-center justify-center gap-1 shrink-0"
             >
               <Send className="w-4 h-4" />
               <span>{submitting ? '...' : 'Post'}</span>

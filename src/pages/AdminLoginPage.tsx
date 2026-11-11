@@ -59,10 +59,10 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-white dark:bg-[#111A17] border border-[#E5E7EB] dark:border-[#24312C] rounded-3xl p-8 shadow-2xl relative overflow-hidden">
         {/* Top Accent Strip */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#0F5C3A] via-emerald-500 to-[#0F5C3A]" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#ff6600] via-emerald-500 to-[#ff6600]" />
 
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-[#E7F3EC] dark:bg-[#12372A] text-[#0F5C3A] dark:text-[#4ADE9A] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <div className="w-14 h-14 bg-[#fff4ec] dark:bg-[#2a1608] text-[#ff6600] dark:text-[#ff8000] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
             <Shield className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-black text-[#111827] dark:text-[#F3F4F6] tracking-tight">
@@ -93,7 +93,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
                 onChange={(e) => setIdentifier(e.target.value)}
                 placeholder="cityandcountyre@gmail.com"
                 required
-                className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F5C3A]"
+                className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
             </div>
           </div>
@@ -110,7 +110,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F5C3A]"
+                className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
             </div>
           </div>
@@ -119,7 +119,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-[#0F5C3A] hover:bg-[#0b4830] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <span>{submitting ? 'Authenticating Admin...' : 'Sign In to Admin Console'}</span>
               <ArrowRight className="w-4 h-4" />

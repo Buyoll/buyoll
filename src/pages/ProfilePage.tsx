@@ -306,7 +306,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   if (!currentUser) {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-center">
-        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] rounded-2xl flex items-center justify-center mx-auto mb-4">
           <UserIcon className="w-8 h-8" />
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Member Profile</h2>
@@ -315,7 +315,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </p>
         <button
           onClick={onOpenAuth}
-          className="px-6 py-2.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+          className="px-6 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
         >
           Sign In / Create Account
         </button>
@@ -337,7 +337,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       {/* Top Banner / User Identification Bar */}
       <div className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl p-5 sm:p-6 mb-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-[#0E5A3C] text-white font-black text-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+          <div className="w-16 h-16 rounded-2xl bg-[#ff6600] text-white font-black text-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
             {currentUser.avatar || currentUser.avatarUrl ? (
               <img
                 src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
@@ -353,7 +353,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                 {currentUser.name}
               </h1>
-              <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-black uppercase rounded-full tracking-wider">
+              <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] text-[10px] font-black uppercase rounded-full tracking-wider">
                 {activeRole}
               </span>
               {currentUser.verified && (
@@ -368,7 +368,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             {currentUser.platformId && (
               <div className="mt-2 flex items-center gap-2 bg-slate-50 dark:bg-[#1A2622] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#24312C] text-xs font-mono text-slate-700 dark:text-slate-300 w-fit">
                 <span className="font-semibold text-slate-500">Customer ID:</span>
-                <span className="font-bold text-[#0E5A3C] dark:text-[#4ADE9A]">{currentUser.platformId}</span>
+                <span className="font-bold text-[#ff6600] dark:text-[#ff8000]">{currentUser.platformId}</span>
                 <span className="text-[10.5px] text-slate-400 font-sans hidden sm:inline">(Permanent Platform ID)</span>
                 <button
                   type="button"
@@ -377,7 +377,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     onNotify('success', 'Permanent Customer ID copied to clipboard!');
                   }}
                   title="Copy Customer ID"
-                  className="p-1 text-slate-400 hover:text-[#0E5A3C] dark:hover:text-[#4ADE9A] transition-colors ml-1 cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors ml-1 cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
@@ -406,7 +406,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       }}
                       className={`px-2.5 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${
                         r === activeRole
-                          ? 'bg-[#0E5A3C] text-white shadow-xs ring-2 ring-emerald-500/50'
+                          ? 'bg-[#ff6600] text-white shadow-xs ring-2 ring-emerald-500/50'
                           : 'bg-slate-100 dark:bg-[#1A2622] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
                       }`}
                     >
@@ -483,7 +483,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('overview')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'overview'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -498,7 +498,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('orders')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'orders'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -515,7 +515,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('notifications')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'notifications'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -538,7 +538,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('groups')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'groups'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -555,7 +555,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('saved')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'saved'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -572,7 +572,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('merchants')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'merchants'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -589,7 +589,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('addresses')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'addresses'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -606,7 +606,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('personal')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'personal'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -621,7 +621,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('recent')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'recent'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -637,7 +637,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E] transition-colors"
             >
               <div className="flex items-center gap-2.5">
-                <Wallet className="w-4 h-4 text-[#0E5A3C] dark:text-[#4ADE9A]" />
+                <Wallet className="w-4 h-4 text-[#ff6600] dark:text-[#ff8000]" />
                 <span>Wallet &amp; Statements</span>
               </div>
               <ExternalLink className="w-3.5 h-3.5 opacity-60" />
@@ -647,7 +647,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               onClick={() => setActiveTab('settings')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 activeTab === 'settings'
-                  ? 'bg-[#0E5A3C] text-white font-bold shadow-xs'
+                  ? 'bg-[#ff6600] text-white font-bold shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#16221E]'
               }`}
             >
@@ -678,11 +678,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div
                   onClick={() => setActiveTab('orders')}
-                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#0E5A3C] transition-all"
+                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#ff6600] transition-all"
                 >
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Orders</span>
                   <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{orders.length}</div>
-                  <span className="text-[11px] text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold flex items-center gap-1 mt-1">
+                  <span className="text-[11px] text-[#ff6600] dark:text-[#ff8000] font-semibold flex items-center gap-1 mt-1">
                     <span>View purchases</span>
                     <ArrowRight className="w-3 h-3" />
                   </span>
@@ -690,11 +690,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div
                   onClick={() => setActiveTab('groups')}
-                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#0E5A3C] transition-all"
+                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#ff6600] transition-all"
                 >
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Active Groups</span>
                   <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{myGroups.length}</div>
-                  <span className="text-[11px] text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold flex items-center gap-1 mt-1">
+                  <span className="text-[11px] text-[#ff6600] dark:text-[#ff8000] font-semibold flex items-center gap-1 mt-1">
                     <span>Track cycles</span>
                     <ArrowRight className="w-3 h-3" />
                   </span>
@@ -702,11 +702,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div
                   onClick={() => setActiveTab('saved')}
-                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#0E5A3C] transition-all"
+                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#ff6600] transition-all"
                 >
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Wishlist</span>
                   <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{savedProducts.length}</div>
-                  <span className="text-[11px] text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold flex items-center gap-1 mt-1">
+                  <span className="text-[11px] text-[#ff6600] dark:text-[#ff8000] font-semibold flex items-center gap-1 mt-1">
                     <span>Saved items</span>
                     <ArrowRight className="w-3 h-3" />
                   </span>
@@ -714,7 +714,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div
                   onClick={() => setActiveTab('notifications')}
-                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#0E5A3C] transition-all"
+                  className="bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] p-4 rounded-xl cursor-pointer hover:border-[#ff6600] transition-all"
                 >
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Notifications</span>
                   <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{unreadNotifCount}</div>
@@ -734,7 +734,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     </h3>
                     <button
                       onClick={() => setActiveTab('personal')}
-                      className="text-xs text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold hover:underline"
+                      className="text-xs text-[#ff6600] dark:text-[#ff8000] font-semibold hover:underline"
                     >
                       Edit
                     </button>
@@ -751,7 +751,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     </h3>
                     <button
                       onClick={() => setActiveTab('addresses')}
-                      className="text-xs text-[#0E5A3C] dark:text-[#4ADE9A] font-semibold hover:underline"
+                      className="text-xs text-[#ff6600] dark:text-[#ff8000] font-semibold hover:underline"
                     >
                       Manage
                     </button>
@@ -773,7 +773,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   ) : (
                     <div className="text-xs text-slate-400 py-2">
                       No delivery address saved yet.{' '}
-                      <button onClick={() => setActiveTab('addresses')} className="text-[#0E5A3C] font-bold underline">
+                      <button onClick={() => setActiveTab('addresses')} className="text-[#ff6600] font-bold underline">
                         Add one now
                       </button>
                     </div>
@@ -784,7 +784,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               {/* Isolated Role Wallet Overview Card */}
               <div className="bg-emerald-50/60 dark:bg-[#15231E] border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-[#0E5A3C] text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="w-12 h-12 rounded-xl bg-[#ff6600] text-white flex items-center justify-center shrink-0 shadow-xs">
                     <Wallet className="w-6 h-6" />
                   </div>
                   <div>
@@ -805,7 +805,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <button
                     type="button"
                     onClick={() => onNavigate('wallet')}
-                    className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                    className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
                   >
                     Manage Wallet &amp; Deposits
                   </button>
@@ -854,7 +854,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowRoleModal('lender')}
-                          className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
                         >
                           Register as Group Lender
                         </button>
@@ -873,7 +873,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   {orders.length > 0 && (
                     <button
                       onClick={() => setActiveTab('orders')}
-                      className="text-xs font-semibold text-[#0E5A3C] dark:text-[#4ADE9A] hover:underline"
+                      className="text-xs font-semibold text-[#ff6600] dark:text-[#ff8000] hover:underline"
                     >
                       View all ({orders.length})
                     </button>
@@ -892,7 +892,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       <div
                         key={ord.id}
                         onClick={() => onNavigate('group', ord.groupId)}
-                        className="p-3.5 bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] rounded-xl flex items-center justify-between gap-3 cursor-pointer hover:border-[#0E5A3C] transition-all"
+                        className="p-3.5 bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C] rounded-xl flex items-center justify-between gap-3 cursor-pointer hover:border-[#ff6600] transition-all"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           {ord.productImage && (
@@ -948,7 +948,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </p>
                   <button
                     onClick={() => onNavigate('home')}
-                    className="px-5 py-2.5 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-sm"
+                    className="px-5 py-2.5 bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-sm"
                   >
                     Browse Live Marketplace
                   </button>
@@ -967,7 +967,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </span>
                           <h4 className="text-sm font-black text-slate-900 dark:text-white">{ord.productTitle}</h4>
                         </div>
-                        <span className="self-start sm:self-auto px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] font-bold text-xs rounded-full uppercase tracking-wider">
+                        <span className="self-start sm:self-auto px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] font-bold text-xs rounded-full uppercase tracking-wider">
                           Status: {ord.status.replace('_', ' ')}
                         </span>
                       </div>
@@ -989,7 +989,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-slate-500">Rotation Slot:</span>
-                            <span className="font-bold text-[#0E5A3C] dark:text-[#4ADE9A]">Member Slot #{ord.slotNumber} of {ord.speed}</span>
+                            <span className="font-bold text-[#ff6600] dark:text-[#ff8000]">Member Slot #{ord.slotNumber} of {ord.speed}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-slate-500">Contribution Progress:</span>
@@ -999,7 +999,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </div>
                           <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden mt-1">
                             <div
-                              className="bg-[#0E5A3C] dark:bg-[#4ADE9A] h-full transition-all"
+                              className="bg-[#ff6600] dark:bg-[#ff8000] h-full transition-all"
                               style={{ width: `${Math.min(100, Math.round(((ord.totalPaid || 0) / ord.productPrice) * 100))}%` }}
                             />
                           </div>
@@ -1013,7 +1013,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </div>
                           <button
                             onClick={() => onNavigate('group', ord.groupId)}
-                            className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                            className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                           >
                             <span>Open Group</span>
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -1051,7 +1051,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   {unreadNotifCount > 0 && (
                     <button
                       onClick={handleMarkAllNotifsRead}
-                      className="px-3 py-1.5 text-xs font-semibold text-[#0E5A3C] dark:text-[#4ADE9A] hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors cursor-pointer"
+                      className="px-3 py-1.5 text-xs font-semibold text-[#ff6600] dark:text-[#ff8000] hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors cursor-pointer"
                     >
                       Mark All Read
                     </button>
@@ -1136,7 +1136,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                               {notif.message}
                             </p>
                             {notif.link && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0E5A3C] dark:text-[#4ADE9A] mt-2 hover:underline">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#ff6600] dark:text-[#ff8000] mt-2 hover:underline">
                                 <span>Open details</span>
                                 <ArrowRight className="w-3 h-3" />
                               </span>
@@ -1173,7 +1173,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <p className="text-xs font-semibold">You have not joined any Groups yet.</p>
                   <button
                     onClick={() => onNavigate('home')}
-                    className="mt-3 px-4 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl"
+                    className="mt-3 px-4 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-xl"
                   >
                     Explore Groups to Join
                   </button>
@@ -1184,7 +1184,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     <div
                       key={grp.id}
                       onClick={() => onNavigate('group', grp.id)}
-                      className="border border-slate-200 dark:border-[#24312C] rounded-2xl p-4 bg-slate-50/50 dark:bg-[#16221E]/50 hover:border-[#0E5A3C] transition-all cursor-pointer flex flex-col justify-between"
+                      className="border border-slate-200 dark:border-[#24312C] rounded-2xl p-4 bg-slate-50/50 dark:bg-[#16221E]/50 hover:border-[#ff6600] transition-all cursor-pointer flex flex-col justify-between"
                     >
                       <div>
                         <div className="flex items-center justify-between gap-2 mb-2">
@@ -1204,7 +1204,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       </div>
 
                       <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-[#0E5A3C] dark:text-[#4ADE9A]">
+                        <span className="text-xs font-extrabold text-[#ff6600] dark:text-[#ff8000]">
                           Slot #{grp.slotNumber}
                         </span>
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
@@ -1272,7 +1272,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       <div className="p-3 pt-0">
                         <button
                           onClick={() => onNavigate('product', p.id)}
-                          className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                          className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
                           Join a Group
                         </button>
@@ -1309,7 +1309,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       className="border border-slate-200 dark:border-[#24312C] rounded-2xl p-4 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#16221E]/50"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-emerald-100 text-[#0E5A3C] font-black flex items-center justify-center shrink-0">
+                        <div className="w-12 h-12 rounded-xl bg-emerald-100 text-[#ff6600] font-black flex items-center justify-center shrink-0">
                           {m.shopName?.slice(0, 2).toUpperCase() || 'SH'}
                         </div>
                         <div>
@@ -1362,7 +1362,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     setAddrIsDefault(addresses.length === 0);
                     setShowAddressModal(true);
                   }}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add New Address</span>
@@ -1381,7 +1381,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       key={addr.id}
                       className={`border rounded-2xl p-4 flex flex-col justify-between ${
                         addr.isDefault
-                          ? 'border-[#0E5A3C] bg-emerald-50/30 dark:bg-emerald-950/20'
+                          ? 'border-[#ff6600] bg-emerald-50/30 dark:bg-emerald-950/20'
                           : 'border-slate-200 dark:border-[#24312C] bg-slate-50/40 dark:bg-[#16221E]/40'
                       }`}
                     >
@@ -1416,7 +1416,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             setAddrIsDefault(addr.isDefault);
                             setShowAddressModal(true);
                           }}
-                          className="text-xs text-[#0E5A3C] font-semibold hover:underline cursor-pointer"
+                          className="text-xs text-[#ff6600] font-semibold hover:underline cursor-pointer"
                         >
                           Edit
                         </button>
@@ -1456,7 +1456,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     required
-                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
 
@@ -1469,7 +1469,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     value={editPhone}
                     onChange={(e) => setEditPhone(e.target.value)}
                     required
-                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
 
@@ -1481,7 +1481,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     type="email"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
 
@@ -1494,14 +1494,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     value={editAvatarUrl}
                     onChange={(e) => setEditAvatarUrl(e.target.value)}
                     placeholder="https://..."
-                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#0E5A3C]"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={savingPersonal}
-                  className="px-6 py-2.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+                  className="px-6 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-sm disabled:opacity-50"
                 >
                   {savingPersonal ? 'Saving Details...' : 'Save Personal Details'}
                 </button>
@@ -1554,7 +1554,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       <div className="p-3 pt-0">
                         <button
                           onClick={() => onNavigate('product', p.id)}
-                          className="w-full py-2 bg-slate-900 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                          className="w-full py-2 bg-slate-900 hover:bg-[#ff6600] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
                           Join a Group
                         </button>
@@ -1591,7 +1591,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <button
                     onClick={() => setPushEnabled(!pushEnabled)}
                     className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                      pushEnabled ? 'bg-[#0E5A3C]' : 'bg-slate-300'
+                      pushEnabled ? 'bg-[#ff6600]' : 'bg-slate-300'
                     }`}
                   >
                     <span
@@ -1614,7 +1614,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <button
                     onClick={() => setSmsEnabled(!smsEnabled)}
                     className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                      smsEnabled ? 'bg-[#0E5A3C]' : 'bg-slate-300'
+                      smsEnabled ? 'bg-[#ff6600]' : 'bg-slate-300'
                     }`}
                   >
                     <span
@@ -1723,7 +1723,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   id="addrDefault"
                   checked={addrIsDefault}
                   onChange={(e) => setAddrIsDefault(e.target.checked)}
-                  className="rounded text-[#0E5A3C]"
+                  className="rounded text-[#ff6600]"
                 />
                 <label htmlFor="addrDefault" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer font-medium">
                   Set as default delivery address
@@ -1741,7 +1741,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <button
                   type="submit"
                   disabled={savingAddress}
-                  className="px-5 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-lg hover:bg-[#0a422c]"
+                  className="px-5 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-lg hover:bg-[#ff8000]"
                 >
                   {savingAddress ? 'Saving...' : 'Save Address'}
                 </button>
@@ -1758,9 +1758,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#24312C] mb-4">
               <div className="flex items-center gap-2">
                 {showRoleModal === 'merchant' ? (
-                  <Store className="w-5 h-5 text-[#0E5A3C] dark:text-[#4ADE9A]" />
+                  <Store className="w-5 h-5 text-[#ff6600] dark:text-[#ff8000]" />
                 ) : (
-                  <Landmark className="w-5 h-5 text-[#0E5A3C] dark:text-[#4ADE9A]" />
+                  <Landmark className="w-5 h-5 text-[#ff6600] dark:text-[#ff8000]" />
                 )}
                 <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                   {showRoleModal === 'merchant' ? 'Register Merchant Account' : 'Register as Group Lender'}
@@ -1869,7 +1869,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingRole}
-                  className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                  className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
                 >
                   {submittingRole ? 'Registering...' : `Activate ${showRoleModal === 'merchant' ? 'Merchant' : 'Lender'} Role`}
                 </button>

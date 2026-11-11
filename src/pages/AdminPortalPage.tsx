@@ -51,14 +51,14 @@ export const AdminPortalPage: React.FC<AdminPortalPageProps> = ({
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12 bg-gradient-to-b from-slate-50 via-slate-100/60 to-slate-50 dark:from-[#0a1410] dark:via-[#0e1c17] dark:to-[#0a1410]">
       <div className="w-full max-w-md bg-white dark:bg-[#111A17] border border-slate-200/90 dark:border-[#24312C] rounded-3xl p-8 sm:p-10 shadow-2xl relative overflow-hidden text-center transition-all">
         {/* Top Accent Strip */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#0F5C3A] via-emerald-500 to-[#0F5C3A]" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#ff6600] via-emerald-500 to-[#ff6600]" />
 
         {/* Brand Emblem */}
         <div className="relative mx-auto mb-6">
-          <div className="w-20 h-20 bg-gradient-to-br from-[#E7F3EC] to-emerald-100 dark:from-[#12372A] dark:to-[#184635] text-[#0F5C3A] dark:text-[#4ADE9A] rounded-3xl flex items-center justify-center mx-auto shadow-md border border-emerald-200/50 dark:border-emerald-800/40">
+          <div className="w-20 h-20 bg-gradient-to-br from-[#fff4ec] to-emerald-100 dark:from-[#2a1608] dark:to-[#184635] text-[#ff6600] dark:text-[#ff8000] rounded-3xl flex items-center justify-center mx-auto shadow-md border border-emerald-200/50 dark:border-emerald-800/40">
             <Shield className="w-10 h-10" />
           </div>
-          <div className="absolute -bottom-1 right-1/2 translate-x-7 bg-[#0F5C3A] text-white p-1 rounded-full shadow-sm">
+          <div className="absolute -bottom-1 right-1/2 translate-x-7 bg-[#ff6600] text-white p-1 rounded-full shadow-sm">
             <Lock className="w-3 h-3" />
           </div>
         </div>
@@ -86,7 +86,7 @@ export const AdminPortalPage: React.FC<AdminPortalPageProps> = ({
           <button
             type="button"
             onClick={() => setShowAuthModal(true)}
-            className="w-full py-3.5 px-6 bg-[#0F5C3A] hover:bg-[#0b4830] active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 group"
+            className="w-full py-3.5 px-6 bg-[#ff6600] hover:bg-[#ff8000] active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 group"
           >
             <Lock className="w-4 h-4 text-emerald-200 group-hover:text-white transition-colors" />
             <span>Sign in to Administrator Portal</span>

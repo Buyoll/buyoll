@@ -468,9 +468,9 @@ const css = `
   --bg: #ffffff;
   --ink: #12301f;
   --mute: #5f7366;
-  --o1: #15803d;
-  --o2: #0a4d27;
-  --g3: #22b25a;
+  --o1: #ff6600;
+  --o2: #ff8000;
+  --g3: #ff8000;
   position: relative;
   width: min(920px, 100%);
   height: 600px;
@@ -488,9 +488,9 @@ const css = `
   --bg: #111A17;
   --ink: #F3F4F6;
   --mute: #A7B0AB;
-  --o1: #4ADE9A;
-  --o2: #0a3d20;
-  --g3: #12372A;
+  --o1: #ff8000;
+  --o2: #ff8000;
+  --g3: #2a1608;
   border-color: #24312C;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), inset 0 0 22px rgba(74, 222, 154, 0.05);
 }
@@ -723,13 +723,13 @@ const css = `
   margin: 10px 0 0;
   font-size: 12.5px;
   text-align: center;
-  color: #15803d;
+  color: #ff6600;
   font-weight: 500;
 }
 
 :root[data-theme="dark"] .ax-notice,
 .dark .ax-notice {
-  color: #4ADE9A;
+  color: #ff8000;
 }
 
 .ax-error {

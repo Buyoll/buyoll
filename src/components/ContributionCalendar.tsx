@@ -189,8 +189,8 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
     const startWeek = d3.timeSunday(firstDate);
 
     // Color thresholds
-    const lightColors = ['#f1f5f3', '#a7f3d0', '#34d399', '#10b981', '#047857'];
-    const darkColors = ['#16241e', '#064e3b', '#047857', '#10b981', '#34d399'];
+    const lightColors = ['#f1f5f3', '#ffedd5', '#ff8000', '#ff8000', '#ff6600'];
+    const darkColors = ['#16241e', '#064e3b', '#ff6600', '#ff8000', '#ff8000'];
     const colorScale = isDark ? darkColors : lightColors;
 
     function getColor(d: DaySavingsData): string {
@@ -273,7 +273,7 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
         d3.select(this)
           .transition()
           .duration(100)
-          .attr('stroke', isDark ? '#4ade9a' : '#0e5a3c')
+          .attr('stroke', isDark ? '#ff8000' : '#ff6600')
           .attr('stroke-width', 2);
 
         const dateFormatted = d3.timeFormat('%A, %b %d, %Y')(d.date);
@@ -322,7 +322,7 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
       {/* Calendar Header with Title & Member Filter */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-[#20322b] mb-5">
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] flex items-center justify-center shrink-0">
             <Calendar className="w-5 h-5" />
           </div>
           <div>
@@ -330,7 +330,7 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
               <h3 className="text-sm sm:text-base font-extrabold tracking-tight">
                 6-Month Savings Heat Map & Contribution Streak
               </h3>
-              <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#0E5A3C] dark:text-[#4ADE9A] text-[10px] font-black uppercase rounded-full tracking-wider">
+              <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-[#ff6600] dark:text-[#ff8000] text-[10px] font-black uppercase rounded-full tracking-wider">
                 D3 Visualizer
               </span>
             </div>
@@ -354,8 +354,8 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
               }}
               className={`appearance-none text-xs font-bold pl-3 pr-8 py-2 rounded-xl border focus:outline-none transition-colors cursor-pointer ${
                 isDark
-                  ? 'bg-[#16241e] border-[#2b4138] text-white focus:border-[#4ade9a]'
-                  : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-[#0E5A3C]'
+                  ? 'bg-[#16241e] border-[#2b4138] text-white focus:border-[#ff8000]'
+                  : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-[#ff6600]'
               }`}
             >
               <option value="all">All Group Members ({group.occupiedCount || group.slots.filter(s => s.status === 'active').length})</option>
@@ -473,22 +473,22 @@ export const ContributionCalendar: React.FC<ContributionCalendarProps> = ({
           />
           <span
             className={`w-3 h-3 rounded-xs inline-block ${
-              isDark ? 'bg-[#064e3b]' : 'bg-[#a7f3d0]'
+              isDark ? 'bg-[#064e3b]' : 'bg-[#ffedd5]'
             }`}
           />
           <span
             className={`w-3 h-3 rounded-xs inline-block ${
-              isDark ? 'bg-[#047857]' : 'bg-[#34d399]'
+              isDark ? 'bg-[#ff6600]' : 'bg-[#ff8000]'
             }`}
           />
           <span
             className={`w-3 h-3 rounded-xs inline-block ${
-              isDark ? 'bg-[#10b981]' : 'bg-[#10b981]'
+              isDark ? 'bg-[#ff8000]' : 'bg-[#ff8000]'
             }`}
           />
           <span
             className={`w-3 h-3 rounded-xs inline-block ${
-              isDark ? 'bg-[#34d399]' : 'bg-[#047857]'
+              isDark ? 'bg-[#ff8000]' : 'bg-[#ff6600]'
             }`}
           />
           <span>More savings</span>

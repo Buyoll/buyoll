@@ -717,7 +717,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <div className="w-8 h-8 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <div className="w-8 h-8 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-sm text-slate-500">Loading Group details...</p>
       </div>
     );
@@ -796,7 +796,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </button>
                     <button
                       onClick={() => setShowModeratorInvitesModal(true)}
-                      className="text-xs bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      className="text-xs bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                     >
                       <Users className="w-3.5 h-3.5" />
                       <span>
@@ -828,7 +828,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               <div className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
                 Daily Contribution
               </div>
-              <div className="text-2xl font-black text-[#0E5A3C] tabular-nums">
+              <div className="text-2xl font-black text-[#ff6600] tabular-nums">
                 KSh {group.dailyAmount.toLocaleString()}
                 <span className="text-xs font-normal text-slate-500"> / day</span>
               </div>
@@ -916,12 +916,12 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           ) : (
             <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#0E5A3C] text-white flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-9 h-9 rounded-xl bg-[#ff6600] text-white flex items-center justify-center shrink-0 mt-0.5">
                   <Shield className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-[#0E5A3C] text-white font-black text-[10px] uppercase rounded-full">
+                    <span className="px-2 py-0.5 bg-[#ff6600] text-white font-black text-[10px] uppercase rounded-full">
                       Invite-Only Admission
                     </span>
                     <span className="text-xs text-slate-500">
@@ -943,7 +943,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     setDesiredSlotForInvite(null);
                     setShowInviteRequestModal(true);
                   }}
-                  className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   Request Entry Invite
                 </button>
@@ -1018,12 +1018,12 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           <div className="bg-white border-2 border-emerald-600/30 rounded-2xl p-6 sm:p-7 mb-8 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#0E5A3C] to-emerald-700 text-white flex items-center justify-center font-black shadow-xs shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#ff6600] to-emerald-700 text-white flex items-center justify-center font-black shadow-xs shrink-0">
                   <Sparkles className="w-6 h-6 text-amber-300" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-black uppercase tracking-wider text-[#0E5A3C]">
+                    <span className="text-xs font-black uppercase tracking-wider text-[#ff6600]">
                       Real-Time Contribution Progress Tracker · Cycle #{group.currentRound || 1}
                     </span>
                     {isEligibleToCollect && (
@@ -1034,7 +1034,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     )}
                   </div>
                   <h3 className="text-base sm:text-lg font-extrabold text-slate-900 leading-tight">
-                    Next Recipient: <span className="text-[#0E5A3C]">{currentRecipientName}</span> (Member #{currentRecipientSlot})
+                    Next Recipient: <span className="text-[#ff6600]">{currentRecipientName}</span> (Member #{currentRecipientSlot})
                   </h3>
                 </div>
               </div>
@@ -1043,7 +1043,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs shrink-0">
                 <div>
                   <span className="text-[10px] text-slate-500 font-semibold block uppercase">Total Paid Vis-à-Vis</span>
-                  <b className="text-[#0E5A3C] font-mono text-sm sm:text-base">
+                  <b className="text-[#ff6600] font-mono text-sm sm:text-base">
                     KSh {totalGroupPaidTowardsCurrentRound.toLocaleString()}
                   </b>
                 </div>
@@ -1067,7 +1067,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-slate-800 flex items-center gap-1.5">
                   <span>Cycle Progress Toward Product Acquisition:</span>
-                  <b className="text-[#0E5A3C]">{roundProgressPercent}% Completed</b>
+                  <b className="text-[#ff6600]">{roundProgressPercent}% Completed</b>
                 </span>
                 <span className="text-slate-500 font-mono text-[11px]">
                   {roundBalanceRemaining > 0 ? `KSh ${roundBalanceRemaining.toLocaleString()} still required` : 'Target 100% Achieved!'}
@@ -1076,7 +1076,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
               <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5 relative">
                 <div
-                  className="h-full bg-gradient-to-r from-emerald-500 via-teal-600 to-[#0E5A3C] rounded-full transition-all duration-500 shadow-xs"
+                  className="h-full bg-gradient-to-r from-emerald-500 via-teal-600 to-[#ff6600] rounded-full transition-all duration-500 shadow-xs"
                   style={{ width: `${roundProgressPercent}%` }}
                 />
               </div>
@@ -1102,7 +1102,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     <button
                       onClick={handleCompleteRound}
                       disabled={submittingCompleteRound}
-                      className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center gap-1.5 shrink-0"
+                      className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center gap-1.5 shrink-0"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>{submittingCompleteRound ? 'Advancing Cycle...' : 'Record Collection & Advance (Resets Total to KSh 0)'}</span>
@@ -1202,7 +1202,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     key={slot.slotNumber}
                     className={`relative p-4 rounded-xl border-2 transition-all flex flex-col justify-between ${
                       isMe
-                        ? 'border-[#0E5A3C] bg-emerald-50/30'
+                        ? 'border-[#ff6600] bg-emerald-50/30'
                         : isReplacement
                         ? 'border-amber-400 bg-amber-50/40'
                         : isActive
@@ -1240,7 +1240,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               </span>
                             )}
                             {isMe && (
-                              <span className="text-[9px] bg-[#0E5A3C] text-white font-bold px-1.5 py-0.2 rounded">
+                              <span className="text-[9px] bg-[#ff6600] text-white font-bold px-1.5 py-0.2 rounded">
                                 You
                               </span>
                             )}
@@ -1287,7 +1287,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                                 onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                               />
                             ) : isActive ? (
-                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-700 to-[#0E5A3C] text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-xs">
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-700 to-[#ff6600] text-white font-bold text-[11px] flex items-center justify-center border-2 border-white shadow-xs">
                                 {slot.userName ? slot.userName.slice(0, 2).toUpperCase() : `M${slot.slotNumber}`}
                               </div>
                             ) : (
@@ -1321,7 +1321,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                           <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5 relative">
                             {percentPaid > 0 ? (
                               <div
-                                className="h-full bg-gradient-to-r from-emerald-500 via-teal-600 to-[#0E5A3C] rounded-full transition-all duration-500 shadow-xs"
+                                className="h-full bg-gradient-to-r from-emerald-500 via-teal-600 to-[#ff6600] rounded-full transition-all duration-500 shadow-xs"
                                 style={{ width: `${percentPaid}%` }}
                               />
                             ) : (
@@ -1455,7 +1455,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                               title="View Customer Statement & Ledger"
                               className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded transition-colors cursor-pointer"
                             >
-                              <FileText className="w-2.5 h-2.5 text-[#0E5A3C]" />
+                              <FileText className="w-2.5 h-2.5 text-[#ff6600]" />
                               <span>Statement</span>
                             </button>
                           </div>
@@ -1540,7 +1540,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#0E5A3C] flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#ff6600] flex items-center justify-center">
                   <HandCoins className="w-4 h-4" />
                 </div>
                 <div>
@@ -1565,7 +1565,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                       setLoanRequestAmount(Math.min(remaining, group.dailyAmount * 2));
                       setShowLoanModal(true);
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
                   >
                     <HandCoins className="w-3.5 h-3.5" />
                     <span>Request Loan</span>
@@ -1596,7 +1596,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </span>
                   </div>
                   {isAssignedGroupLender && (
-                    <span className="text-[11px] font-bold bg-[#0E5A3C] text-white px-2.5 py-0.5 rounded-full shrink-0">
+                    <span className="text-[11px] font-bold bg-[#ff6600] text-white px-2.5 py-0.5 rounded-full shrink-0">
                       You are Serving This Group
                     </span>
                   )}
@@ -1773,7 +1773,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <h3 className="text-sm font-bold text-slate-900">
                   Your Member #{mySlot.slotNumber} Payment
                 </h3>
-                <span className="text-xs text-[#0E5A3C] font-bold">
+                <span className="text-xs text-[#ff6600] font-bold">
                   Day {mySlot.slotNumber * group.cycleDays} Rotation
                 </span>
               </div>
@@ -1815,7 +1815,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                       type="button"
                       disabled={payingFromWallet}
                       onClick={handlePayFromWallet}
-                      className="w-full py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                      className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>
@@ -1851,7 +1851,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     value={mpesaCode}
                     onChange={(e) => setMpesaCode(e.target.value.toUpperCase())}
                     placeholder="e.g. QJK4X8L2PA"
-                    className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                 </div>
 
@@ -1865,7 +1865,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     required
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                 </div>
 
@@ -1942,7 +1942,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Post message or update..."
-                  className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
                 <button
                   type="submit"
@@ -1976,12 +1976,12 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
         <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-8 shadow-xs">
           <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#0E5A3C]" />
+              <Clock className="w-4 h-4 text-[#ff6600]" />
               <h3 className="text-sm font-bold text-slate-900">
                 System Slot Reorder Audit Log
               </h3>
             </div>
-            <span className="text-[10px] font-mono bg-emerald-50 text-[#0E5A3C] px-2 py-0.5 rounded font-bold border border-emerald-200">
+            <span className="text-[10px] font-mono bg-emerald-50 text-[#ff6600] px-2 py-0.5 rounded font-bold border border-emerald-200">
               System-Generated
             </span>
           </div>
@@ -2019,7 +2019,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 bg-emerald-100 text-[#0E5A3C] rounded-lg">
+              <span className="p-1.5 bg-emerald-100 text-[#ff6600] rounded-lg">
                 <Store className="w-4 h-4" />
               </span>
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
@@ -2048,7 +2048,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                   onNavigate('product', rec.id);
                 }}
-                className="group flex flex-col justify-between bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-[#0E5A3C] hover:shadow-md transition-all cursor-pointer p-3"
+                className="group flex flex-col justify-between bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-[#ff6600] hover:shadow-md transition-all cursor-pointer p-3"
               >
                 <div>
                   <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 mb-2.5">
@@ -2071,7 +2071,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
                   </div>
 
-                  <h4 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug mb-2 group-hover:text-[#0E5A3C] transition-colors">
+                  <h4 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug mb-2 group-hover:text-[#ff6600] transition-colors">
                     {rec.title}
                   </h4>
 
@@ -2086,7 +2086,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     )}
                   </div>
 
-                  <div className="text-[11px] text-[#0E5A3C] font-semibold mb-3">
+                  <div className="text-[11px] text-[#ff6600] font-semibold mb-3">
                     From KSh {minDaily.toLocaleString()} / day
                   </div>
                 </div>
@@ -2097,7 +2097,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                     onNavigate('product', rec.id);
                   }}
-                  className="w-full py-1.5 bg-slate-100 group-hover:bg-[#0E5A3C] text-slate-700 group-hover:text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                  className="w-full py-1.5 bg-slate-100 group-hover:bg-[#ff6600] text-slate-700 group-hover:text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
                 >
                   <span>Check Shop</span>
                   <ArrowRight className="w-3 h-3" />
@@ -2291,7 +2291,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             </button>
 
             <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#0E5A3C] flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#ff6600] flex items-center justify-center">
                 <HandCoins className="w-5 h-5" />
               </div>
               <div>
@@ -2313,7 +2313,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-600">Daily Contribution Rate:</span>
-                  <span className="font-mono font-bold text-[#0E5A3C]">KSh {group.dailyAmount.toLocaleString()} / day</span>
+                  <span className="font-mono font-bold text-[#ff6600]">KSh {group.dailyAmount.toLocaleString()} / day</span>
                 </div>
                 <div className="flex justify-between border-t border-slate-200 pt-1.5">
                   <span className="text-slate-600">Remaining Obligation:</span>
@@ -2352,7 +2352,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setLoanRequestAmount(Math.max(0, mySlot.targetAmount - (mySlot.paidAmount || 0)))}
-                      className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] rounded-lg border border-emerald-200 transition-colors"
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-[#ff6600] rounded-lg border border-emerald-200 transition-colors"
                     >
                       Full Obligation (KSh {Math.max(0, mySlot.targetAmount - (mySlot.paidAmount || 0)).toLocaleString()})
                     </button>
@@ -2368,7 +2368,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     value={loanRequestAmount || ''}
                     onChange={(e) => setLoanRequestAmount(Number(e.target.value))}
                     placeholder="e.g. 1500"
-                    className="w-full pl-11 pr-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    className="w-full pl-11 pr-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                 </div>
 
@@ -2380,7 +2380,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                         KSh {Math.max(1, Math.round(loanRequestAmount * 0.03)).toLocaleString()}
                       </span>
                     </div>
-                    <div className="flex justify-between font-bold text-[#0E5A3C]">
+                    <div className="flex justify-between font-bold text-[#ff6600]">
                       <span>Direct Credited to Your Wallet:</span>
                       <span>KSh {loanRequestAmount.toLocaleString()} (Non-withdrawable)</span>
                     </div>
@@ -2396,7 +2396,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <select
                   value={loanRepaymentPeriod}
                   onChange={(e) => setLoanRepaymentPeriod(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white font-semibold"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] bg-white font-semibold"
                 >
                   <option value="Within 7 Days (Emergency Arrears Catch-up)">Within 7 Days (Emergency Arrears Catch-up)</option>
                   <option value="Within 14 Days (Standard Grace Period)">Within 14 Days (Standard Grace Period)</option>
@@ -2462,7 +2462,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={loanRequestPurpose}
                   onChange={(e) => setLoanRequestPurpose(e.target.value)}
                   placeholder="e.g. To pay for an arrears (clear missed Group days)"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -2483,7 +2483,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingLoanRequest || loanRequestAmount <= 0}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <HandCoins className="w-3.5 h-3.5" />
                   <span>{submittingLoanRequest ? 'Posting Request...' : 'Post Loan Request to Lenders'}</span>
@@ -2538,7 +2538,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </div>
                 <div className="pt-2 border-t border-slate-200 flex justify-between text-xs font-semibold text-slate-700">
                   <span>Net Credited to Member Wallet:</span>
-                  <span className="font-bold text-[#0E5A3C]">
+                  <span className="font-bold text-[#ff6600]">
                     KSh {principal.toLocaleString()} (Non-Withdrawable)
                   </span>
                 </div>
@@ -2575,7 +2575,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                         value={loanFeePaymentCode}
                         onChange={(e) => setLoanFeePaymentCode(e.target.value.toUpperCase())}
                         placeholder="M-Pesa Reference (e.g. QJK4X8L2PA)"
-                        className="flex-1 px-3 py-1.5 text-xs border border-amber-300 rounded-lg bg-white uppercase font-mono focus:ring-1 focus:ring-[#0E5A3C]"
+                        className="flex-1 px-3 py-1.5 text-xs border border-amber-300 rounded-lg bg-white uppercase font-mono focus:ring-1 focus:ring-[#ff6600]"
                       />
                       <button
                         type="button"
@@ -2605,7 +2605,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     type="checkbox"
                     checked={lenderAgreedTerms}
                     onChange={(e) => setLenderAgreedTerms(e.target.checked)}
-                    className="mt-0.5 rounded text-[#0E5A3C] focus:ring-[#0E5A3C]"
+                    className="mt-0.5 rounded text-[#ff6600] focus:ring-[#ff6600]"
                   />
                   <span className="text-[11px] font-semibold text-slate-800">
                     I confirm external loan agreement is settled and agree to disburse non-withdrawable funds.
@@ -2625,7 +2625,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   type="button"
                   disabled={submittingFund || !lenderAgreedTerms || !isFeeVerified}
                   onClick={handleConfirmFundLoan}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <HandCoins className="w-3.5 h-3.5" />
                   <span>{submittingFund ? 'Disbursing Funds...' : `Disburse KSh ${principal.toLocaleString()} to Member Wallet`}</span>
@@ -2651,7 +2651,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <div className="border-b border-slate-200 pb-4 mb-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#0E5A3C] bg-emerald-50 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#ff6600] bg-emerald-50 px-2 py-0.5 rounded">
                     Official Customer Statement
                   </span>
                   <h2 className="text-xl font-black text-slate-900 tracking-tight mt-1">
@@ -2673,7 +2673,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
             {loadingStatement ? (
               <div className="py-12 text-center">
-                <div className="w-6 h-6 border-2 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                <div className="w-6 h-6 border-2 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                 <p className="text-xs text-slate-400">Loading ledger records...</p>
               </div>
             ) : statementData ? (
@@ -2682,7 +2682,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
                     <div className="text-[10px] uppercase font-bold text-slate-500">Total Contributed</div>
-                    <div className="text-lg font-black text-[#0E5A3C] mt-0.5">
+                    <div className="text-lg font-black text-[#ff6600] mt-0.5">
                       KSh {statementData.totalPaid.toLocaleString()}
                     </div>
                   </div>
@@ -2726,7 +2726,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                         <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-1.5 p-0.5">
                           {s.progressPercent > 0 ? (
                             <div
-                              className="h-full bg-gradient-to-r from-emerald-500 to-[#0E5A3C] rounded-full transition-all"
+                              className="h-full bg-gradient-to-r from-emerald-500 to-[#ff6600] rounded-full transition-all"
                               style={{ width: `${s.progressPercent}%` }}
                             />
                           ) : (
@@ -2819,7 +2819,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             {/* Stepper Header */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#0E5A3C] block">
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#ff6600] block">
                   3-Step Slot Selection & Onboarding
                 </span>
                 <h3 className="text-base font-extrabold text-slate-900">
@@ -2831,11 +2831,11 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </h3>
               </div>
               <div className="flex items-center gap-1.5 font-mono text-xs font-bold">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 1 ? 'bg-[#0E5A3C] text-white' : 'bg-emerald-100 text-emerald-800'}`}>1</span>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 1 ? 'bg-[#ff6600] text-white' : 'bg-emerald-100 text-emerald-800'}`}>1</span>
                 <span className="w-3 h-0.5 bg-slate-200" />
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 2 ? 'bg-[#0E5A3C] text-white' : 'bg-slate-100 text-slate-500'}`}>2</span>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 2 ? 'bg-[#ff6600] text-white' : 'bg-slate-100 text-slate-500'}`}>2</span>
                 <span className="w-3 h-0.5 bg-slate-200" />
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 3 ? 'bg-[#0E5A3C] text-white' : 'bg-slate-100 text-slate-500'}`}>3</span>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${slotPickerStep === 3 ? 'bg-[#ff6600] text-white' : 'bg-slate-100 text-slate-500'}`}>3</span>
               </div>
             </div>
 
@@ -2853,7 +2853,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px] uppercase font-bold">Item Delivery Day:</span>
-                    <b className="text-[#0E5A3C] text-sm">Day {slotPickerTarget.slotNumber * group.cycleDays}</b>
+                    <b className="text-[#ff6600] text-sm">Day {slotPickerTarget.slotNumber * group.cycleDays}</b>
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px] uppercase font-bold">Daily Installment:</span>
@@ -2881,7 +2881,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </button>
                   <button
                     onClick={() => setSlotPickerStep(2)}
-                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                    className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                   >
                     <span>Proceed to Step 2</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -2900,7 +2900,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </div>
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500">Payment Collection Mode:</span>
-                    <span className="font-bold text-[#0E5A3C]">
+                    <span className="font-bold text-[#ff6600]">
                       {group.paymentMode === 'merchant' ? 'Option A: Merchant Direct Till' : 'Option B: Buyoll Platform Till'}
                     </span>
                   </div>
@@ -2935,7 +2935,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </button>
                   <button
                     onClick={() => setSlotPickerStep(3)}
-                    className="px-5 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                    className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                   >
                     <span>Proceed to Step 3</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -3038,7 +3038,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                             : isAlreadyPending
                             ? 'bg-amber-50 text-amber-800 border-amber-200 opacity-70 cursor-not-allowed'
                             : isSelected
-                            ? 'bg-[#0E5A3C] text-white border-[#0E5A3C] shadow-xs'
+                            ? 'bg-[#ff6600] text-white border-[#ff6600] shadow-xs'
                             : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
                         }`}
                       >
@@ -3060,7 +3060,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     {selectedMissedDays.length} day{selectedMissedDays.length !== 1 ? 's' : ''} × KSh {group.dailyAmount.toLocaleString()}
                   </span>
                 </div>
-                <b className="text-lg font-mono font-black text-[#0E5A3C]">
+                <b className="text-lg font-mono font-black text-[#ff6600]">
                   KSh {(selectedMissedDays.length * group.dailyAmount).toLocaleString()}
                 </b>
               </div>
@@ -3086,7 +3086,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={arrearsPaymentCode}
                   onChange={(e) => setArrearsPaymentCode(e.target.value.toUpperCase())}
                   placeholder="e.g. RJL798K2MN (8-12 alphanumeric characters)"
-                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] uppercase"
                 />
               </div>
 
@@ -3117,7 +3117,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center font-bold">
                   <Shield className="w-4 h-4" />
                 </div>
                 <div>
@@ -3138,7 +3138,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <form onSubmit={handleSubmitInviteRequest} className="mt-4 space-y-4">
               <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200/80 text-xs text-emerald-950 space-y-1">
                 <span className="font-bold flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-[#0E5A3C]" /> Invite-Only Group Protection
+                  <Lock className="w-3.5 h-3.5 text-[#ff6600]" /> Invite-Only Group Protection
                 </span>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
                   To protect members from missed rotations, store owners & moderators approve applicants before issuing unique entry codes.
@@ -3152,7 +3152,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <select
                   value={desiredSlotForInvite || ''}
                   onChange={(e) => setDesiredSlotForInvite(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] bg-white font-semibold"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] bg-white font-semibold"
                 >
                   <option value="">Any available slot (First available)</option>
                   {group.slots.filter(s => s.status === 'open').map(s => (
@@ -3192,7 +3192,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={inviteRequestNote}
                   onChange={(e) => setInviteRequestNote(e.target.value)}
                   placeholder="e.g. I work locally and can commit to daily M-Pesa payments on time."
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -3207,7 +3207,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingInviteRequest}
-                  className="px-5 py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
                 >
                   {submittingInviteRequest ? 'Submitting...' : 'Send Invite Request'}
                 </button>
@@ -3302,7 +3302,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                           <button
                             onClick={() => handleModeratorDecideInvite(req.id, 'approve')}
                             disabled={decidingRequestId === req.id}
-                            className="px-3 py-1.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50"
+                            className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg text-xs shadow-xs disabled:opacity-50"
                           >
                             {decidingRequestId === req.id ? 'Processing...' : 'Approve & Issue Code'}
                           </button>
@@ -3349,7 +3349,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-[#0E5A3C]" />
+                <Lock className="w-4 h-4 text-[#ff6600]" />
                 <h3 className="font-extrabold text-sm text-slate-900">Enter Group Invite Code</h3>
               </div>
               <button
@@ -3374,7 +3374,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={manualInviteCodeInput}
                   onChange={(e) => setManualInviteCodeInput(e.target.value.toUpperCase())}
                   placeholder="e.g. INV-8921 or GRP-4820"
-                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C] uppercase"
+                  className="w-full px-3 py-2 text-xs font-mono tracking-wider border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] uppercase"
                 />
               </div>
 
@@ -3397,7 +3397,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     setShowManualCodeModal(false);
                     onNotify('success', `Invite code "${code}" applied. Select your slot below to join!`);
                   }}
-                  className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg shadow-xs"
+                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs"
                 >
                   Apply Code
                 </button>
@@ -3425,7 +3425,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     type="button"
                     onClick={handleExportMembers}
                     disabled={exportingMembers}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] border border-emerald-300 rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#ff6600] border border-emerald-300 rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
                     title="Export CSV list of all group members and contribution status"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -3483,7 +3483,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                             setSelectedAwardRecipientIds(allRecipientCandidates);
                           }
                         }}
-                        className="text-[11px] font-bold text-[#0E5A3C] hover:underline cursor-pointer"
+                        className="text-[11px] font-bold text-[#ff6600] hover:underline cursor-pointer"
                       >
                         {allSelected ? 'Deselect All' : `Select All (${allRecipientCandidates.length})`}
                       </button>
@@ -3599,7 +3599,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                       onClick={() => setCoinsToAward(amt)}
                       className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                         coinsToAward === amt
-                          ? 'bg-[#0E5A3C] text-white border-[#0E5A3C]'
+                          ? 'bg-[#ff6600] text-white border-[#ff6600]'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -3612,7 +3612,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   min="1"
                   value={coinsToAward}
                   onChange={(e) => setCoinsToAward(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   placeholder="Custom amount"
                 />
               </div>
@@ -3627,7 +3627,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={coinAwardNote}
                   onChange={(e) => setCoinAwardNote(e.target.value)}
                   placeholder="e.g. Great consistency in daily Group contributions!"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -3717,7 +3717,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   value={dormantWarningReason}
                   onChange={(e) => setDormantWarningReason(e.target.value)}
                   placeholder="e.g. Unpaid daily Group contributions exceeding 3 consecutive cycles"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
@@ -3731,7 +3731,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   max="14"
                   value={dormantWarningDeadlineDays}
                   onChange={(e) => setDormantWarningDeadlineDays(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 

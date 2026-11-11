@@ -364,7 +364,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <div className="w-8 h-8 border-4 border-[#0E5A3C] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <div className="w-8 h-8 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-sm text-slate-500">Loading product announcement...</p>
       </div>
     );
@@ -442,7 +442,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Camera className="w-3.5 h-3.5 text-[#0E5A3C]" />
+                <Camera className="w-3.5 h-3.5 text-[#ff6600]" />
                 <span>Photos ({images.length})</span>
               </button>
 
@@ -468,7 +468,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   setMediaModalVideos(product.videos || []);
                   setIsMediaModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0E5A3C] border border-emerald-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#ff6600] border border-emerald-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>Manage Media (3 Photos, 2 Videos)</span>
@@ -519,7 +519,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               {/* Global Buyoll.ai Action Button directly on Product */}
               <button
                 onClick={() => setIsAIOpen(true)}
-                className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/90 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-lg backdrop-blur-xs flex items-center gap-1.5 border border-white/20 transition-all hover:scale-105"
+                className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/90 hover:bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-lg backdrop-blur-xs flex items-center gap-1.5 border border-white/20 transition-all hover:scale-105"
               >
                 <Sparkles className="w-4 h-4 text-amber-300 fill-current" />
                 <span>Ask Buyoll.ai Assistant</span>
@@ -569,7 +569,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   onClick={() => setSelectedImageIndex(idx)}
                   className={`relative w-20 h-20 rounded-lg overflow-hidden border-2 transition-all shrink-0 bg-slate-50 ${
                     selectedImageIndex === idx
-                      ? 'border-[#0E5A3C] ring-2 ring-[#0E5A3C]/20'
+                      ? 'border-[#ff6600] ring-2 ring-[#ff6600]/20'
                       : 'border-slate-200 opacity-70 hover:opacity-100'
                   }`}
                 >
@@ -587,7 +587,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   onClick={() => setSelectedVideoIndex(idx)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                     selectedVideoIndex === idx
-                      ? 'bg-[#0E5A3C] text-white shadow-xs'
+                      ? 'bg-[#ff6600] text-white shadow-xs'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -601,15 +601,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           {/* Enticing Free Bonus Gift Callout (Phone, Watch, Soap, Airtime) */}
           {product.bonusGift && (
             <div className="p-4 bg-emerald-50 border-2 border-emerald-300/80 rounded-2xl flex items-center gap-3.5 shadow-xs">
-              <div className="w-10 h-10 rounded-xl bg-[#0E5A3C] text-amber-300 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-[#ff6600] text-amber-300 flex items-center justify-center shrink-0">
                 <Gift className="w-5 h-5" />
               </div>
               <div className="flex-1">
-                <div className="text-xs font-black text-[#0E5A3C] uppercase tracking-wider">
+                <div className="text-xs font-black text-[#ff6600] uppercase tracking-wider">
                   🎁 Enticing Merchant Bonus Included
                 </div>
                 <div className="text-sm font-bold text-slate-900 mt-0.5">
-                  Free Gift: <span className="text-[#0E5A3C] font-extrabold">{product.bonusGift}</span>
+                  Free Gift: <span className="text-[#ff6600] font-extrabold">{product.bonusGift}</span>
                 </div>
                 <p className="text-xs text-slate-600 mt-0.5">
                   Delivered absolutely free along with your item when your Group cycle completes!
@@ -644,15 +644,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {/* Trust Assurances */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 mt-6 border-t border-slate-100 text-xs text-slate-600">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-[#0E5A3C]" />
+                <ShieldCheck className="w-4 h-4 text-[#ff6600]" />
                 <span>Buyoll 5-Star Verified Merchant</span>
               </div>
               <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#0E5A3C]" />
+                <Truck className="w-4 h-4 text-[#ff6600]" />
                 <span>Doorstep Delivery on Cycle</span>
               </div>
               <div className="flex items-center gap-2">
-                <RotateCcw className="w-4 h-4 text-[#0E5A3C]" />
+                <RotateCcw className="w-4 h-4 text-[#ff6600]" />
                 <span>Manual Till Verification</span>
               </div>
             </div>
@@ -661,7 +661,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             <div className="mt-6 pt-6 border-t border-slate-200">
               <div className="bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 border border-emerald-200 rounded-2xl p-5 shadow-xs">
                 <div className="flex items-center gap-2.5 mb-3.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#0E5A3C] text-amber-300 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#ff6600] text-amber-300 flex items-center justify-center shrink-0">
                     <Award className="w-4 h-4" />
                   </div>
                   <div>
@@ -677,8 +677,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
                   {/* Feature 1: Possibility of Loan Advance */}
                   <div className="p-3.5 bg-white border border-emerald-100 rounded-xl shadow-xs">
-                    <div className="flex items-center gap-2 text-[#0E5A3C] font-bold mb-1">
-                      <HandCoins className="w-4 h-4 text-[#0E5A3C]" />
+                    <div className="flex items-center gap-2 text-[#ff6600] font-bold mb-1">
+                      <HandCoins className="w-4 h-4 text-[#ff6600]" />
                       <span>Possibility of Loan Advance for this Product</span>
                     </div>
                     <p className="text-[11.5px] text-slate-600 leading-relaxed">
@@ -764,13 +764,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       value={ratingComment}
                       onChange={(e) => setRatingComment(e.target.value)}
                       placeholder="Share your experience with this merchant (quality, communication, delivery speed)..."
-                      className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                      className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                     <button
                       type="button"
                       onClick={handleRateMerchant}
                       disabled={isSubmittingRating}
-                      className="px-4 py-2 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors shrink-0 shadow-xs disabled:opacity-50"
+                      className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shrink-0 shadow-xs disabled:opacity-50"
                     >
                       {isSubmittingRating ? 'Submitting...' : 'Submit Rating & Review (+15 pts)'}
                     </button>
@@ -868,7 +868,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <span className="text-xs text-red-500 font-semibold">*Mandatory</span>
                 </label>
                 {selectedSpeed && (
-                  <span className="text-xs text-[#0E5A3C] font-semibold">
+                  <span className="text-xs text-[#ff6600] font-semibold">
                     {selectedSpeed === 1 ? '1 Member Solo (Lipa Mdogomdogo)' : `${selectedSpeed} members selected`}
                   </span>
                 )}
@@ -914,7 +914,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                         onClick={() => setSelectedSpeed(opt.size)}
                         className={`relative flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer ${
                           isSelected
-                            ? 'border-[#0E5A3C] bg-emerald-50/50 shadow-xs ring-1 ring-[#0E5A3C]/20'
+                            ? 'border-[#ff6600] bg-emerald-50/50 shadow-xs ring-1 ring-[#ff6600]/20'
                             : 'border-slate-200 bg-white hover:border-slate-300'
                         }`}
                       >
@@ -924,7 +924,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                             name="speedSelection"
                             checked={isSelected}
                             onChange={() => setSelectedSpeed(opt.size)}
-                            className="w-4 h-4 text-[#0E5A3C] focus:ring-[#0E5A3C] border-slate-300"
+                            className="w-4 h-4 text-[#ff6600] focus:ring-[#ff6600] border-slate-300"
                           />
                           <div>
                             <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
@@ -969,7 +969,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                         </div>
 
                         <div className="text-right shrink-0 ml-2">
-                          <div className="text-sm font-extrabold text-[#0E5A3C] tabular-nums">
+                          <div className="text-sm font-extrabold text-[#ff6600] tabular-nums">
                             KSh {daily.toLocaleString()}
                             <span className="text-xs font-normal text-slate-500"> / day</span>
                           </div>
@@ -991,7 +991,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     <span className="text-xs font-bold text-emerald-950">
                       Select Solo Contribution Duration (1 to 6 Months Maximum):
                     </span>
-                    <span className="text-xs font-black text-[#0E5A3C]">
+                    <span className="text-xs font-black text-[#ff6600]">
                       {soloMonths} Month{soloMonths > 1 ? 's' : ''} ({soloMonths * 30} Days)
                     </span>
                   </div>
@@ -1004,7 +1004,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                         onClick={() => setSoloMonths(m)}
                         className={`py-1.5 text-xs font-bold rounded-lg transition-colors ${
                           soloMonths === m
-                            ? 'bg-[#0E5A3C] text-white shadow-xs'
+                            ? 'bg-[#ff6600] text-white shadow-xs'
                             : 'bg-white text-slate-700 border border-emerald-200 hover:bg-emerald-100'
                         }`}
                       >
@@ -1022,7 +1022,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     type="button"
                     onClick={handleCreateGroup}
                     disabled={creatingGroup}
-                    className="w-full py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
                   >
                     {creatingGroup ? 'Starting Plan...' : `Confirm & Start ${soloMonths}-Month Solo Contribution Plan`}
                   </button>
@@ -1039,7 +1039,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               {/* RETAINED SECTION: BOLD, NEAT, CLEAN IN PROMINENT VISIBLE PLACE */}
               <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-2xl mb-4 shadow-xs">
                 <div className="flex items-start gap-2.5 mb-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-[#0E5A3C] shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-5 h-5 text-[#ff6600] shrink-0 mt-0.5" />
                   <div>
                     <h3 className="text-xs sm:text-sm font-black text-emerald-950 leading-snug">
                       Join an existing active group with a member's invite code and start saving towards this item.
@@ -1056,7 +1056,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     value={inviteCodeInput}
                     onChange={(e) => setInviteCodeInput(e.target.value.toUpperCase())}
                     placeholder="Enter Invite Code (e.g. SOLAR9X1)"
-                    className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-[#0E5A3C]"
+                    className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                   <button
                     onClick={() => handleJoinWithCode()}
@@ -1083,7 +1083,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <button
                     onClick={handleGenerateGroups}
                     disabled={generatingGroups}
-                    className="w-full py-2.5 bg-[#0E5A3C] hover:bg-[#0b4830] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                    className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>{generatingGroups ? 'Generating...' : 'Pre-Create Speed Groups (10, 8, 6, 4, 2, 1 Members)'}</span>
@@ -1095,7 +1095,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {/* Official Till & Manual Payment Notice */}
             <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col gap-1 text-xs text-slate-500">
               <div className="flex items-center justify-between">
-                <span>Platform Till: <b className="text-[#0E5A3C] font-mono">196853</b> · Paybill: <b className="text-[#0E5A3C] font-mono">522533</b> (Acc: <b>4363</b>)</span>
+                <span>Platform Till: <b className="text-[#ff6600] font-mono">196853</b> · Paybill: <b className="text-[#ff6600] font-mono">522533</b> (Acc: <b>4363</b>)</span>
                 <span>Merchant Till: <b className="text-slate-900 font-mono">3463533</b></span>
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
@@ -1139,10 +1139,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-xs font-bold px-2 py-0.5 bg-emerald-50 text-[#0E5A3C] rounded-md">
+                    <span className="text-xs font-bold px-2 py-0.5 bg-emerald-50 text-[#ff6600] rounded-md">
                       {grp.size}-member speed
                     </span>
-                    <span className="text-xs font-bold text-[#0E5A3C] uppercase tracking-wider">
+                    <span className="text-xs font-bold text-[#ff6600] uppercase tracking-wider">
                       {grp.status}
                     </span>
                   </div>
@@ -1162,7 +1162,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     </div>
                     <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-[#0E5A3C] rounded-full transition-all"
+                        className="h-full bg-[#ff6600] rounded-full transition-all"
                         style={{ width: `${(grp.occupiedCount / grp.size) * 100}%` }}
                       />
                     </div>
@@ -1181,13 +1181,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       onClick={() => onNavigate('group', grp.id)}
                       className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <Store className="w-3.5 h-3.5 text-[#0E5A3C]" />
+                      <Store className="w-3.5 h-3.5 text-[#ff6600]" />
                       <span>Merchant Owner (Read-Only)</span>
                     </button>
                   ) : isMember ? (
                     <button
                       onClick={() => onNavigate('group', grp.id)}
-                      className="w-full py-2 bg-emerald-50 text-[#0E5A3C] font-semibold text-xs rounded-lg hover:bg-emerald-100 transition-colors"
+                      className="w-full py-2 bg-emerald-50 text-[#ff6600] font-semibold text-xs rounded-lg hover:bg-emerald-100 transition-colors"
                     >
                       You are a Member · Open Group
                     </button>
@@ -1267,7 +1267,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 bg-emerald-100 text-[#0E5A3C] rounded-lg">
+              <span className="p-1.5 bg-emerald-100 text-[#ff6600] rounded-lg">
                 <Store className="w-4 h-4" />
               </span>
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
@@ -1278,7 +1278,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               Similar alternative verified items in <span className="font-bold text-slate-800">{product.category}</span> and comparable price ranges from independent partner merchants across Kenya.
             </p>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-[#0E5A3C] border border-emerald-200 rounded-full shrink-0">
+          <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-[#ff6600] border border-emerald-200 rounded-full shrink-0">
             {recommendedProducts.length} Similar Matching Items
           </span>
         </div>
@@ -1298,7 +1298,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                   onNavigate('product', rec.id);
                 }}
-                className="group flex flex-col justify-between bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-[#0E5A3C] hover:shadow-md transition-all cursor-pointer p-3"
+                className="group flex flex-col justify-between bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-[#ff6600] hover:shadow-md transition-all cursor-pointer p-3"
               >
                 <div>
                   <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 mb-2.5">
@@ -1313,7 +1313,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       </span>
                     )}
                     {isSameCategory && (
-                      <span className="absolute bottom-2 left-2 bg-[#0E5A3C] text-white text-[9.5px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                      <span className="absolute bottom-2 left-2 bg-[#ff6600] text-white text-[9.5px] font-bold px-1.5 py-0.5 rounded shadow-xs">
                         Similar Category
                       </span>
                     )}
@@ -1334,7 +1334,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <div className="text-xs font-extrabold text-slate-900">
                     KSh {rec.price.toLocaleString()}
                   </div>
-                  <div className="text-[11px] text-[#0E5A3C] font-semibold">
+                  <div className="text-[11px] text-[#ff6600] font-semibold">
                     From KSh {minDaily.toLocaleString()}/day
                   </div>
                 </div>
@@ -1364,7 +1364,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#0E5A3C] flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#ff6600] flex items-center justify-center font-bold">
                   <Camera className="w-4 h-4" />
                 </div>
                 <div>
@@ -1387,7 +1387,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   Photos ({mediaModalPhotos.length}/3)
                 </span>
                 {mediaModalPhotos.length < 3 && (
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-[#0E5A3C] text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-[#ff6600] text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors">
                     <Upload className="w-3.5 h-3.5" />
                     <span>Add Photo</span>
                     <input
@@ -1480,7 +1480,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 type="button"
                 disabled={savingMedia}
                 onClick={handleSaveMedia}
-                className="px-5 py-2 bg-[#0E5A3C] text-white rounded-xl text-xs font-bold hover:bg-[#0b4830] transition-colors disabled:opacity-50"
+                className="px-5 py-2 bg-[#ff6600] text-white rounded-xl text-xs font-bold hover:bg-[#ff8000] transition-colors disabled:opacity-50"
               >
                 {savingMedia ? 'Saving Media...' : 'Save Media Changes'}
               </button>

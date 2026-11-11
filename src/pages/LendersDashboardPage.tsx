@@ -173,7 +173,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
       {/* Rules & Policy Accordion / Notice */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 text-xs">
         <div className="p-4 bg-white border border-slate-200 rounded-xl flex items-start gap-3 shadow-xs">
-          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#0E5A3C] flex items-center justify-center shrink-0 font-bold">
+          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center shrink-0 font-bold">
             1
           </div>
           <div>
@@ -216,7 +216,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             onClick={() => setFilterTab('my-groups')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               filterTab === 'my-groups'
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -226,7 +226,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             onClick={() => setFilterTab('open')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               filterTab === 'open'
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -236,7 +236,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             onClick={() => setFilterTab('funded')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               filterTab === 'funded'
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -247,7 +247,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               onClick={() => setFilterTab('my-claimed')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                 filterTab === 'my-claimed'
-                  ? 'bg-[#0E5A3C] text-white shadow-xs'
+                  ? 'bg-[#ff6600] text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -258,7 +258,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             onClick={() => setFilterTab('all')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
               filterTab === 'all'
-                ? 'bg-[#0E5A3C] text-white shadow-xs'
+                ? 'bg-[#ff6600] text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -304,7 +304,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               </p>
               <button
                 onClick={() => setFilterTab('open')}
-                className="px-4 py-2 bg-[#0E5A3C] text-white text-xs font-bold rounded-xl shadow-xs"
+                className="px-4 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Browse Open Loan Requests
               </button>
@@ -342,7 +342,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                         </div>
                         <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-[#0E5A3C] rounded-full transition-all"
+                            className="h-full bg-[#ff6600] rounded-full transition-all"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
@@ -385,7 +385,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
 
                     <button
                       onClick={() => onNavigate('group', g.id)}
-                      className="w-full py-2 bg-slate-900 hover:bg-[#0E5A3C] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2 bg-slate-900 hover:bg-[#ff6600] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <span>View Progress &amp; Members (Read-Only)</span>
                       <ArrowRight className="w-3.5 h-3.5" />
@@ -475,7 +475,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-400">Direct Phone:</span>
-                      <a href={`tel:${alert.requesterPhone || '0722000000'}`} className="font-mono font-bold text-[#0E5A3C] hover:underline">
+                      <a href={`tel:${alert.requesterPhone || '0722000000'}`} className="font-mono font-bold text-[#ff6600] hover:underline">
                         {alert.requesterPhone || '0722000000'}
                       </a>
                     </div>
@@ -630,7 +630,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Users className="w-5 h-5 text-[#0E5A3C]" />
+              <Users className="w-5 h-5 text-[#ff6600]" />
               <h2 className="text-lg font-black text-slate-900 tracking-tight">
                 Removed Members & Re-Entry Pool
               </h2>
@@ -718,7 +718,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             <div className="flex flex-col gap-2">
               <a
                 href={`tel:${contactTarget.phone}`}
-                className="w-full py-2.5 bg-[#0E5A3C] hover:bg-[#0a422c] text-white text-xs font-bold rounded-xl text-center shadow-xs"
+                className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl text-center shadow-xs"
               >
                 Call Phone ({contactTarget.phone})
               </a>
@@ -726,7 +726,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                 href={`https://wa.me/${contactTarget.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${contactTarget.name}, reaching out regarding Buyoll Group "${contactTarget.groupName}".`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-2.5 bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold rounded-xl text-center shadow-xs"
+                className="w-full py-2.5 bg-[#25D366] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl text-center shadow-xs"
               >
                 Chat on WhatsApp
               </a>

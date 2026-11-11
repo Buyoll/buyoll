@@ -4,6 +4,7 @@ import type { PromoMessage } from '../config/promoMessages.ts';
 import type { PromoCloseMethod, PromoTriggerType } from '../hooks/usePromoTrigger.ts';
 import type { User } from '../types.ts';
 import { getUserActiveRole } from '../utils/rbac.ts';
+import { resolveImageUrl } from '../api.ts';
 
 interface PromoPopupProps {
   isOpen: boolean;
@@ -179,7 +180,7 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
 
   // Confetti particles generator (capped at 24 elements)
   const confettiList = useMemo(() => {
-    const colors = ['#ff8a00', '#ffffff', '#7be39a', '#2fbf62', '#ffb347'];
+    const colors = ['#ff8a00', '#ffffff', '#ff8000', '#ff8000', '#ffb347'];
     return Array.from({ length: 22 }, (_, i) => ({
       id: i,
       color: colors[i % colors.length],
@@ -285,7 +286,7 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
           transform: translateX(-50%) translateZ(10px);
           width: 90%;
           height: 110px;
-          background: linear-gradient(135deg, #052613 0%, #0d5c32 50%, #157e46 100%);
+          background: linear-gradient(135deg, #052613 0%, #ff6600 50%, #ff6600 100%);
           border-radius: 28px 28px 16px 16px;
           border: 2px solid rgba(255, 212, 148, 0.65);
           box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 25px rgba(255, 138, 0, 0.25);
@@ -355,7 +356,7 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
         .promo-front-card {
           position: relative;
           width: 100%;
-          background: linear-gradient(145deg, var(--promo-green-start) 0%, var(--promo-green-mid) 60%, #1e8748 100%);
+          background: linear-gradient(145deg, var(--promo-green-start) 0%, var(--promo-green-mid) 60%, #ff6600 100%);
           border-radius: 28px;
           padding: 34px 28px 28px 28px;
           color: #ffffff;
@@ -374,7 +375,7 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
           position: absolute;
           inset: -2px;
           border-radius: 30px;
-          background: linear-gradient(115deg, #ff8a00, #7be39a, #ffb347, #2fbf62, #ff8a00);
+          background: linear-gradient(115deg, #ff8a00, #ff8000, #ffb347, #ff8000, #ff8a00);
           background-size: 300% 300%;
           z-index: -1;
           animation: borderGlow 6s linear infinite;
@@ -515,7 +516,7 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
         /* Secondary pills */
         .promo-secondary-pill {
           background: rgba(255, 255, 255, 0.92);
-          color: #0b4522;
+          color: #ff8000;
           border: 1px solid rgba(255, 255, 255, 0.6);
           border-radius: 16px;
           padding: 10px 14px;
@@ -778,10 +779,16 @@ export const PromoPopup: React.FC<PromoPopupProps> = ({
           <div className="flex justify-center -mt-1 mb-3 select-none">
             <div className="promo-logo-badge">
               <img
-                src="/buyoll_logo.png"
+                src={resolveImageUrl('buyoll_logo.png')}
                 alt="Buyoll"
                 loading="eager"
                 className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-sm"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.endsWith('Buyoll_Shopping_Cart_Logo_23c2cc30.png')) {
+                    target.src = './assets/aistudio/Buyoll_Shopping_Cart_Logo_23c2cc30.png';
+                  }
+                }}
               />
             </div>
           </div>
