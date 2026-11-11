@@ -594,6 +594,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       onOpenAuth();
       return;
     }
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
+      return;
+    }
     if (!group) return;
 
     // If group is invite-only and user doesn't have an approved invite, prompt to request invite
@@ -611,6 +615,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     if (!currentUser) {
       onNotify('info', 'Please sign in to join this Group slot.');
       onOpenAuth();
+      return;
+    }
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
       return;
     }
     if (!slotPickerTarget || !group) return;
@@ -635,6 +643,10 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     e.preventDefault();
     if (!currentUser) {
       onOpenAuth();
+      return;
+    }
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
       return;
     }
     if (!group) return;

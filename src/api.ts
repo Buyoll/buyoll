@@ -1946,10 +1946,30 @@ export const api = {
 
       const disburseAmount = loan.approvedAmount || loan.amount;
 
-      // Credit member wallet (deposit-only, non-withdrawable)
+      if ((lender.credit || 0) < disburseAmount) {
+        throw new Error(`Insufficient wallet balance. You have KSh ${(lender.credit || 0).toLocaleString()} but need KSh ${disburseAmount.toLocaleString()} to fund this loan. Please deposit funds first.`);
+      }
+
+      // 1. Debit lender wallet
+      lender.credit = (lender.credit || 0) - disburseAmount;
+      setStoredUser(lender);
+
+      // 2. Credit member borrower wallet
       requester.credit = (requester.credit || 0) + disburseAmount;
 
-      // Add to ledger
+      // Add debit to lender ledger
+      db.storeCreditLedger.unshift({
+        id: db.nextIds.ledger++,
+        userId: lender.id,
+        amount: -disburseAmount,
+        balanceAfter: lender.credit,
+        type: 'admin_adjustment',
+        referenceId: `P2P_LOAN_DISBURSE_${loan.id}`,
+        note: `Loan disbursement to member ${requester.name} (Debited KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}.`,
+        createdAt: Date.now(),
+      });
+
+      // Add credit to member borrower ledger
       db.storeCreditLedger.unshift({
         id: db.nextIds.ledger++,
         userId: requester.id,
@@ -1957,7 +1977,7 @@ export const api = {
         balanceAfter: requester.credit,
         type: 'admin_adjustment',
         referenceId: `P2P_LOAN_${loan.id}`,
-        note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}. Non-withdrawable; usable for shopping & Group contributions. Repayment external.`,
+        note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}. Usable for shopping & Group contributions.`,
         createdAt: Date.now(),
       });
 

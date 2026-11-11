@@ -71,6 +71,10 @@ export const MyChamasPage: React.FC<MyChamasPageProps> = ({
       onOpenAuth();
       return;
     }
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
+      return;
+    }
     const code = quickJoinCode.trim().toUpperCase();
     if (!code) return;
 

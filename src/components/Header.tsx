@@ -367,39 +367,10 @@ export const Header: React.FC<HeaderProps> = ({
                         </div>
                       </div>
 
-                      {userRoles.length > 1 && (
-                        <div className="px-3 py-2 bg-[#fff4ec] dark:bg-[#2a1608] rounded-lg my-1.5 border border-[#ffedd5] dark:border-[#431407]">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-[#ea580c] dark:text-[#ff8000] mb-1.5">
-                            Switch Active Role
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {userRoles.map((r) => (
-                              <button
-                                key={r}
-                                onClick={async () => {
-                                  if (r !== activeRole) {
-                                    try {
-                                      await api.switchRole(r);
-                                      setIsUserMenuOpen(false);
-                                      onNotify?.('success', `Switched active role to ${r}!`);
-                                      window.location.reload();
-                                    } catch (e: any) {
-                                      onNotify?.('error', e.message || 'Failed to switch role');
-                                    }
-                                  }
-                                }}
-                                className={`px-2 py-1 text-[11px] font-bold rounded-md capitalize transition-colors ${
-                                  r === activeRole
-                                    ? 'bg-[#ff6600] text-white shadow-xs'
-                                    : 'bg-[var(--surface)] border border-[var(--line)] text-[var(--text)] hover:bg-[#fff4ec]'
-                                }`}
-                              >
-                                {r}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      {/* Role Isolation Note */}
+                      <div className="px-3 py-1.5 bg-[var(--field)] rounded-lg my-1 text-[10.5px] text-[var(--muted)]">
+                        Signed in as <b className="capitalize text-[var(--text)]">{activeRole}</b>. To use another role, please log out and sign in with that account.
+                      </div>
 
                       <button
                         onClick={() => {
@@ -521,8 +492,10 @@ export const Header: React.FC<HeaderProps> = ({
                 if (!currentUser) {
                   onOpenAuth('member');
                 } else if (activeRole === 'merchant') {
+                  onNotify?.('info', 'Merchants have a dedicated My Groups oversight in the Merchant Dashboard.');
                   onNavigate('vendor-dashboard');
                 } else if (activeRole === 'lender') {
+                  onNotify?.('info', 'Lenders can review and fund groups from the Lenders Desk.');
                   onNavigate('lenders-dashboard');
                 } else {
                   onNavigate('my-chamas');
@@ -550,6 +523,8 @@ export const Header: React.FC<HeaderProps> = ({
                 e.preventDefault();
                 if (currentUser && activeRole === 'merchant') {
                   onNavigate('vendor-dashboard');
+                } else if (currentUser) {
+                  onNotify?.('info', `You are currently signed in as a ${activeRole}. To access the Merchant dashboard, please log out and sign in or register as a Merchant.`);
                 } else {
                   onOpenAuth('merchant');
                 }
@@ -573,6 +548,8 @@ export const Header: React.FC<HeaderProps> = ({
                 e.preventDefault();
                 if (currentUser && activeRole === 'lender') {
                   onNavigate('lenders-dashboard');
+                } else if (currentUser) {
+                  onNotify?.('info', `You are currently signed in as a ${activeRole}. To access the Lenders Desk, please log out and sign in or register as a Lender.`);
                 } else {
                   onOpenAuth('lender');
                 }
@@ -638,9 +615,13 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   if (!currentUser) onOpenAuth('member');
-                  else if (activeRole === 'merchant') onNavigate('vendor-dashboard');
-                  else if (activeRole === 'lender') onNavigate('lenders-dashboard');
-                  else onNavigate('my-chamas');
+                  else if (activeRole === 'merchant') {
+                    onNotify?.('info', 'Merchants have a dedicated My Groups oversight in the Merchant Dashboard.');
+                    onNavigate('vendor-dashboard');
+                  } else if (activeRole === 'lender') {
+                    onNotify?.('info', 'Lenders can review and fund groups from the Lenders Desk.');
+                    onNavigate('lenders-dashboard');
+                  } else onNavigate('my-chamas');
                 }}
                 className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
                   currentView === 'my-chamas'
@@ -661,7 +642,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   if (currentUser && activeRole === 'merchant') onNavigate('vendor-dashboard');
-                  else onOpenAuth('merchant');
+                  else if (currentUser) {
+                    onNotify?.('info', `You are currently signed in as a ${activeRole}. To access the Merchant dashboard, please log out and sign in or register as a Merchant.`);
+                  } else onOpenAuth('merchant');
                 }}
                 className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
                   currentView === 'vendor-dashboard'
@@ -679,7 +662,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   if (currentUser && activeRole === 'lender') onNavigate('lenders-dashboard');
-                  else onOpenAuth('lender');
+                  else if (currentUser) {
+                    onNotify?.('info', `You are currently signed in as a ${activeRole}. To access the Lenders Desk, please log out and sign in or register as a Lender.`);
+                  } else onOpenAuth('lender');
                 }}
                 className={`min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
                   currentView === 'lenders-dashboard'

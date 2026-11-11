@@ -8,6 +8,7 @@ interface RoleGuardProps {
   currentUser: User | null;
   onNavigate: (view: string, arg?: any) => void;
   onNotify?: (type: 'success' | 'error' | 'info', message: string) => void;
+  onLogout?: () => void;
   children: React.ReactNode;
 }
 
@@ -16,6 +17,7 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
   currentUser,
   onNavigate,
   onNotify,
+  onLogout,
   children,
 }) => {
   const activeRole = getUserActiveRole(currentUser);
@@ -27,30 +29,44 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
       hasRedirected.current = true;
       const target = getRoleHomeRoute(activeRole);
       if (onNotify) {
-        onNotify('error', "You don't have access to that page");
+        onNotify('info', `Role Isolation: You are signed in as a ${activeRole}. To access this area, please log out and sign in with the required account.`);
       }
       onNavigate(target.view);
     }
   }, [isAllowed, activeRole, onNavigate, onNotify]);
 
   if (!isAllowed) {
+    const requiredRoleName = allow.map(r => r.toUpperCase()).join(' or ');
     return (
-      <div className="max-w-md mx-auto my-16 p-8 bg-white dark:bg-[#111A17] border border-amber-200 dark:border-amber-900/40 rounded-2xl shadow-sm text-center">
-        <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center mx-auto mb-4 text-amber-600">
+      <div className="max-w-md mx-auto my-16 p-8 bg-[var(--surface)] border border-[var(--line)] rounded-2xl shadow-sm text-center">
+        <div className="w-12 h-12 rounded-full bg-[#fff4ec] dark:bg-[#2a1608] flex items-center justify-center mx-auto mb-4 text-[#ff6600]">
           <ShieldAlert className="w-6 h-6" />
         </div>
-        <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
-          Access Restricted
+        <h3 className="text-base font-bold text-[var(--text)] mb-2">
+          Strict Role Isolation Enforced
         </h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-          You don't have access to that page. Redirecting you to your {activeRole} dashboard…
+        <p className="text-xs text-[var(--muted)] mb-2 leading-relaxed">
+          This area is strictly restricted to <span className="font-bold text-[var(--text)]">{requiredRoleName}</span> accounts.
         </p>
-        <button
-          onClick={() => onNavigate(getRoleHomeRoute(activeRole).view)}
-          className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
-        >
-          Go to My Dashboard
-        </button>
+        <p className="text-xs text-[var(--muted)] mb-6 leading-relaxed">
+          You are currently signed in as a <b className="capitalize text-[#ff6600]">{activeRole}</b>. To access this dashboard or feature, you must log out of your current account and register or sign in with the appropriate role.
+        </p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+          <button
+            onClick={() => onNavigate(getRoleHomeRoute(activeRole).view)}
+            className="w-full sm:w-auto px-4 py-2.5 bg-[var(--field)] hover:bg-[var(--line)] text-[var(--text)] text-xs font-bold rounded-xl transition-colors"
+          >
+            Go to My {activeRole} Dashboard
+          </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full sm:w-auto px-4 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            >
+              Log Out & Switch Role
+            </button>
+          )}
+        </div>
       </div>
     );
   }

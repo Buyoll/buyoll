@@ -477,7 +477,7 @@ export default function App() {
         )}
 
         {currentView === 'my-chamas' && (
-          <RoleGuard allow={['member', 'merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+          <RoleGuard allow={['member']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <MyChamasPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -488,7 +488,7 @@ export default function App() {
         )}
 
         {currentView === 'wallet' && (
-          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <WalletPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -504,7 +504,7 @@ export default function App() {
         )}
 
         {currentView === 'vendor-dashboard' && (
-          <RoleGuard allow={['merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+          <RoleGuard allow={['merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <VendorDashboardPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -526,7 +526,7 @@ export default function App() {
         )}
 
         {currentView === 'admin-dashboard' && (
-          <RoleGuard allow={['admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+          <RoleGuard allow={['admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <React.Suspense
               fallback={
                 <div className="max-w-7xl mx-auto px-4 py-20 text-center">
@@ -545,7 +545,7 @@ export default function App() {
         )}
 
         {currentView === 'lenders-dashboard' && (
-          <RoleGuard allow={['lender']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify}>
+          <RoleGuard allow={['lender']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <LendersDashboardPage
               currentUser={currentUser}
               onNavigate={handleNavigate}

@@ -1217,23 +1217,36 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 
   const db = await getDatabase();
 
-  // Merchant gating check: Subscription must be active, verified, and within tier product limits
+  // Merchant gating check: Subscription must be active, within 30-day selling window, and within plan catalog limits
   if (user.role === 'merchant') {
-    if (user.merchantSubscriptionStatus !== 'active' || !user.verified) {
+    const now = Date.now();
+    const activeSub = (db.merchantSubscriptions || []).find(
+      (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
+    );
+    const userSubActive = Boolean(
+      user.merchantSubscriptionStatus === 'active' &&
+      user.merchantSubscriptionExpiresAt &&
+      user.merchantSubscriptionExpiresAt > now
+    );
+
+    if (!activeSub && !userSubActive) {
+      const isExpired = Boolean(
+        user.merchantSubscriptionExpiresAt && user.merchantSubscriptionExpiresAt <= now
+      );
       return res.status(403).json({
-        error: 'Active merchant subscription and Buyoll verification required to list products. Please complete subscription or wait for admin approval.',
+        error: isExpired
+          ? 'Your 30-day merchant subscription has expired. Please subscribe to a 30-Day Merchant Plan to continue posting products.'
+          : 'Active 30-day merchant subscription required to post products. Please choose a 30-Day Merchant Plan and wait for admin approval.',
+        code: isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
         subscriptionStatus: user.merchantSubscriptionStatus || 'inactive',
-        isVerified: Boolean(user.verified),
+        isExpired,
       });
     }
 
-    const activeSub = (db.merchantSubscriptions || []).find(
-      (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
-    );
-    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan === 'starter' ? 'tier_250' : 'tier_500');
+    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan as string) || 'tier_500';
     const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
-    if (tier.maxProducts !== -1) {
+    if (tier && tier.maxProducts !== -1) {
       const currentProductsCount = db.products.filter((p) => p.vendorId === user.id).length;
       if (currentProductsCount >= tier.maxProducts) {
         return res.status(403).json({
@@ -2035,6 +2048,15 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
 
   if (group.status !== 'active') {
     return res.status(400).json({ error: `This group is ${group.status} and cannot accept new members.` });
+  }
+
+  // Role isolation: Merchants and Lenders CANNOT join groups. Only customer members can join.
+  const userRole = user.role || user.activeRole;
+  if (userRole === 'merchant' || userRole === 'lender') {
+    return res.status(403).json({
+      error: 'Merchants and Lenders cannot join groups. Please log out of your current account and sign in or register as a Member.',
+      code: 'ROLE_ISOLATION_MEMBER_REQUIRED',
+    });
   }
 
   // The merchant CANNOT join a product/group they created, and cannot join through any other path.
@@ -3285,6 +3307,8 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
   const group = db.groups.find(g => g.id === resolvedGroupId);
 
   const totalAmount = loan.approvedAmount || loan.amount;
+  const platformCommission = Math.round(totalAmount * 0.03);
+  const borrowerNet = totalAmount;
 
   // Enforce lender balance check
   const currentLenderBalance = lender.credit || 0;
@@ -3296,21 +3320,37 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
     });
   }
 
-  // Atomic 3-way split: 3% platform commission to Admin, 97% net proceeds to Borrower
-  const platformCommission = Math.round(totalAmount * 0.03);
-  const borrowerNet = totalAmount - platformCommission;
-
-  // 1. Debit lender wallet
+  // 1. Debit lender wallet by the approved loan amount
   lender.credit = currentLenderBalance - totalAmount;
+  if (!lender.roleWallets) {
+    lender.roleWallets = {
+      member: { credit: 0, coins: 0, points: 0 },
+      merchant: { credit: 0, coins: 0, points: 0 },
+      lender: { credit: lender.credit, coins: 0, points: 0 },
+    };
+  }
+  if (!lender.roleWallets.lender) {
+    lender.roleWallets.lender = { credit: lender.credit, coins: 0, points: 0 };
+  } else {
+    lender.roleWallets.lender.credit = lender.credit;
+  }
 
-  // 2. Credit admin wallet with 3% platform commission
-  const adminUser = db.users.find(u => u.role === 'admin') || db.users[0];
-  adminUser.credit = (adminUser.credit || 0) + platformCommission;
+  // 2. Credit borrower member wallet with the loan approved for shopping in the group
+  requester.credit = (requester.credit || 0) + totalAmount;
+  if (!requester.roleWallets) {
+    requester.roleWallets = {
+      member: { credit: requester.credit, coins: 0, points: 0 },
+      merchant: { credit: 0, coins: 0, points: 0 },
+      lender: { credit: 0, coins: 0, points: 0 },
+    };
+  }
+  if (!requester.roleWallets.member) {
+    requester.roleWallets.member = { credit: requester.credit, coins: 0, points: 0 };
+  } else {
+    requester.roleWallets.member.credit = requester.credit;
+  }
 
-  // 3. Credit borrower wallet with 97% net proceeds
-  requester.credit = (requester.credit || 0) + borrowerNet;
-
-  // Write 3 atomic ledger entries
+  // Write atomic ledger entries for lender debit and borrower credit
   const now = Date.now();
   db.storeCreditLedger.unshift(
     {
@@ -3320,27 +3360,17 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
       balanceAfter: lender.credit,
       type: 'admin_adjustment',
       referenceId: `LOAN_FUND_${loan.id}`,
-      note: `Disbursed loan #${loan.id} to member ${requester.name} (Amount: KSh ${totalAmount.toLocaleString()}). External repayment terms apply.`,
-      createdAt: now,
-    },
-    {
-      id: db.nextIds.ledger++,
-      userId: adminUser.id,
-      amount: platformCommission,
-      balanceAfter: adminUser.credit,
-      type: 'admin_adjustment',
-      referenceId: `LOAN_COMM_${loan.id}`,
-      note: `3% platform commission on P2P loan #${loan.id} funded by lender ${lender.name} for borrower ${requester.name}`,
+      note: `Loan disbursement to borrower member ${requester.name} for Group #${resolvedGroupId || group?.id || ''} (Debited KSh ${totalAmount.toLocaleString()}). External repayment terms apply.`,
       createdAt: now,
     },
     {
       id: db.nextIds.ledger++,
       userId: requester.id,
-      amount: borrowerNet,
+      amount: totalAmount,
       balanceAfter: requester.credit,
       type: 'admin_adjustment',
       referenceId: `LOAN_RECV_${loan.id}`,
-      note: `Disbursed 97% of P2P loan #${loan.id} from lender ${lender.name} (KSh ${borrowerNet.toLocaleString()}). 3% platform fee deducted. Non-withdrawable; strictly for shopping & Chama contributions. Repayment terms settled externally.`,
+      note: `Loan received from Lender ${lender.name} (Credited KSh ${totalAmount.toLocaleString()}). Usable to pay for shopping & Group installments.`,
       createdAt: now,
     }
   );
@@ -3364,7 +3394,7 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
       groupId: group.id,
       groupName: group.name,
       title: 'Loan Funded Successfully',
-      message: `Lender ${lender.name} funded ${requester.name}'s loan request of KSh ${totalAmount.toLocaleString()}! KSh ${borrowerNet.toLocaleString()} (97%) credited to wallet.`,
+      message: `Lender ${lender.name} funded ${requester.name}'s loan request of KSh ${totalAmount.toLocaleString()}! KSh ${borrowerNet.toLocaleString()} credited to wallet for shopping.`,
       type: 'system',
       timestamp: now,
     });
@@ -3374,7 +3404,7 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
       senderId: lender.id,
       senderName: lender.name,
       kind: 'system',
-      text: `✅ LOAN FUNDED ATOMICALLY: Lender ${lender.name} funded KSh ${totalAmount.toLocaleString()}. KSh ${borrowerNet.toLocaleString()} (97%) credited to ${requester.name}’s wallet for Chama installments. 3% platform fee (KSh ${platformCommission.toLocaleString()}) settled. Repayment is external.`,
+      text: `✅ LOAN FUNDED ATOMICALLY: Lender ${lender.name} funded KSh ${totalAmount.toLocaleString()}. KSh ${borrowerNet.toLocaleString()} credited to ${requester.name}’s wallet for Chama shopping and installments. Repayment settled externally.`,
       timestamp: now,
     });
   }
@@ -3384,7 +3414,7 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
     lender.id,
     lender.name,
     'PEER_LOAN_FUNDED',
-    `Atomic funding of loan #${loan.id}: Debited lender KSh ${totalAmount}, credited admin KSh ${platformCommission} (3%), credited borrower KSh ${borrowerNet} (97%)`
+    `Atomic funding of loan #${loan.id}: Debited lender KSh ${totalAmount}, credited borrower KSh ${borrowerNet}`
   );
 
   await saveDatabase(db);
@@ -3393,7 +3423,7 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
     lenderBalance: lender.credit,
     borrowerNet,
     platformCommission,
-    message: `Loan funded successfully! KSh ${borrowerNet.toLocaleString()} (97%) was credited into ${requester.name}’s wallet. KSh ${platformCommission.toLocaleString()} (3%) platform fee was paid.`,
+    message: `Loan funded successfully! KSh ${borrowerNet.toLocaleString()} was credited into ${requester.name}’s wallet for group shopping.`,
   });
 }
 
@@ -3573,6 +3603,9 @@ apiRouter.post('/groups/:id/pay-from-wallet', async (req: Request, res: Response
 
   // Deduct from wallet
   user.credit -= numAmount;
+  if (user.roleWallets?.member) {
+    user.roleWallets.member.credit = user.credit;
+  }
 
   // Credit slot
   slot.paidAmount = (slot.paidAmount || 0) + numAmount;

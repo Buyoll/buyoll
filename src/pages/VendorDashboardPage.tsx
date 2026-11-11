@@ -102,9 +102,12 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [selectedPaymentMode, setSelectedPaymentMode] = useState<'platform' | 'merchant'>('platform');
   const [submittingSpeedGroup, setSubmittingSpeedGroup] = useState(false);
 
+  const now = Date.now();
+  const subExpiresAt = subscriptionInfo?.subscription?.expiresAt || currentUser?.merchantSubscriptionExpiresAt;
+  const isSubscriptionExpired = subExpiresAt ? subExpiresAt <= now : Boolean(subscriptionInfo?.isExpired);
   const isSubscribedAndVerified = Boolean(
-    (currentUser?.merchantSubscriptionStatus === 'active' || (subscriptionInfo?.subscription && !subscriptionInfo?.isExpired)) &&
-    (currentUser?.verified || verificationInfo?.isVerified)
+    (currentUser?.merchantSubscriptionStatus === 'active' || subscriptionInfo?.subscription?.status === 'active' || subscriptionInfo?.hasSubscription) &&
+    !isSubscriptionExpired
   );
 
   async function handleSubscriptionPay() {
@@ -327,7 +330,15 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
 
   function handleOpenCreateProduct() {
     if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
-      onNotify('info', 'Active merchant subscription and verification required to post products.');
+      if (subscriptionInfo?.pendingSubscription) {
+        onNotify('info', 'Your 30-day merchant plan request is currently awaiting Admin approval. You will be able to post products as soon as it is approved.');
+        return;
+      }
+      if (isSubscriptionExpired) {
+        onNotify('info', 'Your 30-day merchant selling window has expired. Please choose a 30-Day Merchant Plan to continue.');
+      } else {
+        onNotify('info', 'Active 30-day merchant subscription required to post products. Please choose a plan.');
+      }
       setIsSubscriptionModalOpen(true);
       return;
     }
@@ -581,21 +592,40 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         {loading ? (
           <div className="p-8 text-center text-xs text-slate-400">Loading your listings...</div>
         ) : products.length === 0 ? (
-          <div className="p-12 text-center">
+          <div className="p-8 sm:p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs">
             <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <h3 className="text-sm font-bold text-slate-900 mb-1">No products listed yet</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
+            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 mb-1">No products listed yet</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
               Add your first genuine product listing with customized Group speeds and start selling.
             </p>
-            <button
-              onClick={() => {
-                setEditingProduct(null);
-                setIsEditorOpen(true);
-              }}
-              className="px-4 py-2 bg-[#ff6600] text-white text-xs font-bold rounded-lg"
-            >
-              Post First Product
-            </button>
+
+            {!isSubscribedAndVerified ? (
+              <div className="mb-4 max-w-md mx-auto p-4 bg-amber-50/90 border border-amber-200 rounded-xl text-left">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Sparkles className="w-4 h-4 text-[#ff6600]" />
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-950">
+                    Buyoll Merchant 30-Day Subscriptions
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed mb-3">
+                  No posting products without subscription. Choose your 30-day merchant plan to activate your selling window and start listing products.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsSubscriptionModalOpen(true)}
+                  className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs text-center"
+                >
+                  Choose Your 30-Day Merchant Plan
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleOpenCreateProduct}
+                className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+              >
+                Post First Product
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -724,18 +754,39 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
 
         {myGroups.length === 0 ? (
-          <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
-            <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+          <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200">
+            <Users className="w-8 h-8 text-[#ff6600] mx-auto mb-2" />
             <h4 className="text-xs font-bold text-slate-800">No Groups Created Yet</h4>
             <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-1 mb-3">
               Post a new product to automatically launch your first open group with your chosen speed (1 to 10 members).
             </p>
-            <button
-              onClick={handleOpenCreateProduct}
-              className="px-3.5 py-1.5 bg-[#FF6A00] text-white text-xs font-bold rounded-lg shadow-xs"
-            >
-              Post New Product
-            </button>
+            {!isSubscribedAndVerified ? (
+              <div className="mb-4 max-w-md mx-auto p-4 bg-amber-50/90 border border-amber-200 rounded-xl text-left">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Sparkles className="w-4 h-4 text-[#ff6600]" />
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-950">
+                    Buyoll Merchant 30-Day Subscriptions
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed mb-3">
+                  No posting products without subscription. Choose your 30-day merchant plan to activate your selling window and start listing products and launching groups.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsSubscriptionModalOpen(true)}
+                  className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs text-center"
+                >
+                  Choose Your 30-Day Merchant Plan
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleOpenCreateProduct}
+                className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+              >
+                Post New Product
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

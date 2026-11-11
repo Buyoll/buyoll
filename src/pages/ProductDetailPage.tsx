@@ -210,6 +210,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       return;
     }
 
+    if (currentUser.role !== 'merchant') {
+      onNotify('error', 'Only merchants can create groups. To act as a merchant, please log out and sign in or register as a Merchant.');
+      return;
+    }
+
     if (!selectedSpeed) {
       onNotify('error', 'Mandatory speed selection required. Please choose a speed to continue.');
       return;
@@ -246,6 +251,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       return;
     }
 
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
+      return;
+    }
+
     const trimmed = inviteCodeInput.trim().toUpperCase();
     if (!trimmed) {
       onNotify('error', 'Please enter a valid member invite code.');
@@ -270,6 +280,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     if (!currentUser) {
       onNotify('info', 'Please sign in to join a Group.');
       onOpenAuth();
+      return;
+    }
+
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
       return;
     }
 
