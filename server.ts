@@ -13,12 +13,7 @@ function resolvePort(): number {
     const p = parseInt(process.argv[portArgIdx + 1], 10);
     if (!isNaN(p) && p > 0) return p;
   }
-  const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  // In the container environment, port 8080 is occupied by nginx reverse proxy; app must listen on 3000
-  if (envPort === 8080 || isNaN(envPort)) {
-    return 3000;
-  }
-  return envPort;
+  return 3000;
 }
 
 async function startServer() {
@@ -49,6 +44,8 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
+    console.log(`  ➜  Local:   http://localhost:${PORT}/`);
+    console.log(`  ➜  Network: http://0.0.0.0:${PORT}/`);
     console.log(`Buyoll server running at http://0.0.0.0:${PORT}`);
   });
 }
