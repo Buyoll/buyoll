@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -18,6 +19,7 @@ function resolvePort(): number {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   const PORT = resolvePort();
 
   app.use(express.json({ limit: '15mb' }));
@@ -29,21 +31,55 @@ async function startServer() {
   // Serve static assets from public if any
   app.use(express.static(path.resolve(__dirname, 'public')));
 
+  let vite: Awaited<ReturnType<typeof createViteServer>> | null = null;
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   } else {
-    // In dev: mount Vite middleware
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    // Initialize Vite middleware concurrently so port 3000 binds immediately without timing out on cold starts
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
+    const viteReady = createViteServer({
+      server: {
+        middlewareMode: true,
+        ws: isHmrDisabled ? false : undefined,
+        hmr: isHmrDisabled ? false : { server: httpServer },
+      },
       appType: 'spa',
+    })
+      .then((server) => {
+        vite = server;
+        return server;
+      })
+      .catch((err) => {
+        console.error('Failed to initialize Vite dev server:', err);
+        process.exit(1);
+      });
+
+    app.use(async (req, res, next) => {
+      try {
+        const v = await viteReady;
+        v.middlewares(req, res, next);
+      } catch (err) {
+        next(err);
+      }
     });
-    app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const shutdown = () => {
+    if (vite) {
+      vite.close().catch(() => {});
+    }
+    httpServer.closeAllConnections?.();
+    httpServer.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 250).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`  ➜  Local:   http://localhost:${PORT}/`);
     console.log(`  ➜  Network: http://0.0.0.0:${PORT}/`);
     console.log(`Buyoll server running at http://0.0.0.0:${PORT}`);
