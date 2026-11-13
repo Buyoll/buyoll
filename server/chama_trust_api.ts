@@ -200,7 +200,10 @@ export function sanitizePlainText(str: string): string {
 // ======================================================================
 
 // 1. POST /groups - Create a new Chama group (creator becomes first moderator + member with code)
-chamaTrustRouter.post('/groups', async (req: Request, res: Response) => {
+chamaTrustRouter.post('/groups', async (req: Request, res: Response, next) => {
+  if (req.body?.productId !== undefined || (req.body?.size !== undefined && !req.body?.description)) {
+    return next();
+  }
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
@@ -322,7 +325,10 @@ chamaTrustRouter.get('/groups/mine', async (req: Request, res: Response) => {
 });
 
 // 3. GET /groups/:id - Single group details (members and moderators only)
-chamaTrustRouter.get('/groups/:id', async (req: Request, res: Response) => {
+chamaTrustRouter.get('/groups/:id', async (req: Request, res: Response, next) => {
+  if (/^\d+$/.test(req.params.id) || !req.params.id.startsWith('grp_')) {
+    return next();
+  }
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 

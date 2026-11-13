@@ -93,24 +93,27 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_250',
     name: 'Micro-Merchant (KES 250)',
     monthlyFee: 250,
+    yearlyFee: 3000,
     maxProducts: 2,
     maxGroupsPerProduct: 2,
     description: 'Caters to very small businesses.',
-    features: ['1 to 2 products max', '2 groups per product', '30-day active window'],
+    features: ['1 to 2 products max', '2 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_500',
     name: 'Growing Merchant (KES 500)',
     monthlyFee: 500,
+    yearlyFee: 6000,
     maxProducts: 10,
     maxGroupsPerProduct: 5,
     description: 'Ideal for budding local stores.',
-    features: ['Up to 10 products', '5 groups per product', '30-day active window'],
+    features: ['Up to 10 products', '5 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_1500',
     name: 'Pro Merchant (KES 1,500)',
     monthlyFee: 1500,
+    yearlyFee: 18000,
     maxProducts: 50,
     maxGroupsPerProduct: 10,
     description: 'For active retail businesses.',
@@ -120,6 +123,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_3500',
     name: 'Commercial (KES 3,500)',
     monthlyFee: 3500,
+    yearlyFee: 42000,
     maxProducts: 100,
     maxGroupsPerProduct: 30,
     description: 'High capacity volume sales.',
@@ -129,6 +133,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_7500',
     name: 'Enterprise Scale (KES 7,500)',
     monthlyFee: 7500,
+    yearlyFee: 90000,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 50,
     description: 'Unlimited catalog for major distributors.',
@@ -138,6 +143,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'enterprise',
     name: 'Custom Enterprise',
     monthlyFee: 15000,
+    yearlyFee: 180000,
     maxProducts: -1,
     maxGroupsPerProduct: 100,
     description: 'Custom SLA and limits set by admin.',
@@ -164,6 +170,56 @@ function generateCode(length = 6): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+function ensureUserReferralCode(u: User | null | undefined): boolean {
+  if (!u) return false;
+  if (!u.referralCode) {
+    u.referralCode = `BYL-${10000 + u.id}-${generateCode(3)}`;
+    return true;
+  }
+  return false;
+}
+
+function isGroupModerator(user: User | null | undefined, group: ChamaGroup): boolean {
+  if (!user) return false;
+  const activeRole = user.activeRole || user.role;
+  if (activeRole === 'admin' || user.role === 'admin') return true;
+  // Merchants/vendors are NEVER group moderators
+  if (activeRole === 'merchant' || user.role === 'merchant' || (group.vendorId && group.vendorId === user.id)) {
+    return false;
+  }
+  return Boolean(
+    group.moderatorId === user.id ||
+    (Array.isArray(group.moderators) && group.moderators.includes(user.id)) ||
+    (group.adminId && group.adminId === user.id && group.adminId !== group.vendorId)
+  );
+}
+
+function isProductPosted(p: Product): boolean {
+  return p.publicationStatus !== 'draft' && p.live !== false;
+}
+
+function normalizePaymentReceiving(input: any, fallback?: any) {
+  const src = input && typeof input === 'object' ? input : fallback;
+  if (!src || typeof src !== 'object') return undefined;
+  const mode = src.mode === 'till' || src.mode === 'pochi' || src.mode === 'bank_paybill' ? src.mode : 'paybill';
+  const acct = src.paybillAccount || src.accountNumber;
+  const pochi = src.pochiNumber || src.pochiPhone;
+  const bankPaybill = src.bankPaybillNumber || src.bankPaybill;
+  return {
+    mode,
+    paybillNumber: src.paybillNumber ? String(src.paybillNumber).trim() : undefined,
+    paybillAccount: acct ? String(acct).trim() : undefined,
+    accountNumber: acct ? String(acct).trim() : undefined,
+    tillNumber: src.tillNumber ? String(src.tillNumber).trim() : undefined,
+    pochiNumber: pochi ? String(pochi).trim() : undefined,
+    pochiPhone: pochi ? String(pochi).trim() : undefined,
+    bankPaybillNumber: bankPaybill ? String(bankPaybill).trim() : undefined,
+    bankAccountNumber: src.bankAccountNumber ? String(src.bankAccountNumber).trim() : undefined,
+    bankName: src.bankName ? String(src.bankName).trim() : undefined,
+    accountName: src.accountName ? String(src.accountName).trim() : undefined,
+  };
 }
 
 // Simple session helper: parses 'x-user-id' header or query param
@@ -353,11 +409,8 @@ apiRouter.post('/groups/:id/theme', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Group not found' });
   }
 
-  // Strict backend moderator check:
-  const isModerator =
-    group.adminId === user.id ||
-    (group.moderators && group.moderators.includes(user.id)) ||
-    user.role === 'admin';
+  // Strict backend moderator check (merchants cannot moderate groups):
+  const isModerator = isGroupModerator(user, group);
 
   if (!isModerator) {
     return res.status(403).json({
@@ -502,6 +555,10 @@ apiRouter.get('/auth/me', async (req: Request, res: Response) => {
     user.coins = user.roleWallets[activeRole].coins;
     user.points = user.roleWallets[activeRole].points;
   }
+  if (ensureUserReferralCode(user)) {
+    const db = await getDatabase();
+    await saveDatabase(db);
+  }
   res.json({ user });
 });
 
@@ -604,6 +661,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       user.points = user.roleWallets[activeRole].points;
     }
 
+    ensureUserReferralCode(user);
     user.lastActive = Date.now();
     await saveDatabase(db);
     return res.json({ user, notice: `Welcome back, ${user.name}!` });
@@ -630,6 +688,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       roles: ['member'],
       activeRole: 'member',
       platformId: `BYL-M-${(10000 + newId).toString()}`,
+      referralCode: `BYL-${10000 + newId}-${generateCode(3)}`,
       credit: 0,
       coins: 50,
       points: 10,
@@ -719,6 +778,7 @@ apiRouter.post('/auth/register', async (req: Request, res: Response) => {
     roles: [cleanRole],
     activeRole: cleanRole,
     platformId,
+    referralCode: `BYL-${10000 + newId}-${generateCode(3)}`,
     shopName: cleanRole === 'merchant' ? (shopName?.trim() || name.trim()) : undefined,
     shopDescription: cleanRole === 'merchant' ? 'Verified seller on Buyoll' : undefined,
     verified: cleanRole === 'admin' ? true : false,
@@ -969,12 +1029,12 @@ apiRouter.get('/search', async (req: Request, res: Response) => {
   const q = String(req.query.q || req.query.search || '').toLowerCase().trim();
   
   if (!q) {
-    const liveProducts = db.products.filter(p => p.live);
+    const liveProducts = db.products.filter(p => isProductPosted(p));
     return res.json({ products: liveProducts, query: '', total: liveProducts.length });
   }
 
   const results = db.products.filter(p => {
-    if (!p.live) return false;
+    if (!isProductPosted(p)) return false;
     const titleMatch = p.title.toLowerCase().includes(q);
     const descMatch = p.description.toLowerCase().includes(q);
     const catMatch = p.category.toLowerCase().includes(q);
@@ -993,9 +1053,23 @@ apiRouter.get('/search', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 apiRouter.get('/products', async (req: Request, res: Response) => {
   const db = await getDatabase();
-  const { category, search, vendorId } = req.query;
+  const authUser = await getAuthenticatedUser(req);
+  const { category, search, vendorId, includeDrafts } = req.query;
 
-  let products = db.products.filter(p => p.live && p.moderationStatus === 'approved');
+  const canViewDrafts =
+    includeDrafts === 'true' &&
+    Boolean(authUser) &&
+    (authUser!.role === 'admin' ||
+      authUser!.activeRole === 'admin' ||
+      (vendorId && Number(vendorId) === authUser!.id) ||
+      (!vendorId && (authUser!.role === 'merchant' || authUser!.activeRole === 'merchant')));
+
+  let products = db.products.filter(p => {
+    if (canViewDrafts && (authUser!.role === 'admin' || authUser!.activeRole === 'admin' || p.vendorId === authUser!.id)) {
+      return (p.moderationStatus as string) !== 'rejected';
+    }
+    return isProductPosted(p) && p.moderationStatus === 'approved';
+  });
 
   if (category && typeof category === 'string' && category !== 'All') {
     products = products.filter(p => p.category === category);
@@ -1020,9 +1094,19 @@ apiRouter.get('/products', async (req: Request, res: Response) => {
 
 apiRouter.get('/products/:id', async (req: Request, res: Response) => {
   const db = await getDatabase();
+  const authUser = await getAuthenticatedUser(req);
   const product = db.products.find(p => p.id === Number(req.params.id));
   if (!product) {
     return res.status(404).json({ error: 'Product not found' });
+  }
+
+  if (!isProductPosted(product)) {
+    const isOwnerOrAdmin =
+      authUser &&
+      (product.vendorId === authUser.id || authUser.role === 'admin' || authUser.activeRole === 'admin');
+    if (!isOwnerOrAdmin) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
   }
 
   // Also include the product's active Chama groups
@@ -1208,7 +1292,7 @@ apiRouter.post('/merchant/subscribe', async (req: Request, res: Response) => {
   });
 });
 
-// Vendor product creation
+// Vendor product creation (Staged as draft inside My Groups until merchant creates group(s) and clicks Post)
 apiRouter.post('/products', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
@@ -1216,47 +1300,51 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
   }
 
   const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id) || user;
 
-  // Merchant gating check: Subscription must be active, within 30-day selling window, and within plan catalog limits
+  // Merchant gating check: Subscription must be active, non-expired (30-day or yearly window), and within plan catalog limits
   if (user.role === 'merchant') {
     const now = Date.now();
     const activeSub = (db.merchantSubscriptions || []).find(
       (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
     );
     const userSubActive = Boolean(
-      user.merchantSubscriptionStatus === 'active' &&
-      user.merchantSubscriptionExpiresAt &&
-      user.merchantSubscriptionExpiresAt > now
+      dbUser.merchantSubscriptionStatus === 'active' &&
+      dbUser.merchantSubscriptionExpiresAt &&
+      dbUser.merchantSubscriptionExpiresAt > now
     );
 
     if (!activeSub && !userSubActive) {
       const isExpired = Boolean(
-        user.merchantSubscriptionExpiresAt && user.merchantSubscriptionExpiresAt <= now
+        dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now
       );
       return res.status(403).json({
         error: isExpired
-          ? 'Your 30-day merchant subscription has expired. Please subscribe to a 30-Day Merchant Plan to continue posting products.'
-          : 'Active 30-day merchant subscription required to post products. Please choose a 30-Day Merchant Plan and wait for admin approval.',
+          ? 'Your merchant subscription has expired. Please renew a 30-Day or Yearly Merchant Plan to create or post new products.'
+          : 'Active 30-day or yearly merchant subscription required to post products. Please choose a Merchant Plan and wait for admin approval.',
         code: isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
-        subscriptionStatus: user.merchantSubscriptionStatus || 'inactive',
+        subscriptionStatus: dbUser.merchantSubscriptionStatus || 'inactive',
         isExpired,
       });
     }
 
-    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan as string) || 'tier_500';
+    const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
     const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
     if (tier && tier.maxProducts !== -1) {
       const currentProductsCount = db.products.filter((p) => p.vendorId === user.id).length;
       if (currentProductsCount >= tier.maxProducts) {
         return res.status(403).json({
-          error: `You have reached your catalog limit of ${tier.maxProducts} product(s) for the ${tier.name}. Please upgrade after your current 30-day subscription ends.`,
+          error: `You have reached your catalog limit of ${tier.maxProducts} product(s) for the ${tier.name}. Upgrade your plan to add more products.`,
+          code: 'PRODUCT_LIMIT_REACHED',
+          used: currentProductsCount,
+          limit: tier.maxProducts,
         });
       }
     }
   }
 
-  const { title, description, category, price, wasPrice, discountPercent, images, speedOptions, stockQuantity, attributes, promotionType, promotionDiscount, bonusGift } = req.body;
+  const { title, description, category, price, wasPrice, discountPercent, images, speedOptions, stockQuantity, attributes, promotionType, promotionDiscount, bonusGift, paymentReceiving } = req.body;
 
   if (!title || !description || !price || !category) {
     return res.status(400).json({ error: 'Title, description, category, and price are required' });
@@ -1288,6 +1376,15 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 
   const initialImages = cleanImages.length > 0 ? cleanImages : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'];
 
+  // Reuse merchant's saved paymentReceiving details or save new ones for automatic reuse on future products
+  const resolvedPaymentReceiving = normalizePaymentReceiving(paymentReceiving, dbUser.paymentReceiving);
+  if (resolvedPaymentReceiving && paymentReceiving && typeof paymentReceiving === 'object') {
+    dbUser.paymentReceiving = resolvedPaymentReceiving;
+    if (resolvedPaymentReceiving.tillNumber) dbUser.tillNumber = resolvedPaymentReceiving.tillNumber;
+    if (resolvedPaymentReceiving.paybillNumber) dbUser.paybillNumber = resolvedPaymentReceiving.paybillNumber;
+  }
+
+  const now = Date.now();
   const newProduct: Product = {
     id: db.nextIds.product++,
     title: title.trim(),
@@ -1300,9 +1397,12 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     videos: cleanVideos,
     isTripListing: req.body.isTripListing || category.toLowerCase().includes('trip') || category.toLowerCase().includes('airbus') || category.toLowerCase().includes('stay'),
     vendorId: user.id,
-    vendorName: user.shopName || user.name,
+    vendorName: dbUser.shopName || dbUser.name,
     isFeatured: req.body.isFeatured || false,
-    live: true,
+    live: false,
+    publicationStatus: 'draft',
+    publishedAt: null,
+    paymentReceiving: resolvedPaymentReceiving,
     moderationStatus: 'approved',
     stockQuantity: stockQuantity ? Number(stockQuantity) : 10,
     attributes: attributes || {},
@@ -1310,90 +1410,105 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     promotionType: promotionType || 'none',
     promotionDiscount: promotionDiscount ? Number(promotionDiscount) : undefined,
     bonusGift: bonusGift?.trim() || undefined,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   };
 
   db.products.unshift(newProduct);
 
-  // CORE MODEL: Product = Group. Every product a merchant posts is a group waiting for members to join.
-  // Group size selectable from 1 to 10 members (1 = single member, up to 10).
-  const initialGroupSize = Math.max(1, Math.min(10, Number(req.body.initialGroupSize || req.body.speedSize || req.body.size || 10)));
-  const isSolo = initialGroupSize === 1;
-  const initialCycleDays = isSolo ? 90 : 10;
-  const initialDailyAmount = isSolo ? Math.ceil(numPrice / 90) : Math.ceil(numPrice / initialGroupSize / 10);
+  logAudit(db, user.id, user.name, 'PRODUCT_DRAFT_CREATED', `Created staged product draft "${newProduct.title}" (KSh ${newProduct.price}) in My Groups`);
+  await saveDatabase(db);
 
-  // Merchant CANNOT join a group they created. All slots are open for customer members.
-  const initialSlots: GroupSlot[] = Array.from({ length: initialGroupSize }, (_, i) => ({
-    slotNumber: i + 1,
-    userId: null,
-    userName: null,
-    userPhone: null,
-    userAvatar: null,
-    status: 'open',
-    inviteCode: `JOIN${newProduct.id}S${i + 1}`,
-    paidAmount: 0,
-    targetAmount: numPrice,
-    paidDays: [],
-    pendingDays: [],
-    dailyPaymentRecords: [],
-  }));
+  res.status(201).json({
+    product: newProduct,
+    message: `"${newProduct.title}" added to My Groups as a draft! Create at least 1 group inside this product, then click Post to publish live to Announcements.`,
+  });
+});
 
-  const initialGroup: ChamaGroup = {
-    id: db.nextIds.group++,
-    productId: newProduct.id,
-    productTitle: newProduct.title,
-    productPrice: newProduct.price,
-    productImage: newProduct.images[0],
-    name: isSolo ? `${newProduct.title} (Solo 1-Member)` : `${newProduct.title} (Group 1 · ${initialGroupSize} Speed)`,
-    size: initialGroupSize,
-    totalSlots: initialGroupSize,
-    vendorId: user.id,
-    adminId: user.id,
-    moderators: [user.id],
-    status: 'active',
-    inviteCode: `GRP${newProduct.id}X1`,
-    dailyAmount: initialDailyAmount,
-    cycleDays: initialCycleDays,
-    slots: initialSlots,
-    occupiedCount: 0,
-    availableCount: initialGroupSize,
-    chat: [
-      {
-        id: `msg_init_${Date.now()}`,
-        senderId: user.id,
-        senderName: user.shopName || user.name,
-        kind: 'system',
-        text: `Group launched for "${newProduct.title}" (${initialGroupSize}-member speed). Customers can join to save together!`,
-        timestamp: Date.now(),
-      },
-    ],
-    notifications: [],
-    createdAt: Date.now(),
-    paymentMode: req.body.paymentMode || 'platform',
-  };
+// PUBLISH STAGED PRODUCT TO ANNOUNCEMENTS (Requires active non-expired sub + >= 1 group)
+apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Only merchants or admins can publish products' });
+  }
 
-  db.groups.unshift(initialGroup);
+  const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id) || user;
+  const productId = Number(req.params.id);
+  const product = db.products.find(p => p.id === productId);
+  if (!product) {
+    return res.status(404).json({ error: 'Product not found' });
+  }
 
-  // Automatically post to Announcements section as well
+  if (product.vendorId !== user.id && user.role !== 'admin') {
+    return res.status(403).json({ error: 'You do not have permission to publish this product.' });
+  }
+
+  if (user.role === 'merchant') {
+    const now = Date.now();
+    const activeSub = (db.merchantSubscriptions || []).find(
+      (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
+    );
+    const userSubActive = Boolean(
+      dbUser.merchantSubscriptionStatus === 'active' &&
+      dbUser.merchantSubscriptionExpiresAt &&
+      dbUser.merchantSubscriptionExpiresAt > now
+    );
+
+    if (!activeSub && !userSubActive) {
+      const isExpired = Boolean(
+        dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now
+      );
+      return res.status(403).json({
+        error: isExpired
+          ? 'Your merchant subscription has expired. Renew your plan to post new products to Announcements.'
+          : 'Active merchant subscription required to publish products.',
+        code: isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
+        isExpired,
+      });
+    }
+  }
+
+  const productGroups = db.groups.filter(g => g.productId === product.id && g.status !== 'cancelled');
+  if (productGroups.length === 0) {
+    return res.status(400).json({
+      error: 'Create at least one group (1 to 10 members) inside this product in My Groups before clicking Post.',
+      code: 'GROUPS_REQUIRED_TO_PUBLISH',
+    });
+  }
+
+  const now = Date.now();
+  product.live = true;
+  product.publicationStatus = 'posted';
+  product.publishedAt = now;
+  product.createdAt = now; // Appear in Newly Posted Announcements at publish time
+  product.updatedAt = now;
+  product.moderationStatus = 'approved';
+
   if (!db.announcements) db.announcements = [];
   if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
+  const speedsSummary = productGroups.map(g => `${g.size}-member`).join(', ');
   const newAnnouncement: Announcement = {
     id: db.nextIds.announcement++,
-    title: `🎉 New Group Open: ${newProduct.title}`,
-    body: `${user.shopName || user.name} posted a new group for "${newProduct.title}" (${initialGroupSize} members speed). Search, discover, and join this group to save together!`,
-    imageUrl: newProduct.images[0],
-    category: newProduct.category || 'Product Announcements',
-    createdAt: Date.now(),
+    title: `🎉 New Group Open: ${product.title}`,
+    body: `${dbUser.shopName || dbUser.name} posted "${product.title}" with ${productGroups.length} open group(s) (${speedsSummary}). Window shop or enter a friend referral code to join!`,
+    imageUrl: product.images?.[0],
+    category: product.category || 'Product Announcements',
+    createdAt: now,
     authorId: user.id,
-    authorName: user.shopName || user.name,
+    authorName: dbUser.shopName || dbUser.name,
   };
   db.announcements.unshift(newAnnouncement);
 
-  logAudit(db, user.id, user.name, 'PRODUCT_CREATED', `Created product "${newProduct.title}" (KSh ${newProduct.price}) and initial Group #${initialGroup.id}`);
+  logAudit(db, user.id, user.name, 'PRODUCT_PUBLISHED', `Posted product #${product.id} "${product.title}" with ${productGroups.length} group(s) to Announcements`);
   await saveDatabase(db);
 
-  res.status(201).json({ product: newProduct, group: initialGroup });
+  res.json({
+    success: true,
+    product,
+    groups: productGroups,
+    message: `"${product.title}" is now posted live to Newly Posted & Live Product Announcements with ${productGroups.length} group(s)!`,
+  });
 });
 
 // PART 6: MAKE VENDOR PRODUCT INFORMATION EDITABLE
@@ -1429,6 +1544,7 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
     attributes,
     isFeatured,
     live,
+    paymentReceiving,
   } = req.body;
 
   if (title !== undefined) product.title = String(title).trim();
@@ -1488,8 +1604,17 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
     product.isFeatured = willBeFeatured;
   }
 
-  if (live !== undefined) {
+  if (live !== undefined && product.publicationStatus !== 'posted') {
     product.live = Boolean(live);
+  }
+
+  if (paymentReceiving && typeof paymentReceiving === 'object') {
+    const normalized = normalizePaymentReceiving(paymentReceiving, product.paymentReceiving);
+    product.paymentReceiving = normalized;
+    const owner = db.users.find(u => u.id === product.vendorId);
+    if (owner && normalized) {
+      owner.paymentReceiving = normalized;
+    }
   }
 
   if (req.body.promotionType !== undefined) {
@@ -1629,24 +1754,48 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
   }
 
   const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id) || user;
   const productId = Number(req.params.id);
   const product = db.products.find(p => p.id === productId);
   if (!product) return res.status(404).json({ error: 'Product not found' });
+
+  if (product.vendorId !== user.id && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only the product owner can create groups for this product' });
+  }
+
+  if (product.publicationStatus === 'posted' && user.role === 'merchant') {
+    return res.status(403).json({
+      error: 'Groups are read-only once a product is posted.',
+      code: 'GROUP_IMMUTABLE_POSTED',
+    });
+  }
+
+  const activeSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
+  );
+  const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
+  const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
   // Standard speeds: 10 down to 1
   const standardSizes = [10, 8, 6, 4, 2, 1];
   const createdGroups: ChamaGroup[] = [];
 
   for (const size of standardSizes) {
+    const currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id && g.status !== 'cancelled').length;
+    if (user.role === 'merchant' && tier.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= tier.maxGroupsPerProduct) {
+      break;
+    }
+
     const existing = db.groups.find(g => g.productId === product.id && g.size === size && g.status === 'active');
     if (!existing) {
       const isSolo = size === 1;
       const speedOpt = product.speedOptions?.find(s => s.size === size) || {
         size,
-        cycleDays: isSolo ? 180 : 10,
-        dailyAmount: isSolo ? Math.ceil(product.price / 180) : Math.ceil(product.price / size / 10),
+        cycleDays: isSolo ? 90 : 10,
+        dailyAmount: isSolo ? Math.ceil(product.price / 90) : Math.ceil(product.price / size / 10),
         totalAmount: product.price,
       };
+      const receiving = normalizePaymentReceiving(product.paymentReceiving, dbUser.paymentReceiving);
 
       const newGroup: ChamaGroup = {
         id: db.nextIds.group++,
@@ -1658,17 +1807,25 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
           ? `${product.title.slice(0, 22)} (1-Member Solo Lipa Mdogomdogo)`
           : `${product.title.slice(0, 24)} (${size}-Member Speed)`,
         size,
-        adminId: user.id,
-        moderators: [user.id],
+        totalSlots: size,
+        vendorId: product.vendorId,
+        adminId: 0, // Assigned automatically to the 1st customer member who joins
+        moderatorId: null,
+        moderators: [],
+        payoutLocked: false,
+        payoutAgreedUserIds: [],
+        paymentDurationDays: speedOpt.cycleDays || (isSolo ? 90 : 10),
+        paymentReceiving: receiving,
         status: 'active',
         inviteCode: generateCode(),
         dailyAmount: speedOpt.dailyAmount,
-        cycleDays: speedOpt.cycleDays || (isSolo ? 180 : 10),
+        cycleDays: speedOpt.cycleDays || (isSolo ? 90 : 10),
         slots: Array.from({ length: size }, (_, i) => ({
           slotNumber: i + 1,
           userId: null,
           userName: null,
           userPhone: null,
+          userAvatar: null,
           status: 'open',
           inviteCode: generateCode(),
           paidAmount: 0,
@@ -1679,9 +1836,9 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
         platformTill: '196853',
         platformPaybill: '522533',
         platformAccount: 'code4363',
-        merchantTill: user.tillNumber || '3463533',
-        merchantPaybill: '26253326',
-        merchantAccount: 'Code4533',
+        merchantTill: receiving?.tillNumber || dbUser.tillNumber || '3463533',
+        merchantPaybill: receiving?.paybillNumber || receiving?.bankPaybillNumber || '26253326',
+        merchantAccount: receiving?.paybillAccount || receiving?.bankAccountNumber || 'Code4533',
         currentRound: 1,
         currentRecipientSlot: 1,
         currentRoundPaid: 0,
@@ -1695,11 +1852,11 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
           {
             id: `chat_${Date.now()}_${size}`,
             senderId: user.id,
-            senderName: user.shopName || user.name,
+            senderName: dbUser.shopName || dbUser.name,
             kind: 'system',
             text: isSolo
-              ? `Solo Lipa Mdogomdogo group opened! Save slowly over 1 to 6 months. Platform Till: 196853, Paybill: 522533 (Account: code4363). No Escrow.`
-              : `Chama group pre-created with ${size}-member speed. Platform Till: 196853, Paybill: 522533 (Account: code4363). Members can choose speed, join, and begin saving!`,
+              ? `Solo Lipa Mdogomdogo group opened (${speedOpt.cycleDays || 90} days). Platform Till: 196853, Paybill: 522533.`
+              : `Group opened with ${size}-member capacity. The 1st customer member who joins will automatically become Group Moderator.`,
             timestamp: Date.now(),
           },
         ],
@@ -1717,7 +1874,7 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
     success: true,
     createdCount: createdGroups.length,
     groups: db.groups.filter(g => g.productId === product.id),
-    message: `Generated speed groups (including 1-Member Solo Lipa Mdogomdogo and standard speeds) for this product!`,
+    message: `Created ${createdGroups.length} group(s) within your ${tier.name} limit!`,
   });
 });
 
@@ -1775,11 +1932,16 @@ apiRouter.get('/groups', async (req: Request, res: Response) => {
   const { productId, status } = req.query;
 
   let groups = db.groups;
+  const activeRole = user?.activeRole || user?.role;
 
   // Merchant rule: Merchants see ONLY groups they created; other merchants' groups are invisible
-  if (user && (user.activeRole === 'merchant' || user.role === 'merchant')) {
+  if (user && activeRole === 'merchant') {
     const merchantProductIds = db.products.filter(p => p.vendorId === user.id).map(p => p.id);
     groups = groups.filter(g => g.vendorId === user.id || g.adminId === user.id || merchantProductIds.includes(g.productId));
+  } else if (!user || activeRole !== 'admin') {
+    // Public / buyer / member view: hide groups whose parent product is still an unposted draft
+    const postedProductIds = new Set(db.products.filter(p => isProductPosted(p)).map(p => p.id));
+    groups = groups.filter(g => postedProductIds.has(g.productId));
   }
 
   if (productId) {
@@ -1857,18 +2019,34 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     });
   }
 
-  const { productId, size, name, months, paymentMode } = req.body;
+  const { productId, size, name, months, paymentMode, paymentDurationDays, durationDays, paymentReceiving } = req.body;
 
-  // Merchant check: If merchant, must be verified and active subscription
-  if (user.role === 'merchant' && (user.merchantSubscriptionStatus !== 'active' || !user.verified)) {
-    return res.status(403).json({
-      error: 'Active merchant subscription and Buyoll verification required to create groups.',
-    });
+  const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id) || user;
+
+  // Merchant check: If merchant, must have active non-expired subscription
+  let activeSubTierId = (dbUser.merchantSubscriptionPlan as string) || 'tier_250';
+  if (user.role === 'merchant') {
+    const now = Date.now();
+    const activeSub = (db.merchantSubscriptions || []).find(
+      (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+    );
+    const userSubActive = Boolean(
+      dbUser.merchantSubscriptionStatus === 'active' &&
+      (!dbUser.merchantSubscriptionExpiresAt || dbUser.merchantSubscriptionExpiresAt > now)
+    );
+    if (!activeSub && !userSubActive) {
+      return res.status(403).json({
+        error: 'Active merchant subscription and Buyoll verification required to create groups.',
+        code: 'SUBSCRIPTION_REQUIRED',
+      });
+    }
+    if (activeSub?.tierId) activeSubTierId = activeSub.tierId;
   }
 
   // Mandatory speed check (size 1 to 10)
   if (!size || Number(size) <= 0) {
-    return res.status(400).json({ error: 'Mandatory speed selection required. Please choose a speed from 1 to 10 members.' });
+    return res.status(400).json({ error: 'Mandatory speed selection required. Please choose a size from 1 to 10 members.' });
   }
 
   const speedSize = Number(size);
@@ -1876,52 +2054,75 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Group size ("speed") must be between 1 and 10 members.' });
   }
 
-  const db = await getDatabase();
   const product = db.products.find(p => p.id === Number(productId));
   if (!product) {
     return res.status(404).json({ error: 'Product not found' });
   }
 
-  // Strict ownership check: Merchant can only add groups inside products created by their store
+  // Strict ownership check & tier group-per-product limit
+  let maxGroupsLimit = 100;
+  let currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id && g.status !== 'cancelled').length;
+
   if (user.role === 'merchant') {
     if (product.vendorId !== user.id) {
       return res.status(403).json({ error: 'You can only create groups for products created by your own store.' });
     }
 
-    // Subscription tier group-per-product limit
-    const activeSub = (db.merchantSubscriptions || []).find(
-      (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
-    );
-    const tierId = activeSub?.tierId || (user.merchantSubscriptionPlan === 'starter' ? 'tier_250' : 'tier_500');
-    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
+    if (product.publicationStatus === 'posted') {
+      return res.status(403).json({
+        error: 'Groups are read-only after this product has been posted. You can only view members, payments, schedule, and progress.',
+        code: 'GROUP_IMMUTABLE_POSTED',
+      });
+    }
 
-    const currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id).length;
+    const tierId = activeSubTierId === 'starter' ? 'tier_250' : activeSubTierId;
+    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
+    maxGroupsLimit = tier.maxGroupsPerProduct;
+
     if (tier.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= tier.maxGroupsPerProduct) {
       return res.status(403).json({
-        error: `You have reached your limit of ${tier.maxGroupsPerProduct} groups for "${product.title}" under the ${tier.name}. Upgrade your plan to post more groups.`,
+        error: `You have reached your limit of ${tier.maxGroupsPerProduct} groups for "${product.title}" under the ${tier.name}. Upgrade your plan to create more groups.`,
+        code: 'GROUP_LIMIT_REACHED',
+        used: currentGroupsForProduct,
+        limit: tier.maxGroupsPerProduct,
       });
     }
   }
 
   const isSolo = speedSize === 1;
-  const soloDurationMonths = Math.min(6, Math.max(1, Number(months) || 3));
-  const validSpeed = product.speedOptions.find(s => s.size === speedSize) || {
+  const requestedDays = Number(paymentDurationDays || durationDays || (months ? Number(months) * 30 : 0));
+  const effectiveCycleDays = requestedDays >= 1
+    ? Math.min(365, Math.max(1, requestedDays))
+    : (isSolo ? 90 : 10);
+
+  const validSpeed = (!requestedDays && product.speedOptions?.find(s => s.size === speedSize)) || {
     size: speedSize,
-    cycleDays: isSolo ? soloDurationMonths * 30 : 10,
+    cycleDays: effectiveCycleDays,
     dailyAmount: isSolo
-      ? Math.ceil(product.price / (soloDurationMonths * 30))
-      : Math.ceil(product.price / speedSize / 10),
+      ? Math.ceil(product.price / effectiveCycleDays)
+      : Math.ceil(product.price / speedSize / effectiveCycleDays),
     totalAmount: product.price,
     description: isSolo
-      ? `1 Member Solo (Lipa Mdogomdogo) · ${soloDurationMonths} Months`
-      : `${speedSize} members · Delivery rotation every 10 days`,
+      ? `1 Member Solo (Lipa Mdogomdogo) · ${effectiveCycleDays} Days`
+      : `${speedSize} members · Daily installments over ${effectiveCycleDays}-day cycle`,
   };
 
+  const resolvedReceiving = normalizePaymentReceiving(
+    paymentReceiving,
+    product.paymentReceiving || dbUser.paymentReceiving
+  );
+  if (resolvedReceiving && paymentReceiving && typeof paymentReceiving === 'object') {
+    dbUser.paymentReceiving = resolvedReceiving;
+    product.paymentReceiving = resolvedReceiving;
+  }
+
   const groupNumber = db.groups.filter(g => g.productId === product.id).length + 1;
-  const groupName = (name || `${product.title} (Group ${groupNumber} · ${speedSize} Members)`).trim();
+  const groupName = (name || (isSolo
+    ? `${product.title} (Group ${groupNumber} · 1-Member · ${validSpeed.cycleDays}d)`
+    : `${product.title} (Group ${groupNumber} · ${speedSize} Members)`)).trim();
 
   // Create slots: ALL slots are open for customer members.
-  // The merchant CANNOT join a product/group they created, and cannot join through any other path.
+  // Merchants CANNOT join a group they created and are NEVER the Group Moderator.
   const slots: GroupSlot[] = Array.from({ length: speedSize }, (_, i) => ({
     slotNumber: i + 1,
     userId: null,
@@ -1946,9 +2147,15 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     name: groupName,
     size: speedSize,
     totalSlots: speedSize,
-    vendorId: user.id,
-    adminId: user.id,
-    moderators: [user.id],
+    vendorId: product.vendorId,
+    adminId: 0, // Assigned automatically to 1st customer member upon join
+    moderatorId: null,
+    moderators: [],
+    payoutLocked: false,
+    payoutAgreedUserIds: [],
+    paymentDurationDays: validSpeed.cycleDays,
+    paymentReceiving: resolvedReceiving,
+    paymentMode: paymentMode || 'platform',
     status: 'active',
     inviteCode: `GRP${product.id}X${groupNumber}`,
     dailyAmount: validSpeed.dailyAmount,
@@ -1959,9 +2166,9 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     platformTill: '196853',
     platformPaybill: '522533',
     platformAccount: 'code4363',
-    merchantTill: user.tillNumber || '3463533',
-    merchantPaybill: '26253326',
-    merchantAccount: 'Code4533',
+    merchantTill: resolvedReceiving?.tillNumber || dbUser.tillNumber || '3463533',
+    merchantPaybill: resolvedReceiving?.paybillNumber || resolvedReceiving?.bankPaybillNumber || '26253326',
+    merchantAccount: resolvedReceiving?.paybillAccount || resolvedReceiving?.bankAccountNumber || 'Code4533',
     currentRound: 1,
     currentRecipientSlot: 1,
     currentRoundPaid: 0,
@@ -1975,9 +2182,11 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
       {
         id: `chat_${Date.now()}_${speedSize}`,
         senderId: user.id,
-        senderName: user.shopName || user.name,
+        senderName: dbUser.shopName || dbUser.name,
         kind: 'system',
-        text: `Group ${groupNumber} launched with ${speedSize}-member speed. Members can join and save together!`,
+        text: isSolo
+          ? `Group ${groupNumber} created (${speedSize} member · ${validSpeed.cycleDays}-day daily payment plan). The first member who joins becomes Group Moderator.`
+          : `Group ${groupNumber} created with ${speedSize}-member capacity. The first customer member who joins will automatically become Group Moderator and configure the payout option.`,
         timestamp: Date.now(),
       },
     ],
@@ -1986,52 +2195,95 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   db.groups.push(newGroup);
 
-  // Automatically update Announcements section as well
-  if (!db.announcements) db.announcements = [];
-  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
-  db.announcements.unshift({
-    id: db.nextIds.announcement++,
-    title: `🎉 New Group Open: ${product.title}`,
-    body: `${user.shopName || user.name} launched Group #${groupNumber} for "${product.title}" (${speedSize} members speed). Check out this group and start saving!`,
-    imageUrl: product.images[0],
-    category: product.category || 'Product Announcements',
-    createdAt: Date.now(),
-    authorId: user.id,
-    authorName: user.shopName || user.name,
-  });
+  // Only push an announcement automatically if product is already live/posted (legacy/admin)
+  if (isProductPosted(product)) {
+    if (!db.announcements) db.announcements = [];
+    if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
+    db.announcements.unshift({
+      id: db.nextIds.announcement++,
+      title: `🎉 New Group Open: ${product.title}`,
+      body: `${dbUser.shopName || dbUser.name} launched Group #${groupNumber} for "${product.title}" (${speedSize} members speed). Check out this group and start saving!`,
+      imageUrl: product.images[0],
+      category: product.category || 'Product Announcements',
+      createdAt: Date.now(),
+      authorId: user.id,
+      authorName: dbUser.shopName || dbUser.name,
+    });
+  }
 
-  logAudit(db, user.id, user.name, 'GROUP_CREATED', `Merchant created group #${newGroup.id} "${groupName}" (${speedSize} members) for product #${product.id}`);
+  logAudit(db, user.id, user.name, 'GROUP_CREATED', `Merchant created group #${newGroup.id} "${groupName}" (${speedSize} members, ${validSpeed.cycleDays}d) for product #${product.id}`);
   await saveDatabase(db);
 
   res.status(201).json({
     success: true,
     group: newGroup,
-    message: `Group created successfully with ${speedSize} members!`,
+    usage: {
+      used: currentGroupsForProduct + 1,
+      limit: maxGroupsLimit,
+    },
+    message: `Group created successfully (${speedSize} member${speedSize === 1 ? '' : 's'})!`,
   });
 });
 
-// Group Immutability: Merchants CANNOT edit or delete a group once created!
+// Group Immutability: Merchants CANNOT edit, pause, close, or delete a group once created/posted!
 apiRouter.put('/groups/:id', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
-  if (user?.role === 'merchant') {
+  if (user?.role === 'merchant' || user?.activeRole === 'merchant') {
     return res.status(403).json({
-      error: 'Merchants cannot edit Chama groups. Once created, groups belong strictly to their members and moderators.',
+      error: 'Merchants cannot edit Chama groups. Once created and posted, groups are strictly read-only for merchants.',
+      code: 'GROUP_IMMUTABLE_POSTED',
     });
   }
   return res.status(404).json({ error: 'Direct group modification not permitted.' });
 });
 
+apiRouter.patch('/groups/:id', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (user?.role === 'merchant' || user?.activeRole === 'merchant') {
+    return res.status(403).json({
+      error: 'Merchants cannot edit, pause, or close groups once posted.',
+      code: 'GROUP_IMMUTABLE_POSTED',
+    });
+  }
+  return res.status(404).json({ error: 'Direct group modification not permitted.' });
+});
+
+apiRouter.post('/groups/:id/pause', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  if (user.role === 'merchant' || user.activeRole === 'merchant') {
+    return res.status(403).json({
+      error: 'Merchants cannot pause groups once posted. Groups are view-only for merchants.',
+      code: 'GROUP_IMMUTABLE_POSTED',
+    });
+  }
+  return res.status(403).json({ error: 'Pausing active groups is not permitted.' });
+});
+
+apiRouter.post('/groups/:id/close', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  if (user.role === 'merchant' || user.activeRole === 'merchant') {
+    return res.status(403).json({
+      error: 'Merchants cannot close groups once posted. Groups are view-only for merchants.',
+      code: 'GROUP_IMMUTABLE_POSTED',
+    });
+  }
+  return res.status(403).json({ error: 'Closing active groups is not permitted.' });
+});
+
 apiRouter.delete('/groups/:id', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
-  if (user?.role === 'merchant') {
+  if (user?.role === 'merchant' || user?.activeRole === 'merchant') {
     return res.status(403).json({
       error: 'Merchants cannot delete, archive, or deactivate Chama groups. Groups belong strictly to their members.',
+      code: 'GROUP_IMMUTABLE_POSTED',
     });
   }
   return res.status(404).json({ error: 'Group deletion not permitted.' });
 });
 
-// Join group with code
+// Join group — strictly requires valid friend referral / approved invite code + auto-assigns 1st member as Moderator
 apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) {
@@ -2040,6 +2292,9 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
 
   const { inviteCode, slotNumber } = req.body;
   const db = await getDatabase();
+  const dbUser = db.users.find(u => u.id === user.id) || user;
+  ensureUserReferralCode(dbUser);
+
   const group = db.groups.find(g => g.id === Number(req.params.id));
 
   if (!group) {
@@ -2051,7 +2306,7 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
   }
 
   // Role isolation: Merchants and Lenders CANNOT join groups. Only customer members can join.
-  const userRole = user.role || user.activeRole;
+  const userRole = user.activeRole || user.role;
   if (userRole === 'merchant' || userRole === 'lender') {
     return res.status(403).json({
       error: 'Merchants and Lenders cannot join groups. Please log out of your current account and sign in or register as a Member.',
@@ -2061,9 +2316,16 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
 
   // The merchant CANNOT join a product/group they created, and cannot join through any other path.
   const product = db.products.find(p => p.id === group.productId);
-  if (group.vendorId === user.id || group.adminId === user.id || product?.vendorId === user.id) {
+  if (group.vendorId === user.id || product?.vendorId === user.id) {
     return res.status(403).json({
       error: 'Merchants cannot join groups created for their own products. Only customers and members can join.',
+    });
+  }
+
+  if (product && !isProductPosted(product)) {
+    return res.status(400).json({
+      error: 'This product has not been posted to Announcements yet.',
+      code: 'PRODUCT_NOT_POSTED',
     });
   }
 
@@ -2075,34 +2337,45 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     });
   }
 
-  // Validate invite code / Invite-only check
-  const upperCode = (inviteCode || '').trim().toUpperCase();
+  // STRICT FRIEND-REFERRAL / INVITE CODE REQUIREMENT
+  const upperCode = String(inviteCode || '').trim().toUpperCase();
   const approvedReq = (group.inviteRequests || []).find(
     r => r.userId === user.id && r.status === 'approved'
   );
 
-  if (group.isInviteOnly) {
-    const isCodeMatch =
-      upperCode &&
-      (group.inviteCode === upperCode ||
-        group.slots.some(s => s.inviteCode === upperCode) ||
-        (group.inviteRequests || []).some(
-          r => r.status === 'approved' && r.issuedCode?.toUpperCase() === upperCode
-        ));
+  if (!upperCode) {
+    return res.status(403).json({
+      error: 'A friend referral invite code is required to join any group. Ask a friend for their Buyoll referral code or request a moderator invite.',
+      code: 'REFERRAL_INVITE_REQUIRED',
+    });
+  }
 
-    if (!isCodeMatch && !approvedReq) {
-      return res.status(403).json({
-        error: 'This Chama is Invite-Only. Please click "Request Entry Invite" or enter an approved invite code from the moderator.',
-      });
-    }
-  } else if (upperCode) {
-    const validCode =
-      group.inviteCode === upperCode ||
-      group.slots.some(s => s.inviteCode === upperCode) ||
-      (approvedReq && approvedReq.issuedCode?.toUpperCase() === upperCode);
-    if (!validCode) {
-      return res.status(400).json({ error: 'Invalid invite code for this Chama group.' });
-    }
+  if (
+    (dbUser.referralCode && dbUser.referralCode.toUpperCase() === upperCode) ||
+    group.slots.some(s => s.userId === user.id && s.inviteCode?.toUpperCase() === upperCode)
+  ) {
+    return res.status(403).json({
+      error: 'You cannot use your own referral code to join. Please enter a valid referral code shared by a friend.',
+      code: 'SELF_REFERRAL_FORBIDDEN',
+    });
+  }
+
+  const friendUserMatch = db.users.some(
+    u => u.id !== user.id && u.referralCode && u.referralCode.toUpperCase() === upperCode
+  );
+  const memberSlotInviteMatch = group.slots.some(
+    s => s.userId !== null && s.userId !== user.id && s.status === 'active' && s.inviteCode?.toUpperCase() === upperCode
+  );
+  const approvedInviteMatch = Boolean(
+    (approvedReq && approvedReq.issuedCode?.toUpperCase() === upperCode) ||
+    (group.inviteRequests || []).some(r => r.status === 'approved' && r.issuedCode?.toUpperCase() === upperCode)
+  );
+
+  if (!friendUserMatch && !memberSlotInviteMatch && !approvedInviteMatch) {
+    return res.status(403).json({
+      error: `Referral invite code "${upperCode}" is invalid or does not belong to a friend/member. Please ask a friend for their Buyoll referral code.`,
+      code: 'INVALID_REFERRAL_CODE',
+    });
   }
 
   // Find target slot: if user specified slotNumber, check if it's available
@@ -2126,14 +2399,30 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
   }
 
   targetSlot.userId = user.id;
-  targetSlot.userName = user.name;
-  targetSlot.userPhone = user.phone;
+  targetSlot.userName = dbUser.name;
+  targetSlot.userPhone = dbUser.phone;
+  targetSlot.userAvatar = dbUser.avatar || dbUser.avatarUrl || null;
+  targetSlot.referredByCode = upperCode;
   targetSlot.status = 'active';
   targetSlot.joinedAt = Date.now();
   targetSlot.isDefaulter = false;
   targetSlot.paidDays = targetSlot.paidDays || [];
   targetSlot.pendingDays = targetSlot.pendingDays || [];
   targetSlot.dailyPaymentRecords = targetSlot.dailyPaymentRecords || [];
+
+  // Auto-assign the FIRST customer member who joins as the Group Moderator (never the merchant)
+  const hasRealModerator = Boolean(
+    group.moderatorId &&
+    group.moderatorId !== group.vendorId &&
+    group.slots.some(s => s.userId === group.moderatorId && s.status === 'active')
+  );
+  let assignedAsModerator = false;
+  if (!hasRealModerator) {
+    group.moderatorId = user.id;
+    group.moderators = [user.id];
+    group.adminId = user.id;
+    assignedAsModerator = true;
+  }
 
   group.occupiedCount = group.slots.filter(s => s.status === 'active').length;
   group.availableCount = group.size - group.occupiedCount;
@@ -2145,9 +2434,11 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
   group.chat.push({
     id: `chat_${Date.now()}`,
     senderId: user.id,
-    senderName: user.name,
+    senderName: dbUser.name,
     kind: 'system',
-    text: `${user.name} joined as Member #${targetSlot.slotNumber}!`,
+    text: assignedAsModerator
+      ? `${dbUser.name} joined as Member #${targetSlot.slotNumber} (referred by ${upperCode}) and was automatically assigned as Group Moderator!`
+      : `${dbUser.name} joined as Member #${targetSlot.slotNumber} (referred by ${upperCode})!`,
     timestamp: Date.now(),
   });
 
@@ -2156,19 +2447,162 @@ apiRouter.post('/groups/:id/join', async (req: Request, res: Response) => {
     id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     groupId: group.id,
     groupName: group.name,
-    title: 'New Member Joined',
-    message: `${user.name} joined as Member #${targetSlot.slotNumber}. Welcome to the cycle!`,
+    title: assignedAsModerator ? 'Group Moderator Assigned' : 'New Member Joined',
+    message: assignedAsModerator
+      ? `${dbUser.name} joined as Member #${targetSlot.slotNumber} and is now the Group Moderator! Choose Option A or Option B payout.`
+      : `${dbUser.name} joined as Member #${targetSlot.slotNumber}. Welcome to the cycle!`,
     type: 'system',
     timestamp: Date.now(),
   });
 
-  logAudit(db, user.id, user.name, 'MEMBER_JOINED', `Joined Chama #${group.id} as Member #${targetSlot.slotNumber}`);
+  logAudit(db, user.id, user.name, 'MEMBER_JOINED', `Joined Chama #${group.id} as Member #${targetSlot.slotNumber}${assignedAsModerator ? ' (Auto-assigned Moderator)' : ''} via code ${upperCode}`);
   await saveDatabase(db);
 
   res.json({
     group,
     assignedSlot: targetSlot.slotNumber,
-    message: `Welcome! You are Member #${targetSlot.slotNumber}. Your allocation rotation is day ${targetSlot.slotNumber * group.cycleDays}.`,
+    isModerator: assignedAsModerator,
+    message: assignedAsModerator
+      ? `Welcome! You are Member #${targetSlot.slotNumber} and have been assigned as Group Moderator! Choose Option A or Option B payout inside the group.`
+      : `Welcome! You are Member #${targetSlot.slotNumber}. Your allocation rotation is day ${targetSlot.slotNumber * group.cycleDays}.`,
+  });
+});
+
+// GROUP MODERATOR SETS PAYOUT OPTION (OPTION A: turn_by_turn | OPTION B: end_together)
+apiRouter.post('/groups/:id/payout-option', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { payoutOption, paymentDurationDays } = req.body;
+  if (payoutOption !== 'turn_by_turn' && payoutOption !== 'end_together') {
+    return res.status(400).json({ error: 'payoutOption must be "turn_by_turn" (Option A) or "end_together" (Option B).' });
+  }
+
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  if (group.payoutLocked) {
+    return res.status(403).json({
+      error: 'The payout option has already been agreed, confirmed, and locked. It cannot be changed.',
+      code: 'PAYOUT_LOCKED',
+    });
+  }
+
+  if (!isGroupModerator(user, group)) {
+    return res.status(403).json({
+      error: 'Only the assigned customer Group Moderator can set the payout option. Merchants cannot moderate groups.',
+      code: 'MODERATOR_REQUIRED',
+    });
+  }
+
+  group.payoutOption = payoutOption;
+  group.payoutOptionSetBy = user.id;
+  group.payoutAgreedUserIds = [user.id];
+
+  if (paymentDurationDays && Number(paymentDurationDays) >= 1) {
+    const cleanDays = Math.min(365, Math.max(1, Number(paymentDurationDays)));
+    group.paymentDurationDays = cleanDays;
+    group.cycleDays = cleanDays;
+    group.dailyAmount = group.size === 1
+      ? Math.ceil(group.productPrice / cleanDays)
+      : Math.ceil(group.productPrice / group.size / cleanDays);
+  }
+
+  const optionLabel = payoutOption === 'turn_by_turn'
+    ? 'Option A: Members receive one-by-one each cycle (Turn-by-Turn)'
+    : 'Option B: All members pay throughout the agreed time and receive together at the end (End-Together)';
+
+  group.chat.push({
+    id: `chat_${Date.now()}`,
+    senderId: user.id,
+    senderName: user.name,
+    kind: 'system',
+    text: `📋 Moderator ${user.name} proposed ${optionLabel} (${group.cycleDays}-day daily payments). Members must agree before Moderator confirms & locks it.`,
+    timestamp: Date.now(),
+  });
+
+  logAudit(db, user.id, user.name, 'PAYOUT_OPTION_SET', `Moderator set payoutOption=${payoutOption} on Group #${group.id}`);
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    group,
+    message: `Payout option proposed (${optionLabel}). Members can now click Agree before confirming and locking.`,
+  });
+});
+
+// MEMBERS AGREE TO PAYOUT OPTION + MODERATOR CONFIRMS & LOCKS
+apiRouter.post('/groups/:id/payout-agree', async (req: Request, res: Response) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const { confirmLock } = req.body || {};
+  const db = await getDatabase();
+  const group = db.groups.find(g => g.id === Number(req.params.id));
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+
+  if (!group.payoutOption) {
+    return res.status(400).json({ error: 'Group Moderator must choose Option A or Option B before members can agree.' });
+  }
+
+  const isActiveMember = group.slots.some(s => s.userId === user.id && s.status === 'active');
+  const isMod = isGroupModerator(user, group);
+  if (!isActiveMember && !isMod) {
+    return res.status(403).json({ error: 'Only active members or the Group Moderator can agree to the payout option.' });
+  }
+
+  if (group.payoutLocked) {
+    return res.json({
+      success: true,
+      group,
+      payoutLocked: true,
+      message: 'Payout option is already confirmed and locked.',
+    });
+  }
+
+  if (!Array.isArray(group.payoutAgreedUserIds)) group.payoutAgreedUserIds = [];
+  if (isActiveMember && !group.payoutAgreedUserIds.includes(user.id)) {
+    group.payoutAgreedUserIds.push(user.id);
+  }
+
+  const activeMemberIds = group.slots.filter(s => s.status === 'active' && s.userId).map(s => s.userId!);
+  const allCurrentAgreed = activeMemberIds.length > 0 && activeMemberIds.every(uid => group.payoutAgreedUserIds!.includes(uid));
+
+  if ((confirmLock && isMod) || (group.occupiedCount >= group.size && allCurrentAgreed)) {
+    group.payoutLocked = true;
+    group.payoutLockedAt = Date.now();
+    group.chat.push({
+      id: `chat_${Date.now()}`,
+      senderId: user.id,
+      senderName: user.name,
+      kind: 'system',
+      text: `🔒 PAYOUT CONFIRMED & LOCKED: ${group.payoutOption === 'turn_by_turn' ? 'Option A (Turn-by-Turn)' : 'Option B (End-Together)'} is now permanently locked for this group.`,
+      timestamp: Date.now(),
+    });
+    logAudit(db, user.id, user.name, 'PAYOUT_LOCKED', `Confirmed and locked payoutOption=${group.payoutOption} on Group #${group.id}`);
+  } else {
+    group.chat.push({
+      id: `chat_${Date.now()}`,
+      senderId: user.id,
+      senderName: user.name,
+      kind: 'system',
+      text: `✅ ${user.name} agreed to ${group.payoutOption === 'turn_by_turn' ? 'Option A (Turn-by-Turn)' : 'Option B (End-Together)'}. (${group.payoutAgreedUserIds.length}/${activeMemberIds.length} active members agreed)`,
+      timestamp: Date.now(),
+    });
+  }
+
+  await saveDatabase(db);
+
+  res.json({
+    success: true,
+    group,
+    payoutLocked: Boolean(group.payoutLocked),
+    agreedCount: group.payoutAgreedUserIds.length,
+    activeCount: activeMemberIds.length,
+    message: group.payoutLocked
+      ? 'Payout option confirmed and locked! It cannot be changed afterward.'
+      : `Agreement recorded (${group.payoutAgreedUserIds.length}/${activeMemberIds.length} agreed).`,
   });
 });
 
@@ -2401,9 +2835,9 @@ apiRouter.post('/groups/:id/invite-decide', async (req: Request, res: Response) 
   const group = db.groups.find(g => g.id === Number(req.params.id));
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  const isMod = group.adminId === user.id || (group.moderators || []).includes(user.id) || user.role === 'admin';
+  const isMod = isGroupModerator(user, group);
   if (!isMod) {
-    return res.status(403).json({ error: 'Only the group moderator or store owner can decide invite requests.' });
+    return res.status(403).json({ error: 'Only the assigned customer Group Moderator or Admin can decide invite requests.' });
   }
 
   const reqItem = (group.inviteRequests || []).find(r => r.id === requestId);
@@ -2556,10 +2990,10 @@ apiRouter.post('/groups/:id/moderator', async (req: Request, res: Response) => {
 
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  // Verify caller is a moderator
-  const isCallerModerator = group.moderators.includes(user.id) || group.adminId === user.id || user.role === 'admin';
+  // Verify caller is a moderator (never merchant)
+  const isCallerModerator = isGroupModerator(user, group);
   if (!isCallerModerator) {
-    return res.status(403).json({ error: 'Only group moderators or system admins can manage moderator roles.' });
+    return res.status(403).json({ error: 'Only customer group moderators or system admins can manage moderator roles.' });
   }
 
   const targetId = Number(targetUserId);
@@ -2617,7 +3051,7 @@ apiRouter.post('/groups/:id/complete-round', async (req: Request, res: Response)
   const group = db.groups.find(g => g.id === Number(req.params.id));
   if (!group) return res.status(404).json({ error: 'Chama group not found' });
 
-  const isMod = group.moderators.includes(user.id) || group.adminId === user.id || user.role === 'admin';
+  const isMod = isGroupModerator(user, group);
   const recipientSlot = group.currentRecipientSlot || 1;
   const isRecipient = group.slots.some(s => s.slotNumber === recipientSlot && s.userId === user.id);
 
@@ -2688,10 +3122,10 @@ apiRouter.post('/groups/:id/default', async (req: Request, res: Response) => {
 
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  // Only moderator or admin can mark default
-  const isMod = group.moderators.includes(user.id) || group.adminId === user.id || user.role === 'admin';
+  // Only customer moderator or admin can mark default (never merchant)
+  const isMod = isGroupModerator(user, group);
   if (!isMod) {
-    return res.status(403).json({ error: 'Only group moderators or admins can record member defaults.' });
+    return res.status(403).json({ error: 'Only customer group moderators or admins can record member defaults.' });
   }
 
   const slot = group.slots.find(s => s.slotNumber === Number(slotNumber));
@@ -2773,10 +3207,10 @@ apiRouter.post('/groups/:id/remove-member', async (req: Request, res: Response) 
   const group = db.groups.find(g => g.id === Number(req.params.id));
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  // Only moderator or admin can remove member
-  const isMod = group.moderators.includes(user.id) || group.adminId === user.id || user.role === 'admin';
+  // Only customer moderator or admin can remove member (never merchant)
+  const isMod = isGroupModerator(user, group);
   if (!isMod) {
-    return res.status(403).json({ error: 'Only group moderators or admins can remove members.' });
+    return res.status(403).json({ error: 'Only customer group moderators or admins can remove members.' });
   }
 
   const slot = group.slots.find(s => s.slotNumber === Number(slotNumber));
@@ -4042,7 +4476,9 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
         } else if (payment.type === 'merchant_subscription') {
           const merchant = db.users.find((u) => u.id === payment.userId);
           const sub = (db.merchantSubscriptions || []).find((s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending'));
-          const expiresAt = now + 30 * 86400000;
+          const durationDays = sub?.billingPeriod === 'yearly' ? 365 : 30;
+          const durationLabel = sub?.billingPeriod === 'yearly' ? '365 days (Yearly)' : '30 days';
+          const expiresAt = now + durationDays * 86400000;
           if (sub) {
             sub.status = 'active';
             sub.startDate = now;
@@ -4061,13 +4497,13 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
               id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
               userId: merchant.id,
               title: '🎉 Subscription Approved & Activated!',
-              message: `Your merchant subscription has been approved by Admin! Your store is active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
+              message: `Your merchant subscription has been approved by Admin! Your store is active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}.`,
               type: 'payment',
               read: false,
               timestamp: now,
             });
 
-            logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription for ${merchant.name} (Code: ${payment.code})`);
+            logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription (${durationLabel}) for ${merchant.name} (Code: ${payment.code})`);
           }
         } else if (payment.type === 'wallet_deposit') {
           const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
@@ -4854,10 +5290,10 @@ apiRouter.post('/groups/:id/warn-dormant', async (req: Request, res: Response) =
   const group = db.groups.find(g => g.id === groupId);
   if (!group) return res.status(404).json({ error: 'Group not found' });
 
-  // Only group moderator / store owner / system admin can issue warnings
-  const isModerator = group.adminId === user.id || user.role === 'admin' || user.role === 'merchant';
+  // Only customer group moderator or system admin can issue warnings (never merchant)
+  const isModerator = isGroupModerator(user, group);
   if (!isModerator) {
-    return res.status(403).json({ error: 'Only the group moderator or store owner can issue formal member warnings.' });
+    return res.status(403).json({ error: 'Only the assigned Group Moderator or Admin can issue formal member warnings.' });
   }
 
   const slot = group.slots.find(s => s.slotNumber === Number(slotNumber) && s.userId === Number(targetUserId));

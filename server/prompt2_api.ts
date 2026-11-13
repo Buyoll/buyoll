@@ -22,24 +22,27 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_250',
     name: 'Micro-Merchant (KES 250)',
     monthlyFee: 250,
+    yearlyFee: 3000,
     maxProducts: 2,
     maxGroupsPerProduct: 2,
     description: 'Caters to very small businesses and solo makers.',
-    features: ['1 to 2 products max', '2 groups per product', '30-day active window'],
+    features: ['1 to 2 products max', '2 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_500',
     name: 'Growing Merchant (KES 500)',
     monthlyFee: 500,
+    yearlyFee: 6000,
     maxProducts: 10,
     maxGroupsPerProduct: 5,
     description: 'Ideal for growing neighborhood retailers.',
-    features: ['Up to 10 products', '5 groups per product', '30-day active window'],
+    features: ['Up to 10 products', '5 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_1500',
     name: 'Pro Merchant (KES 1,500)',
     monthlyFee: 1500,
+    yearlyFee: 18000,
     maxProducts: 50,
     maxGroupsPerProduct: 10,
     description: 'For active retail businesses and popular shops.',
@@ -49,6 +52,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_3500',
     name: 'Commercial (KES 3,500)',
     monthlyFee: 3500,
+    yearlyFee: 42000,
     maxProducts: 100,
     maxGroupsPerProduct: 30,
     description: 'High capacity volume sales for established stores.',
@@ -58,6 +62,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'tier_7500',
     name: 'Enterprise Scale (KES 7,500)',
     monthlyFee: 7500,
+    yearlyFee: 90000,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 50,
     description: 'Unlimited catalog for major retail distributors.',
@@ -67,6 +72,7 @@ export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
     id: 'enterprise',
     name: 'Custom Enterprise',
     monthlyFee: 15000,
+    yearlyFee: 180000,
     maxProducts: -1,
     maxGroupsPerProduct: 100,
     description: 'Custom SLA and limits set by admin.',
@@ -254,27 +260,40 @@ prompt2Router.get('/user/profile', async (req: Request, res: Response) => {
   // 7. Notifications summary
   const userNotifs = (db.userNotifications || []).filter((n) => n.userId === user.id);
 
+  // Ensure user has a persistent friend referralCode
+  const dbUser = db.users.find((u) => u.id === user.id);
+  if (dbUser && !dbUser.referralCode) {
+    dbUser.referralCode = `BYL-${String(10000 + dbUser.id)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+    await saveDatabase(db);
+  }
+  const activeUser = dbUser || user;
+
   res.json({
     user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.activeRole || user.role,
-      roles: user.roles || [user.activeRole || user.role],
-      activeRole: user.activeRole || user.role,
-      platformId: user.platformId || `BYL-M-${10000 + user.id}`,
-      roleWallets: user.roleWallets,
-      avatar: user.avatar || user.avatarUrl,
-      credit: user.credit || 0,
-      coins: user.coins || 0,
-      points: user.points || 0,
-      verified: Boolean(user.verified),
-      shopName: user.shopName,
-      merchantSubscriptionStatus: user.merchantSubscriptionStatus,
-      merchantSubscriptionPlan: user.merchantSubscriptionPlan,
-      merchantSubscriptionExpiresAt: user.merchantSubscriptionExpiresAt,
-      createdAt: user.createdAt,
+      id: activeUser.id,
+      name: activeUser.name,
+      email: activeUser.email,
+      phone: activeUser.phone,
+      role: activeUser.activeRole || activeUser.role,
+      roles: activeUser.roles || [activeUser.activeRole || activeUser.role],
+      activeRole: activeUser.activeRole || activeUser.role,
+      platformId: activeUser.platformId || `BYL-M-${10000 + activeUser.id}`,
+      referralCode: activeUser.referralCode,
+      roleWallets: activeUser.roleWallets,
+      avatar: activeUser.avatar || activeUser.avatarUrl,
+      avatarUrl: activeUser.avatarUrl || activeUser.avatar,
+      credit: activeUser.credit || 0,
+      coins: activeUser.coins || 0,
+      points: activeUser.points || 0,
+      verified: Boolean(activeUser.verified),
+      shopName: activeUser.shopName,
+      tillNumber: activeUser.tillNumber,
+      paybillNumber: activeUser.paybillNumber,
+      paymentReceiving: activeUser.paymentReceiving,
+      merchantSubscriptionStatus: activeUser.merchantSubscriptionStatus,
+      merchantSubscriptionPlan: activeUser.merchantSubscriptionPlan,
+      merchantSubscriptionExpiresAt: activeUser.merchantSubscriptionExpiresAt,
+      createdAt: activeUser.createdAt,
     },
     addresses,
     orders,
@@ -292,7 +311,7 @@ prompt2Router.put('/user/profile', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-  const { name, phone, email, avatarUrl } = req.body;
+  const { name, phone, email, avatarUrl, paymentReceiving } = req.body;
   const db = await getDatabase();
   const dbUser = db.users.find((u) => u.id === user.id);
   if (!dbUser) return res.status(404).json({ error: 'User not found' });
@@ -300,9 +319,42 @@ prompt2Router.put('/user/profile', async (req: Request, res: Response) => {
   if (name && String(name).trim()) dbUser.name = String(name).trim();
   if (phone && String(phone).trim()) dbUser.phone = String(phone).trim();
   if (email && String(email).trim()) dbUser.email = String(email).trim().toLowerCase();
+  if (!dbUser.referralCode) {
+    dbUser.referralCode = `BYL-${String(10000 + dbUser.id)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+  }
   if (avatarUrl !== undefined) {
-    dbUser.avatar = String(avatarUrl).trim();
-    dbUser.avatarUrl = String(avatarUrl).trim();
+    const cleanAvatar = String(avatarUrl).trim();
+    dbUser.avatar = cleanAvatar;
+    dbUser.avatarUrl = cleanAvatar;
+    // Propagate updated avatar across all Chama group slots belonging to this user
+    (db.groups || []).forEach((g) => {
+      (g.slots || []).forEach((s) => {
+        if (s.userId === dbUser.id) {
+          s.userAvatar = cleanAvatar || null;
+        }
+      });
+    });
+  }
+  if (paymentReceiving && typeof paymentReceiving === 'object') {
+    const acct = paymentReceiving.paybillAccount || paymentReceiving.accountNumber;
+    const pochi = paymentReceiving.pochiNumber || paymentReceiving.pochiPhone;
+    const bankPaybill = paymentReceiving.bankPaybillNumber || paymentReceiving.bankPaybill;
+    const normalizedPr = {
+      mode: paymentReceiving.mode || 'paybill',
+      paybillNumber: paymentReceiving.paybillNumber ? String(paymentReceiving.paybillNumber).trim() : undefined,
+      paybillAccount: acct ? String(acct).trim() : undefined,
+      accountNumber: acct ? String(acct).trim() : undefined,
+      tillNumber: paymentReceiving.tillNumber ? String(paymentReceiving.tillNumber).trim() : undefined,
+      pochiNumber: pochi ? String(pochi).trim() : undefined,
+      pochiPhone: pochi ? String(pochi).trim() : undefined,
+      bankPaybillNumber: bankPaybill ? String(bankPaybill).trim() : undefined,
+      bankAccountNumber: paymentReceiving.bankAccountNumber ? String(paymentReceiving.bankAccountNumber).trim() : undefined,
+      bankName: paymentReceiving.bankName ? String(paymentReceiving.bankName).trim() : undefined,
+      accountName: paymentReceiving.accountName ? String(paymentReceiving.accountName).trim() : undefined,
+    };
+    dbUser.paymentReceiving = normalizedPr;
+    if (normalizedPr.tillNumber) dbUser.tillNumber = normalizedPr.tillNumber;
+    if (normalizedPr.paybillNumber) dbUser.paybillNumber = normalizedPr.paybillNumber;
   }
 
   logAudit(db, user.id, user.name, 'PROFILE_UPDATED', 'Updated personal profile details');
@@ -527,9 +579,11 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
     return res.status(403).json({ error: 'Merchant authentication required' });
   }
 
-  const { tierId, paymentMethod } = req.body;
+  const { tierId, paymentMethod, billingPeriod } = req.body;
   const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
   if (!targetTier) return res.status(400).json({ error: 'Invalid subscription tier selected' });
+  const period = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+  const durationLabel = period === 'yearly' ? 'Yearly (365-day)' : '30-Day';
 
   try {
     const { newSub, merchantUser, feeAmount } = await runDatabaseTransaction(async (db) => {
@@ -549,7 +603,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
       }
 
       const useCredit = paymentMethod === 'wallet_credit';
-      const feeAmount = targetTier.monthlyFee;
+      const feeAmount = period === 'yearly' ? (targetTier.yearlyFee || targetTier.monthlyFee * 12) : targetTier.monthlyFee;
       const now = Date.now();
 
       if (useCredit) {
@@ -558,7 +612,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         if (currentMerchantCredit < feeAmount) {
           throw {
             status: 400,
-            message: `Insufficient merchant wallet balance. You have KSh ${currentMerchantCredit.toLocaleString()} but need KSh ${feeAmount.toLocaleString()} for the ${targetTier.name}. Top up via Till 196853 first or use another payment method.`,
+            message: `Insufficient merchant wallet balance. You have KSh ${currentMerchantCredit.toLocaleString()} but need KSh ${feeAmount.toLocaleString()} for the ${targetTier.name} (${durationLabel}). Top up via Till 196853 first or use another payment method.`,
           };
         }
 
@@ -579,7 +633,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
           balanceAfter: dbMerchant.roleWallets.merchant.credit,
           type: 'transfer_out' as any,
           referenceId: `SUB-${now}`,
-          note: `Store credit held for ${targetTier.name} subscription (Pending Admin Approval)`,
+          note: `Store credit held for ${targetTier.name} (${durationLabel}) subscription (Pending Admin Approval)`,
           createdAt: now,
         });
       } else {
@@ -588,7 +642,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         if ((dbMerchant.coins || 0) < feeCoins) {
           throw {
             status: 400,
-            message: `Insufficient coins balance. You have ${dbMerchant.coins || 0} coins but need ${feeCoins} coins for the ${targetTier.name}. Please top up wallet coins or pay via till/paybill.`,
+            message: `Insufficient coins balance. You have ${dbMerchant.coins || 0} coins but need ${feeCoins} coins for the ${targetTier.name} (${durationLabel}). Please top up wallet coins or pay via till/paybill.`,
           };
         }
 
@@ -606,7 +660,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
           amount: feeCoins,
           type: 'transfer',
           reason: 'subscription',
-          note: `Wallet coins payment of ${feeCoins} for ${targetTier.name} (Pending Admin Approval)`,
+          note: `Wallet coins payment of ${feeCoins} for ${targetTier.name} (${durationLabel}, Pending Admin Approval)`,
           timestamp: now,
         });
       }
@@ -617,6 +671,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         merchantId: user.id,
         tierId: targetTier.id,
         tierName: targetTier.name,
+        billingPeriod: period,
         amount: feeAmount,
         paymentMethod: finalMethod,
         status: 'pending',
@@ -641,7 +696,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         createdAt: now,
         verifiedAt: null,
         verifiedBy: null,
-        notes: `Wallet payment of KSh ${feeAmount} for ${targetTier.name}. Requires Admin Approval.`,
+        notes: `Wallet payment of KSh ${feeAmount} for ${targetTier.name} (${durationLabel}). Requires Admin Approval.`,
       });
 
       // Private notification to merchant
@@ -650,13 +705,13 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         title: `⏳ Subscription Payment Submitted: ${targetTier.name}`,
-        message: `Payment of KSh ${feeAmount.toLocaleString()} from your wallet is held in escrow. Subscription will be reviewed and activated by Admin shortly.`,
+        message: `Payment of KSh ${feeAmount.toLocaleString()} (${durationLabel}) from your wallet is held in escrow. Subscription will be reviewed and activated by Admin shortly.`,
         type: 'payment',
         read: false,
         timestamp: now,
       });
 
-      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED', `Submitted KSh ${feeAmount} via ${finalMethod} for ${targetTier.name} (Pending Admin Approval)`);
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_WALLET_SUBMITTED', `Submitted KSh ${feeAmount} (${durationLabel}) via ${finalMethod} for ${targetTier.name} (Pending Admin Approval)`);
 
       return { newSub, merchantUser: dbMerchant, feeAmount };
     });
@@ -665,7 +720,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
       success: true,
       subscription: newSub,
       user: merchantUser,
-      message: `Wallet payment of KSh ${feeAmount.toLocaleString()} submitted! Admin will verify and activate your 30-day store plan.`,
+      message: `Wallet payment of KSh ${feeAmount.toLocaleString()} (${durationLabel}) submitted! Admin will verify and activate your store plan.`,
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Subscription payment failed' });
@@ -679,9 +734,13 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
     return res.status(403).json({ error: 'Merchant authorization required' });
   }
 
-  const { tierId, paymentCode, amount, channel } = req.body;
+  const { tierId, paymentCode, amount, channel, billingPeriod } = req.body;
   const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
   if (!targetTier) return res.status(400).json({ error: 'Invalid tier' });
+
+  const period = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+  const expectedFee = period === 'yearly' ? (targetTier.yearlyFee || targetTier.monthlyFee * 12) : targetTier.monthlyFee;
+  const durationLabel = period === 'yearly' ? 'Yearly (365-day)' : '30-Day';
 
   const code = String(paymentCode || '').trim().toUpperCase();
   if (!code || code.length < 6) return res.status(400).json({ error: 'Valid M-Pesa transaction code required (at least 6 characters)' });
@@ -703,12 +762,14 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
       }
 
       const now = Date.now();
+      const submittedAmount = Number(amount) || expectedFee;
       const newRecord: MerchantSubscriptionRecord = {
         id: `sub_manual_${now}_${Math.random().toString(36).substring(2, 6)}`,
         merchantId: user.id,
         tierId: targetTier.id,
         tierName: targetTier.name,
-        amount: Number(amount) || targetTier.monthlyFee,
+        billingPeriod: period,
+        amount: submittedAmount,
         paymentMethod: 'mpesa_till_paybill',
         paymentCode: code,
         status: 'pending',
@@ -724,14 +785,14 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
         userName: user.shopName || user.name,
         userPhone: user.phone,
         code,
-        amount: Number(amount) || targetTier.monthlyFee,
+        amount: submittedAmount,
         status: 'pending',
         type: 'merchant_subscription',
         channel: channel || 'Till 196853 / Paybill 522533',
         createdAt: now,
         verifiedAt: null,
         verifiedBy: null,
-        notes: `Manual subscription payment for ${targetTier.name}. Code: ${code}. Pending Admin Approval.`,
+        notes: `Manual subscription payment for ${targetTier.name} (${durationLabel}). Code: ${code}. Pending Admin Approval.`,
       });
 
       const dbUser = db.users.find((u) => u.id === user.id);
@@ -743,13 +804,13 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         title: `⏳ Subscription Code Submitted: ${targetTier.name}`,
-        message: `Payment code ${code} for KSh ${(Number(amount) || targetTier.monthlyFee).toLocaleString()} submitted. Admin will verify against statements and activate your store for 30 days.`,
+        message: `Payment code ${code} for KSh ${submittedAmount.toLocaleString()} (${durationLabel}) submitted. Admin will verify against statements and activate your store.`,
         type: 'payment',
         read: false,
         timestamp: now,
       });
 
-      logAudit(db, user.id, user.name, 'SUBSCRIPTION_MANUAL_SUBMITTED', `Submitted manual payment code ${code} for ${targetTier.name}`);
+      logAudit(db, user.id, user.name, 'SUBSCRIPTION_MANUAL_SUBMITTED', `Submitted manual payment code ${code} (${durationLabel}) for ${targetTier.name}`);
 
       return newRecord;
     });
@@ -757,7 +818,7 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
     res.status(201).json({
       success: true,
       subscription: subRecord,
-      message: 'Manual subscription payment code submitted! Admin will verify against statements and activate your store for 30 days.',
+      message: `Manual ${durationLabel} subscription payment code submitted! Admin will verify against statements and activate your store.`,
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to submit payment code' });
@@ -1109,7 +1170,9 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
 
       const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === targetSub.tierId) || SUBSCRIPTION_TIERS[0];
       const now = Date.now();
-      const expiresAt = now + 30 * 86400000;
+      const durationDays = targetSub.billingPeriod === 'yearly' ? 365 : 30;
+      const durationLabel = targetSub.billingPeriod === 'yearly' ? '365 days (Yearly)' : '30 days';
+      const expiresAt = now + durationDays * 86400000;
 
       targetSub.status = 'active';
       targetSub.startDate = now;
@@ -1145,22 +1208,22 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: merchantUser.id,
           title: `🎉 Subscription Approved: ${targetTier.name}`,
-          message: `Your payment (${methodDesc}) has been approved by Admin! Your store catalog limits are now active for 30 days until ${new Date(expiresAt).toLocaleDateString()}. You can now post listings and open speed groups!`,
+          message: `Your payment (${methodDesc}) has been approved by Admin! Your store catalog limits are now active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}. You can now post listings and create speed groups!`,
           type: 'payment',
           read: false,
           timestamp: now,
         });
       }
 
-      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved ${targetSub.paymentMethod} subscription for merchant #${targetSub.merchantId} (${targetTier.name})`);
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved ${targetSub.paymentMethod} (${durationLabel}) subscription for merchant #${targetSub.merchantId} (${targetTier.name})`);
 
-      return { sub: targetSub, merchantName: merchantUser?.name || 'merchant' };
+      return { sub: targetSub, merchantName: merchantUser?.name || 'merchant', durationLabel };
     });
 
     res.json({
       success: true,
       subscription: sub,
-      message: `Approved subscription for ${merchantName}! 30-day active window started.`,
+      message: `Approved subscription for ${merchantName}! ${sub.billingPeriod === 'yearly' ? 'Yearly (365-day)' : '30-day'} active window started.`,
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to approve subscription' });

@@ -359,6 +359,9 @@ export default function App() {
             prev.role === res.user.role &&
             prev.activeRole === res.user.activeRole &&
             prev.platformId === res.user.platformId &&
+            prev.referralCode === res.user.referralCode &&
+            prev.avatar === res.user.avatar &&
+            prev.avatarUrl === res.user.avatarUrl &&
             prev.name === res.user.name &&
             prev.phone === res.user.phone
           ) {
@@ -561,6 +564,23 @@ export default function App() {
             onNavigate={handleNavigate}
             onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
+            onUserUpdate={(updated?: User) => {
+              if (updated) {
+                setCurrentUser(updated);
+                try {
+                  localStorage.setItem('alibaird_current_user', JSON.stringify(updated));
+                } catch {}
+              } else {
+                api.getMe().then((r) => {
+                  if (r?.user) {
+                    setCurrentUser(r.user);
+                    try {
+                      localStorage.setItem('alibaird_current_user', JSON.stringify(r.user));
+                    } catch {}
+                  }
+                }).catch(() => {});
+              }
+            }}
             initialTab={viewArg || 'overview'}
           />
         )}

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Product, SpeedOption } from '../types.ts';
+import { Product, SpeedOption, User, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
 import { api } from '../api.ts';
-import { X, Plus, Trash2, Save, Image as ImageIcon, Video, Upload, Camera } from 'lucide-react';
+import { X, Plus, Trash2, Save, Image as ImageIcon, Video, Upload, Camera, CreditCard } from 'lucide-react';
 
 interface VendorProductEditorModalProps {
   product: Product | null; // null if creating new product
+  currentUser?: User | null;
   onClose: () => void;
   onSaved: (product: Product) => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
@@ -12,6 +13,7 @@ interface VendorProductEditorModalProps {
 
 export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> = ({
   product,
+  currentUser,
   onClose,
   onSaved,
   onNotify,
@@ -37,12 +39,25 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
       ? product.videos.slice(0, 2)
       : []
   );
-  const [launchGroupSpeed, setLaunchGroupSpeed] = useState<number>(10);
-
   const [isFeatured, setIsFeatured] = useState<boolean>(product?.isFeatured || false);
   const [promotionType, setPromotionType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>(product?.promotionType || 'none');
   const [promotionDiscount, setPromotionDiscount] = useState<number>(product?.promotionDiscount || 0);
   const [bonusGift, setBonusGift] = useState<string>(product?.bonusGift || '');
+
+  // Payment Receiving Details (reused from Merchant Profile if already saved)
+  const initialPaymentReceiving: PaymentReceivingDetails | undefined =
+    product?.paymentReceiving || currentUser?.paymentReceiving;
+  const [payMode, setPayMode] = useState<PaymentReceivingMode>(
+    initialPaymentReceiving?.mode || (currentUser?.tillNumber ? 'till' : 'paybill')
+  );
+  const [paybillNumber, setPaybillNumber] = useState<string>(initialPaymentReceiving?.paybillNumber || '');
+  const [paybillAccount, setPaybillAccount] = useState<string>(initialPaymentReceiving?.paybillAccount || '');
+  const [tillNumber, setTillNumber] = useState<string>(initialPaymentReceiving?.tillNumber || currentUser?.tillNumber || '');
+  const [pochiNumber, setPochiNumber] = useState<string>(initialPaymentReceiving?.pochiNumber || currentUser?.phone || '');
+  const [bankName, setBankName] = useState<string>(initialPaymentReceiving?.bankName || '');
+  const [bankPaybillNumber, setBankPaybillNumber] = useState<string>(initialPaymentReceiving?.bankPaybillNumber || '');
+  const [bankAccountNumber, setBankAccountNumber] = useState<string>(initialPaymentReceiving?.bankAccountNumber || '');
+  const [accountName, setAccountName] = useState<string>(initialPaymentReceiving?.accountName || currentUser?.shopName || currentUser?.name || '');
 
   // Specifications / attributes editor
   const initialAttrs = product?.attributes
@@ -196,6 +211,36 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
       return;
     }
 
+    const paymentReceiving: PaymentReceivingDetails = {
+      mode: payMode,
+      accountName: accountName.trim() || undefined,
+      ...(payMode === 'paybill' ? { paybillNumber: paybillNumber.trim(), paybillAccount: paybillAccount.trim() } : {}),
+      ...(payMode === 'till' ? { tillNumber: tillNumber.trim() } : {}),
+      ...(payMode === 'pochi' ? { pochiNumber: pochiNumber.trim() } : {}),
+      ...(payMode === 'bank_paybill' ? {
+        bankName: bankName.trim(),
+        bankPaybillNumber: bankPaybillNumber.trim(),
+        bankAccountNumber: bankAccountNumber.trim(),
+      } : {}),
+    };
+
+    if (payMode === 'paybill' && (!paybillNumber.trim() || !paybillAccount.trim())) {
+      onNotify('error', 'Please enter both your Paybill Number and Account Number.');
+      return;
+    }
+    if (payMode === 'till' && !tillNumber.trim()) {
+      onNotify('error', 'Please enter your M-Pesa Till Number.');
+      return;
+    }
+    if (payMode === 'pochi' && !pochiNumber.trim()) {
+      onNotify('error', 'Please enter your Pochi La Biashara phone number.');
+      return;
+    }
+    if (payMode === 'bank_paybill' && (!bankName.trim() || !bankPaybillNumber.trim() || !bankAccountNumber.trim())) {
+      onNotify('error', 'Please enter your Bank Name, Bank Paybill Number, and Bank Account Number.');
+      return;
+    }
+
     setSaving(true);
     try {
       const attributesObj = attributesList.reduce((acc, curr) => {
@@ -218,10 +263,10 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         attributes: attributesObj,
         isFeatured,
         speedOptions,
+        paymentReceiving,
         promotionType: promotionType === 'none' ? undefined : promotionType,
         promotionDiscount: promotionDiscount > 0 ? Number(promotionDiscount) : undefined,
         bonusGift: bonusGift.trim() ? bonusGift.trim() : undefined,
-        speedSize: launchGroupSpeed,
       };
 
       if (isEditing && product) {
@@ -230,7 +275,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         onSaved(res.product);
       } else {
         const res = await api.createProduct(payload);
-        onNotify('success', 'New product created and initial group launched.');
+        onNotify('success', 'Product draft saved! Next, open My Groups to add groups (1–10 members) and click Post.');
         onSaved(res.product);
       }
       onClose();
@@ -418,38 +463,172 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             </div>
           </div>
 
-          {/* Initial Group Launch Speed (1 to 10 members) */}
-          {!isEditing && (
-            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-[#ff6600] uppercase tracking-wide">
-                  Initial Group Speed (1 to 10 Members)
-                </label>
-                <span className="text-xs font-black text-[#ff6600] bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-                  {launchGroupSpeed} {launchGroupSpeed === 1 ? 'Member (Solo)' : 'Members'}
+          {/* PAYMENT RECEIVING DETAILS (Paybill, Till, Pochi, Bank Paybill - Saved & Reused) */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-[#ff6600]" />
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                  Payment Receiving Details <span className="text-red-500">*</span>
                 </span>
               </div>
-              <p className="text-[11px] text-slate-600 mb-2.5">
-                Product = Group. Every product posted launches its first group waiting for members to join. Choose the group size (1 to 10).
-              </p>
-              <div className="flex items-center gap-2">
+              {initialPaymentReceiving && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                  Auto-filled from Saved Profile
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Choose how customers pay for installments. Saved details automatically prefill future products and groups.
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { id: 'paybill', label: 'M-Pesa Paybill' },
+                { id: 'till', label: 'Buy Goods Till' },
+                { id: 'pochi', label: 'Pochi La Biashara' },
+                { id: 'bank_paybill', label: 'Bank Paybill' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setPayMode(m.id as PaymentReceivingMode)}
+                  className={`py-2 px-2.5 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                    payMode === m.id
+                      ? 'border-[#ff6600] bg-white text-[#ff6600] ring-2 ring-[#ff6600]/20'
+                      : 'border-slate-200 bg-white/60 text-slate-600 hover:bg-white'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {payMode === 'paybill' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Paybill Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={paybillNumber}
+                    onChange={(e) => setPaybillNumber(e.target.value)}
+                    placeholder="e.g. 522533"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Account Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={paybillAccount}
+                    onChange={(e) => setPaybillAccount(e.target.value)}
+                    placeholder="e.g. 12345678"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {payMode === 'till' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Till Number <span className="text-red-500">*</span>
+                </label>
                 <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  value={launchGroupSpeed}
-                  onChange={(e) => setLaunchGroupSpeed(Number(e.target.value))}
-                  className="w-full accent-[#ff6600]"
+                  type="text"
+                  required
+                  value={tillNumber}
+                  onChange={(e) => setTillNumber(e.target.value)}
+                  placeholder="e.g. 3463533"
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
                 />
               </div>
-              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                <span>1 (Solo)</span>
-                <span>2 (Duo)</span>
-                <span>4 (Fast)</span>
-                <span>6 (Standard)</span>
-                <span>8</span>
-                <span>10 (Max)</span>
+            )}
+
+            {payMode === 'pochi' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Pochi La Biashara Phone Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={pochiNumber}
+                  onChange={(e) => setPochiNumber(e.target.value)}
+                  placeholder="e.g. 0712345678"
+                  className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                />
               </div>
+            )}
+
+            {payMode === 'bank_paybill' && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Bank Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="e.g. KCB Bank"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Bank Paybill <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bankPaybillNumber}
+                    onChange={(e) => setBankPaybillNumber(e.target.value)}
+                    placeholder="e.g. 522522"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Bank Account <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bankAccountNumber}
+                    onChange={(e) => setBankAccountNumber(e.target.value)}
+                    placeholder="e.g. 1109283746"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                Account / Business Recipient Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder="e.g. Nairobi Solar Solutions Ltd"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-[#ff6600] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {!isEditing && (
+            <div className="p-3.5 bg-orange-50/70 border border-orange-200 rounded-xl text-xs text-slate-700">
+              <b className="text-[#ff6600] block mb-0.5">Product Staging Flow:</b>
+              Saving creates your product inside <b>My Groups (Merchant)</b>. From there, create groups of <b>1 to 10 members</b> (up to your subscription limit) and click <b>Post</b> when ready for buyers to join.
             </div>
           )}
 

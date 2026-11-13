@@ -275,8 +275,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     }
   }
 
-  // Direct join button on a specific group card
-  async function handleDirectJoinGroup(targetGroup: ChamaGroup) {
+  // Direct join button on a specific group card — opens referral invite code input (no auto-fill)
+  function handleDirectJoinGroup(targetGroup: ChamaGroup) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to join a Group.');
       onOpenAuth();
@@ -288,19 +288,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       return;
     }
 
-    const openSlot = targetGroup.slots.find(s => s.status === 'open' || s.status === 'replacement_eligible');
-    const code = openSlot?.inviteCode || targetGroup.inviteCode;
-
-    setSubmittingJoin(true);
-    try {
-      const res = await api.joinGroup(targetGroup.id, code);
-      onNotify('success', res.message || 'Joined group successfully!');
-      onNavigate('group', res.group.id);
-    } catch (err: any) {
-      onNotify('error', err.message || 'Failed to join group.');
-    } finally {
-      setSubmittingJoin(false);
-    }
+    setJoiningGroupId(targetGroup.id);
+    setInviteCodeInput('');
   }
 
   // Section 8: Media Replacement Handlers (Photos cap: 3, Videos cap: 2)
@@ -1033,14 +1022,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     <span>Monthly rate: <b>KSh {Math.ceil(product.price / soloMonths).toLocaleString()} / month</b></span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleCreateGroup}
-                    disabled={creatingGroup}
-                    className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
-                  >
-                    {creatingGroup ? 'Starting Plan...' : `Confirm & Start ${soloMonths}-Month Solo Contribution Plan`}
-                  </button>
+                  {currentUser?.role === 'merchant' && (product.publicationStatus === 'draft' || product.live === false) ? (
+                    <button
+                      type="button"
+                      onClick={handleCreateGroup}
+                      disabled={creatingGroup}
+                      className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    >
+                      {creatingGroup ? 'Creating 1-Member Group...' : `Create ${soloMonths}-Month Solo Group (Draft)`}
+                    </button>
+                  ) : (
+                    <div className="text-[11px] text-emerald-900 bg-white/80 px-3 py-2 rounded-lg border border-emerald-200">
+                      Select any merchant-created 1-Member or multi-member group under <b>Active Speed Groups</b> below to join with a friend&apos;s referral code.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1048,7 +1043,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {/* SECTION 2: PROMINENT JOIN AREA (RETAINED BOLDLY & NEATLY IN VISIBLE PLACE) */}
             <div className="border-t border-slate-200 pt-5">
               <div className="text-sm font-bold text-slate-900 mb-2">
-                2. Choose your speed to continue, Join a Group
+                2. Join a Group with a Friend&apos;s Referral Code
               </div>
 
               {/* RETAINED SECTION: BOLD, NEAT, CLEAN IN PROMINENT VISIBLE PLACE */}
@@ -1057,20 +1052,27 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-[#ff6600] shrink-0 mt-0.5" />
                   <div>
                     <h3 className="text-xs sm:text-sm font-black text-emerald-950 leading-snug">
-                      Join an existing active group with a member's invite code and start saving towards this item.
+                      Join an existing active group with a friend&apos;s Buyoll referral code or member invite code.
                     </h3>
                     <p className="text-[11px] text-emerald-800 mt-0.5">
-                      Enter the member invite code you received to lock in your rotation slot and start saving immediately.
+                      You cannot use your own referral code. Enter a friend&apos;s code below to lock in your slot.
                     </p>
                   </div>
                 </div>
+
+                {currentUser?.referralCode && (
+                  <div className="mb-2.5 px-3 py-1.5 bg-white/80 border border-emerald-200 rounded-lg text-[11px] text-emerald-900 flex items-center justify-between">
+                    <span>Your Referral Code (share with friends):</span>
+                    <b className="font-mono text-[#ff6600]">{currentUser.referralCode}</b>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={inviteCodeInput}
                     onChange={(e) => setInviteCodeInput(e.target.value.toUpperCase())}
-                    placeholder="Enter Invite Code (e.g. SOLAR9X1)"
+                    placeholder="Enter Friend Referral Code (e.g. BUY8K2M1)"
                     className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                   <button
@@ -1083,38 +1085,61 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 </div>
               </div>
 
-              {/* Pre-Created Speed Groups Action (For Store Owners / Merchants / Admin) */}
+              {/* Pre-Created Speed Groups Action (Draft Merchant Products Only) */}
               {isMerchantOrAdmin ? (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">Store Owner Group Management</span>
                     <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded">
-                      Merchant Hub
+                      {product.publicationStatus === 'draft' || product.live === false ? 'Draft Stage' : 'Posted Live (Read-Only)'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Pre-create standard speed groups (10, 8, 6, 4, 2, and 1-member solo) so buyers can choose speed and save immediately.
-                  </p>
-                  <button
-                    onClick={handleGenerateGroups}
-                    disabled={generatingGroups}
-                    className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{generatingGroups ? 'Generating...' : 'Pre-Create Speed Groups (10, 8, 6, 4, 2, 1 Members)'}</span>
-                  </button>
+                  {product.publicationStatus === 'draft' || product.live === false ? (
+                    <>
+                      <p className="text-xs text-slate-500">
+                        Add custom groups inside this draft product from <b>My Groups (Merchant)</b> in your dashboard before clicking Post.
+                      </p>
+                      <button
+                        onClick={handleGenerateGroups}
+                        disabled={generatingGroups}
+                        className="w-full py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{generatingGroups ? 'Generating...' : 'Pre-Create Speed Groups (Up to Tier Limit)'}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      This product is already posted live in Announcements. Existing groups are permanently locked (read-only) while members join and save.
+                    </p>
+                  )}
                 </div>
               ) : null}
             </div>
 
-            {/* Official Till & Manual Payment Notice */}
+            {/* Official Merchant / Platform Payment Notice */}
             <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col gap-1 text-xs text-slate-500">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <span>Platform Till: <b className="text-[#ff6600] font-mono">196853</b> · Paybill: <b className="text-[#ff6600] font-mono">522533</b> (Acc: <b>4363</b>)</span>
-                <span>Merchant Till: <b className="text-slate-900 font-mono">3463533</b></span>
+                {product.paymentReceiving ? (
+                  <span>
+                    Merchant{' '}
+                    <b className="text-slate-900 font-mono">
+                      {product.paymentReceiving.mode === 'paybill'
+                        ? `Paybill ${product.paymentReceiving.paybillNumber} (Acc: ${product.paymentReceiving.paybillAccount || product.paymentReceiving.accountNumber})`
+                        : product.paymentReceiving.mode === 'till'
+                        ? `Till ${product.paymentReceiving.tillNumber}`
+                        : product.paymentReceiving.mode === 'pochi'
+                        ? `Pochi ${product.paymentReceiving.pochiNumber || product.paymentReceiving.pochiPhone}`
+                        : `${product.paymentReceiving.bankName || 'Bank'} Paybill ${product.paymentReceiving.bankPaybillNumber} (Acc: ${product.paymentReceiving.bankAccountNumber})`}
+                    </b>
+                  </span>
+                ) : (
+                  <span>Merchant Till: <b className="text-slate-900 font-mono">3463533</b></span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                Manual M-Pesa on Till or Paybill. No automated STK push or escrow. Pay to Till and submit your M-Pesa reference code for verification.
+                Manual M-Pesa payment via Paybill, Till, Pochi, or Bank Paybill. Enter your M-Pesa reference code for verification.
               </p>
             </div>
           </div>
@@ -1166,7 +1191,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     {grp.name}
                   </h3>
                   <p className="text-xs text-slate-500 mb-3">
-                    Rotation delivery every <b>{grp.cycleDays} days</b> · M-Pesa Till: <b>522533</b>
+                    {grp.size === 1
+                      ? `Solo plan · ${grp.paymentDurationDays || grp.cycleDays} days`
+                      : `Rotation every ${grp.cycleDays} days`}
+                    {' · '}
+                    {grp.paymentReceiving?.mode === 'paybill'
+                      ? `Paybill: ${grp.paymentReceiving.paybillNumber} (${grp.paymentReceiving.paybillAccount || grp.paymentReceiving.accountNumber})`
+                      : grp.paymentReceiving?.mode === 'till'
+                      ? `Till: ${grp.paymentReceiving.tillNumber}`
+                      : grp.paymentReceiving?.mode === 'pochi'
+                      ? `Pochi: ${grp.paymentReceiving.pochiNumber || grp.paymentReceiving.pochiPhone}`
+                      : grp.paymentReceiving?.mode === 'bank_paybill'
+                      ? `Bank Paybill: ${grp.paymentReceiving.bankPaybillNumber} (${grp.paymentReceiving.bankAccountNumber})`
+                      : `M-Pesa Till: ${grp.merchantTill || '3463533'}`}
                   </p>
 
                   {/* Capacity Progress Bar */}
@@ -1209,13 +1246,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   ) : isJoiningThis ? (
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                       <label className="block text-[11px] font-semibold text-slate-700">
-                        Enter Group Invite Code:
+                        Enter Friend Referral Invite Code:
                       </label>
                       <input
                         type="text"
                         value={inviteCodeInput}
                         onChange={(e) => setInviteCodeInput(e.target.value.toUpperCase())}
-                        placeholder="e.g. SOLAR9X1"
+                        placeholder="Friend referral code (e.g. BUY8K2M1)"
                         className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded bg-white font-mono uppercase"
                       />
                       <div className="flex gap-2">
@@ -1363,6 +1400,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       {isEditingProduct && product && (
         <VendorProductEditorModal
           product={product}
+          currentUser={currentUser}
           onClose={() => setIsEditingProduct(false)}
           onSaved={(updated) => {
             setProduct(updated);

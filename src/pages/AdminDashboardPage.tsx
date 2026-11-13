@@ -460,7 +460,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     setProcessingId(subId);
     try {
       const res = await api.approveAdminMerchantSubscription(subId);
-      onNotify('success', res.message || 'Subscription approved and store activated for 30 days!');
+      onNotify('success', res.message || 'Subscription approved and merchant store activated!');
       await loadAllAdminData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to approve subscription');
@@ -2414,7 +2414,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   Merchant Subscriptions & 6-Tier Catalog Management
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Review active 30-day subscriptions, reconcile manual M-Pesa payments, and manage custom Enterprise tier pricing.
+                  Review active 30-day and yearly (365-day) subscriptions, reconcile manual M-Pesa payments, and manage custom Enterprise tier pricing.
                 </p>
               </div>
             </div>
@@ -2466,7 +2466,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           <span className="text-[10px] text-slate-500 font-mono">#{sub.merchantId} · {sub.phone}</span>
                         </td>
                         <td className="py-3 px-3">
-                          <span className="font-semibold text-slate-900">{sub.tierName}</span>
+                          <span className="font-semibold text-slate-900 block">{sub.tierName}</span>
+                          <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            sub.billingPeriod === 'yearly'
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {sub.billingPeriod === 'yearly' ? 'Yearly · 365d' : '30-Day'}
+                          </span>
                         </td>
                         <td className="py-3 px-3 font-mono font-bold text-[#ff6600]">
                           KSh {Number(sub.amount || 0).toLocaleString()}
@@ -2524,7 +2531,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   ) : (
                                     <>
                                       <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>Approve (30d)</span>
+                                      <span>{sub.billingPeriod === 'yearly' ? 'Approve (365d)' : 'Approve (30d)'}</span>
                                     </>
                                   )}
                                 </button>

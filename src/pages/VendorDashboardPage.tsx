@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Product, ChamaGroup, MerchantSubscriptionTier } from '../types.ts';
+import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { triggerVisualPushAlert } from '../utils/notifications.ts';
@@ -60,6 +60,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [tiersList, setTiersList] = useState<MerchantSubscriptionTier[]>([]);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [selectedTierId, setSelectedTierId] = useState<string>('tier_500');
+  const [subBillingPeriod, setSubBillingPeriod] = useState<BillingPeriod>('monthly');
   const [subPaymentMethod, setSubPaymentMethod] = useState<'wallet_credit' | 'wallet_coins' | 'mpesa_till'>('mpesa_till');
   const [subPaymentCode, setSubPaymentCode] = useState('');
   const [submittingSubscription, setSubmittingSubscription] = useState(false);
@@ -95,12 +96,23 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [verifBusinessType, setVerifBusinessType] = useState('Retail & Electronics');
   const [submittingVerification, setSubmittingVerification] = useState(false);
 
-  // 10-Speed Group Creation modal
+  // 10-Speed Group Creation modal (1-10 members, payment duration, payment receiving reuse)
   const [isSpeedGroupModalOpen, setIsSpeedGroupModalOpen] = useState(false);
   const [selectedProductForGroup, setSelectedProductForGroup] = useState<Product | null>(null);
   const [selectedSpeedSize, setSelectedSpeedSize] = useState<number>(10);
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'platform' | 'merchant'>('platform');
+  const [selectedDurationDays, setSelectedDurationDays] = useState<number>(90);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'platform' | 'merchant'>('merchant');
+  const [grpPayMode, setGrpPayMode] = useState<PaymentReceivingMode>('paybill');
+  const [grpPaybillNumber, setGrpPaybillNumber] = useState('');
+  const [grpPaybillAccount, setGrpPaybillAccount] = useState('');
+  const [grpTillNumber, setGrpTillNumber] = useState('');
+  const [grpPochiNumber, setGrpPochiNumber] = useState('');
+  const [grpBankName, setGrpBankName] = useState('');
+  const [grpBankPaybill, setGrpBankPaybill] = useState('');
+  const [grpBankAccount, setGrpBankAccount] = useState('');
+  const [grpAccountName, setGrpAccountName] = useState('');
   const [submittingSpeedGroup, setSubmittingSpeedGroup] = useState(false);
+  const [publishingProductId, setPublishingProductId] = useState<number | null>(null);
 
   const now = Date.now();
   const subExpiresAt = subscriptionInfo?.subscription?.expiresAt || currentUser?.merchantSubscriptionExpiresAt;
@@ -137,15 +149,16 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     setSubmittingSubscription(true);
 
     try {
-      const tierMap: Record<string, { name: string; fee: number }> = {
-        tier_250: { name: 'Micro-Merchant', fee: 250 },
-        tier_500: { name: 'Growing Merchant', fee: 500 },
-        tier_1500: { name: 'Pro Merchant', fee: 1500 },
-        tier_3500: { name: 'Commercial', fee: 3500 },
-        tier_7500: { name: 'Enterprise Scale', fee: 7500 },
-        enterprise: { name: 'Custom Enterprise', fee: 15000 },
+      const tierMap: Record<string, { name: string; monthlyFee: number }> = {
+        tier_250: { name: 'Micro-Merchant', monthlyFee: 250 },
+        tier_500: { name: 'Growing Merchant', monthlyFee: 500 },
+        tier_1500: { name: 'Pro Merchant', monthlyFee: 1500 },
+        tier_3500: { name: 'Commercial', monthlyFee: 3500 },
+        tier_7500: { name: 'Enterprise Scale', monthlyFee: 7500 },
+        enterprise: { name: 'Custom Enterprise', monthlyFee: 15000 },
       };
-      const plan = tierMap[selectedTierId] || { name: 'Growing Merchant', fee: 500 };
+      const plan = tierMap[selectedTierId] || { name: 'Growing Merchant', monthlyFee: 500 };
+      const expectedFee = subBillingPeriod === 'yearly' ? plan.monthlyFee * 12 : plan.monthlyFee;
       const normalizedMethod =
         subPaymentMethod === 'wallet_credit' ? 'wallet' : subPaymentMethod === 'wallet_coins' ? 'coins' : 'mpesa';
 
@@ -153,12 +166,13 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         planId: selectedTierId,
         paymentMethod: normalizedMethod,
         mpesaCode: normalizedMethod === 'mpesa' ? subPaymentCode.trim().toUpperCase() : undefined,
+        billingPeriod: subBillingPeriod,
       });
 
       // Successful submission -> Render Success View
       setSubModalSuccess({
-        planName: plan.name,
-        amount: res.request?.amountExpected || plan.fee,
+        planName: `${plan.name} (${subBillingPeriod === 'yearly' ? 'Yearly · 365 Days' : '30-Day'})`,
+        amount: res.request?.amountExpected || expectedFee,
         code: res.request?.mpesaCode || (normalizedMethod === 'mpesa' ? subPaymentCode.trim().toUpperCase() : undefined),
         method:
           normalizedMethod === 'wallet'
@@ -241,15 +255,82 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     }
   }
 
+  function openGroupCreatorForProduct(product: Product) {
+    if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
+      onNotify('error', 'Active merchant subscription required to create groups.');
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    const existingCount = groups.filter(g => g.productId === product.id).length;
+    const maxPerProduct = subscriptionInfo?.tier?.maxGroupsPerProduct ?? 5;
+    if (existingCount >= maxPerProduct) {
+      onNotify('error', `Group limit reached (${existingCount} of ${maxPerProduct} allowed). Upgrade your plan to add more groups.`);
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    const pr: PaymentReceivingDetails | undefined = product.paymentReceiving || currentUser?.paymentReceiving;
+    setSelectedProductForGroup(product);
+    setSelectedSpeedSize(10);
+    setSelectedDurationDays(90);
+    setSelectedPaymentMode('merchant');
+    setGrpPayMode(pr?.mode || (currentUser?.tillNumber ? 'till' : 'paybill'));
+    setGrpPaybillNumber(pr?.paybillNumber || '');
+    setGrpPaybillAccount(pr?.paybillAccount || '');
+    setGrpTillNumber(pr?.tillNumber || currentUser?.tillNumber || '');
+    setGrpPochiNumber(pr?.pochiNumber || currentUser?.phone || '');
+    setGrpBankName(pr?.bankName || '');
+    setGrpBankPaybill(pr?.bankPaybillNumber || '');
+    setGrpBankAccount(pr?.bankAccountNumber || '');
+    setGrpAccountName(pr?.accountName || currentUser?.shopName || currentUser?.name || '');
+    setIsSpeedGroupModalOpen(true);
+  }
+
+  async function handlePublishProduct(product: Product) {
+    if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
+      onNotify('error', 'Active merchant subscription required to post products live.');
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    const productGroups = groups.filter(g => g.productId === product.id);
+    if (productGroups.length === 0) {
+      onNotify('error', 'Create at least 1 group inside this product before posting.');
+      openGroupCreatorForProduct(product);
+      return;
+    }
+    setPublishingProductId(product.id);
+    try {
+      const res = await api.publishProduct(product.id);
+      onNotify('success', res.message || `"${product.title}" is now posted live in Announcements!`);
+      await loadVendorData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to post product live');
+    } finally {
+      setPublishingProductId(null);
+    }
+  }
+
   async function handleCreateSpeedGroup(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedProductForGroup) return;
 
     if (!isSubscribedAndVerified && currentUser?.role === 'merchant') {
-      onNotify('error', 'Active merchant subscription and verification required to launch speed groups.');
+      onNotify('error', 'Active merchant subscription required to launch speed groups.');
       setIsSubscriptionModalOpen(true);
       return;
     }
+
+    const paymentReceiving: PaymentReceivingDetails = {
+      mode: grpPayMode,
+      accountName: grpAccountName.trim() || undefined,
+      ...(grpPayMode === 'paybill' ? { paybillNumber: grpPaybillNumber.trim(), paybillAccount: grpPaybillAccount.trim() } : {}),
+      ...(grpPayMode === 'till' ? { tillNumber: grpTillNumber.trim() } : {}),
+      ...(grpPayMode === 'pochi' ? { pochiNumber: grpPochiNumber.trim() } : {}),
+      ...(grpPayMode === 'bank_paybill' ? {
+        bankName: grpBankName.trim(),
+        bankPaybillNumber: grpBankPaybill.trim(),
+        bankAccountNumber: grpBankAccount.trim(),
+      } : {}),
+    };
 
     setSubmittingSpeedGroup(true);
     try {
@@ -257,19 +338,24 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         productId: selectedProductForGroup.id,
         size: selectedSpeedSize,
         paymentMode: selectedPaymentMode,
+        paymentDurationDays: selectedSpeedSize === 1 ? selectedDurationDays : undefined,
+        paymentReceiving,
       });
-      onNotify('success', `Created ${selectedSpeedSize}-Member Speed Group!`);
+      onNotify('success', `Created ${selectedSpeedSize}-Member Group inside "${selectedProductForGroup.title}"!`);
       triggerVisualPushAlert({
-        title: '🎉 New Group Launched!',
-        body: `${(currentUser as any)?.businessName || currentUser?.name || 'A merchant'} launched "${selectedProductForGroup.title}" Group (${selectedSpeedSize} members). Request entry now!`,
+        title: '🎉 New Group Created!',
+        body: `${(currentUser as any)?.businessName || currentUser?.name || 'A merchant'} added a ${selectedSpeedSize}-member group for "${selectedProductForGroup.title}".`,
         url: `/chama/${res.group.id}`,
         tag: `new-group-${res.group.id}`,
       });
       setIsSpeedGroupModalOpen(false);
-      loadVendorData();
-      onNavigate('group', res.group.id);
+      await loadVendorData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to create speed group');
+      if (err?.code === 'GROUP_LIMIT_REACHED') {
+        setIsSpeedGroupModalOpen(false);
+        setIsSubscriptionModalOpen(true);
+      }
     } finally {
       setSubmittingSpeedGroup(false);
     }
@@ -294,7 +380,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     }
     try {
       const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes] = await Promise.all([
-        api.getProducts({ vendorId: currentUser.id }),
+        api.getProducts({ vendorId: currentUser.id, includeDrafts: true }),
         api.getGroups(),
         api.getMerchantSubscriptionCurrent().catch(() => null),
         api.getSubscriptionTiers().catch(() => ({ tiers: [] })),
@@ -571,11 +657,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
 
         <button
-          onClick={() => {
-            setEditingProduct(null);
-            setIsEditorOpen(true);
-          }}
-          className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 flex items-center gap-1.5"
+          onClick={handleOpenCreateProduct}
+          className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 flex items-center gap-1.5 cursor-pointer"
         >
           <Tag className="w-3.5 h-3.5" />
           <span>Feature an Announcement</span>
@@ -645,6 +728,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 {products.map((p) => {
                   const itemGroups = myGroups.filter(g => g.productId === p.id);
                   const members = itemGroups.reduce((a, g) => a + g.occupiedCount, 0);
+                  const isDraft = p.publicationStatus === 'draft' || p.live === false;
+                  const maxPerProd = subscriptionInfo?.tier?.maxGroupsPerProduct ?? 5;
 
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
@@ -660,7 +745,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                               {p.title}
                             </div>
                             <div className="text-[11px] text-slate-500">
-                              {members} members in {itemGroups.length} groups
+                              {members} members in {itemGroups.length} / {maxPerProd >= 999 ? '∞' : maxPerProd} groups
                             </div>
                           </div>
                         </div>
@@ -685,29 +770,46 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                       </td>
                       <td className="py-3 px-4 font-semibold text-slate-700">{p.stockQuantity}</td>
                       <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full text-[10px]">
-                          Approved
-                        </span>
+                        {isDraft ? (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-full text-[10px]">
+                            Draft · Add Groups & Post
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full text-[10px]">
+                            Posted Live
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-6 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedProductForGroup(p);
-                              setSelectedSpeedSize(10);
-                              setSelectedPaymentMode(currentUser?.tillNumber ? 'merchant' : 'platform');
-                              setIsSpeedGroupModalOpen(true);
-                            }}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs transition-colors"
-                            title="Launch 1-10 Member Speed Group"
-                          >
-                            <Users className="w-3.5 h-3.5" />
-                            <span>Launch Speed</span>
-                          </button>
+                          {isDraft ? (
+                            <>
+                              <button
+                                onClick={() => openGroupCreatorForProduct(p)}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
+                                title="Create 1–10 member group inside this product"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                <span>Create Group</span>
+                              </button>
+                              <button
+                                onClick={() => handlePublishProduct(p)}
+                                disabled={publishingProductId === p.id}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>{publishingProductId === p.id ? 'Posting...' : 'Post'}</span>
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              Groups Read-Only
+                            </span>
+                          )}
                           <button
                             onClick={() => onNavigate('product', p.id)}
                             className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg"
-                            title="View Public Page"
+                            title="View Product Page"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -716,7 +818,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                               setEditingProduct(p);
                               setIsEditorOpen(true);
                             }}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-semibold rounded-lg text-xs"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-semibold rounded-lg text-xs cursor-pointer"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Edit Listing</span>
@@ -732,7 +834,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         )}
       </div>
 
-      {/* My Groups (Merchant Catalog) - Read-Only Oversight */}
+      {/* My Groups (Merchant Catalog) - Product Staging & Read-Only Posted Groups */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
@@ -741,11 +843,11 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 My Groups (Merchant)
               </h2>
               <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full uppercase">
-                Read-Only Oversight
+                Read-Only Oversight Once Posted
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Every product you post is an open group waiting for members. Click any group to view member enrollment and progress (Read-Only).
+              Create 1 to 10-member groups inside your draft products (within your plan limit), then click <b>Post</b>. Once posted, groups are strictly read-only.
             </p>
           </div>
           <span className="text-xs text-slate-600 font-semibold bg-slate-100 px-3 py-1.5 rounded-xl shrink-0 self-start sm:self-auto">
@@ -753,12 +855,12 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           </span>
         </div>
 
-        {myGroups.length === 0 ? (
+        {products.length === 0 && myGroups.length === 0 ? (
           <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200">
             <Users className="w-8 h-8 text-[#ff6600] mx-auto mb-2" />
             <h4 className="text-xs font-bold text-slate-800">No Groups Created Yet</h4>
             <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-1 mb-3">
-              Post a new product to automatically launch your first open group with your chosen speed (1 to 10 members).
+              Post a new product first, then create 1 to 10-member groups inside it before publishing to Announcements.
             </p>
             {!isSubscribedAndVerified ? (
               <div className="mb-4 max-w-md mx-auto p-4 bg-amber-50/90 border border-amber-200 rounded-xl text-left">
@@ -769,7 +871,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-amber-900 leading-relaxed mb-3">
-                  No posting products without subscription. Choose your 30-day merchant plan to activate your selling window and start listing products and launching groups.
+                  No posting products without subscription. Choose your 30-day or yearly merchant plan to activate your selling window.
                 </p>
                 <button
                   type="button"
@@ -789,51 +891,145 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {myGroups.map((g) => {
-              const capacity = g.size || 10;
-              const percent = Math.min(100, Math.round(((g.occupiedCount || 0) / capacity) * 100));
+          <div className="space-y-6">
+            {products.map((prod) => {
+              const prodGroups = myGroups.filter(g => g.productId === prod.id);
+              const isDraft = prod.publicationStatus === 'draft' || prod.live === false;
+              const maxPerProd = subscriptionInfo?.tier?.maxGroupsPerProduct ?? 5;
+              const limitReached = prodGroups.length >= maxPerProd;
 
               return (
-                <div
-                  key={g.id}
-                  onClick={() => onNavigate('group', g.id)}
-                  className="p-4 rounded-xl border border-slate-200 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer bg-slate-50/50 hover:bg-white flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <h3 className="font-bold text-slate-900 text-xs line-clamp-1">{g.name}</h3>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded shrink-0">
-                        {g.status}
-                      </span>
-                    </div>
-
-                    <div className="text-[11px] text-slate-600 font-medium mb-1 line-clamp-1">{g.productTitle}</div>
-                    
-                    <div className="text-[11px] text-slate-500 mb-3 flex items-center justify-between">
-                      <span>Speed: <b>{capacity} members</b></span>
-                      <span><b>KSh {g.dailyAmount?.toLocaleString() || 0}/day</b></span>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="bg-slate-200 rounded-full h-1.5 w-full mb-1.5 overflow-hidden">
-                      <div
-                        className="bg-[#ff6600] h-full rounded-full transition-all"
-                        style={{ width: `${percent}%` }}
+                <div key={prod.id} className={`rounded-2xl border p-4 sm:p-5 ${isDraft ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 mb-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img
+                        src={resolveImageUrl(prod.images[0])}
+                        alt={prod.title}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
                       />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-extrabold text-sm text-slate-900 truncate">{prod.title}</h3>
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            isDraft ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {isDraft ? 'Draft · Not Posted Yet' : 'Posted Live (Read-Only)'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5 flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900">KSh {prod.price.toLocaleString()}</span>
+                          <span>·</span>
+                          <span className={`font-bold ${limitReached ? 'text-rose-700' : 'text-emerald-800'}`}>
+                            {prodGroups.length} of {maxPerProd >= 999 ? '∞' : maxPerProd} groups used
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mb-3">
-                      <span>{g.occupiedCount} of {capacity} members</span>
-                      <span>{percent}% Filled</span>
+
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      {limitReached && (
+                        <button
+                          type="button"
+                          onClick={() => setIsSubscriptionModalOpen(true)}
+                          className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Upgrade your plan
+                        </button>
+                      )}
+                      {isDraft && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openGroupCreatorForProduct(prod)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Create Group</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={publishingProductId === prod.id}
+                            onClick={() => handlePublishProduct(prod)}
+                            className="flex items-center gap-1 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{publishingProductId === prod.id ? 'Posting...' : 'Post'}</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-[10.5px] font-semibold text-emerald-700">Read-Only View</span>
-                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1 text-[11px]">
-                      View Roster <ArrowRight className="w-3 h-3" />
-                    </span>
-                  </div>
+                  {prodGroups.length === 0 ? (
+                    <div className="p-5 text-center bg-white rounded-xl border border-dashed border-amber-300 text-xs text-slate-600">
+                      <p className="font-semibold text-slate-800 mb-1">No groups added to this product yet.</p>
+                      <p className="text-[11px] text-slate-500 mb-3">
+                        Click <b>Create Group</b> above to set up your first 1–10 member group before clicking <b>Post</b>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => openGroupCreatorForProduct(prod)}
+                        className="px-3.5 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg cursor-pointer"
+                      >
+                        + Create First Group (1–10 Members)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {prodGroups.map((g) => {
+                        const capacity = g.size || 10;
+                        const percent = Math.min(100, Math.round(((g.occupiedCount || 0) / capacity) * 100));
+
+                        return (
+                          <div
+                            key={g.id}
+                            onClick={() => onNavigate('group', g.id)}
+                            className="p-4 rounded-xl border border-slate-200 hover:border-[#ff6600] hover:shadow-xs transition-all cursor-pointer bg-slate-50/70 hover:bg-white flex flex-col justify-between"
+                          >
+                            <div>
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <h4 className="font-bold text-slate-900 text-xs line-clamp-1">{g.name}</h4>
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded shrink-0">
+                                  {g.status}
+                                </span>
+                              </div>
+
+                              <div className="text-[11px] text-slate-500 mb-2 flex items-center justify-between">
+                                <span>Size: <b>{capacity} {capacity === 1 ? 'member (Solo)' : 'members'}</b></span>
+                                <span><b>KSh {g.dailyAmount?.toLocaleString() || 0}/day</b></span>
+                              </div>
+
+                              <div className="text-[10px] text-slate-500 mb-3 flex items-center justify-between">
+                                <span>Duration: <b>{g.paymentDurationDays || g.cycleDays || 10}d</b></span>
+                                <span className="uppercase font-mono">{g.paymentReceiving?.mode || g.paymentMode}</span>
+                              </div>
+
+                              {/* Progress Bar */}
+                              <div className="bg-slate-200 rounded-full h-1.5 w-full mb-1.5 overflow-hidden">
+                                <div
+                                  className="bg-[#ff6600] h-full rounded-full transition-all"
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-500 mb-3">
+                                <span>{g.occupiedCount} of {capacity} members</span>
+                                <span>{percent}% Filled</span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                              <span className="text-[10.5px] font-semibold text-emerald-700">
+                                {isDraft ? 'Staged (Pending Post)' : 'Read-Only View'}
+                              </span>
+                              <span className="text-xs font-bold text-slate-900 flex items-center gap-1 text-[11px]">
+                                View Members & Payments <ArrowRight className="w-3 h-3" />
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -845,6 +1041,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       {isEditorOpen && (
         <VendorProductEditorModal
           product={editingProduct}
+          currentUser={currentUser}
           onClose={() => setIsEditorOpen(false)}
           onSaved={() => {
             loadVendorData();
@@ -1009,16 +1206,39 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             ) : (
               /* CASE 3: SELECTION & SUBMISSION FORM */
               <div>
-                <div className="pb-3 border-b border-slate-100 mb-4">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#ff6600] block">
-                    Buyoll Merchant 30-Day Subscriptions
-                  </span>
-                  <h3 className="text-base font-extrabold text-slate-900">
-                    Choose Your 30-Day Merchant Plan
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Each subscription grants an active 30-day selling window. Upgrade to another tier becomes available once this cycle expires.
-                  </p>
+                <div className="pb-3 border-b border-slate-100 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[#ff6600] block">
+                      Buyoll Merchant Subscriptions
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      Choose Your {subBillingPeriod === 'yearly' ? 'Yearly (365-Day)' : '30-Day'} Merchant Plan
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Subscribe every 30 days or yearly (365 days) for your catalog tier limits.
+                    </p>
+                  </div>
+
+                  <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shrink-0 self-start">
+                    <button
+                      type="button"
+                      onClick={() => setSubBillingPeriod('monthly')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                        subBillingPeriod === 'monthly' ? 'bg-white text-[#ff6600] shadow-xs' : 'text-slate-600'
+                      }`}
+                    >
+                      30-Day Plan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSubBillingPeriod('yearly')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                        subBillingPeriod === 'yearly' ? 'bg-white text-[#ff6600] shadow-xs' : 'text-slate-600'
+                      }`}
+                    >
+                      Yearly (365d)
+                    </button>
+                  </div>
                 </div>
 
                 {/* 6 Tiers Grid */}
@@ -1030,7 +1250,9 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     { id: 'tier_3500', name: 'Commercial', fee: 3500, prods: 'Up to 100 Products', grps: '30 Groups / Product', desc: 'High capacity volume sales for established stores' },
                     { id: 'tier_7500', name: 'Enterprise Scale', fee: 7500, prods: 'Unlimited Products', grps: '50 Groups / Product', desc: 'Unlimited catalog for major retail distributors' },
                     { id: 'enterprise', name: 'Custom Enterprise', fee: 15000, prods: 'Unlimited Products', grps: 'Up to 100 Groups', desc: 'Custom SLA and limits set by Buyoll Admin' },
-                  ].map((tier) => (
+                  ].map((tier) => {
+                    const displayFee = subBillingPeriod === 'yearly' ? tier.fee * 12 : tier.fee;
+                    return (
                     <div
                       key={tier.id}
                       onClick={() => {
@@ -1045,14 +1267,17 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     >
                       <div className="flex items-start justify-between mb-1">
                         <span className="font-bold text-xs text-slate-900">{tier.name}</span>
-                        <span className="text-xs font-mono font-bold text-[#ff6600]">KSh {tier.fee.toLocaleString()}</span>
+                        <span className="text-xs font-mono font-bold text-[#ff6600]">
+                          KSh {displayFee.toLocaleString()}
+                          <span className="text-[10px] font-normal text-slate-500">{subBillingPeriod === 'yearly' ? '/yr' : '/30d'}</span>
+                        </span>
                       </div>
                       <div className="text-[11px] font-semibold text-emerald-800 mb-1">
                         {tier.prods} · {tier.grps}
                       </div>
                       <p className="text-[10px] text-slate-500 leading-tight">{tier.desc}</p>
                     </div>
-                  ))}
+                  );})}
                 </div>
 
                 {/* Payment Method Switcher */}
@@ -1125,59 +1350,67 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     </button>
                   </div>
 
-                  {subPaymentMethod === 'mpesa_till' && (
-                    <div className="space-y-2 pt-2 border-t border-slate-200">
-                      <div className="text-[11px] text-emerald-900 font-medium">
-                        Pay KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} to <b>Buy Goods Till 196853</b> (Buyoll Platform) or <b>Paybill 522533</b> (Acc: code4363).
-                      </div>
-                      <div>
-                        <input
-                          type="text"
-                          value={subPaymentCode}
-                          onChange={(e) => {
-                            const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
-                            setSubPaymentCode(val);
-                            setSubCodeTouched(true);
-                            setSubModalError(null);
-                          }}
-                          onBlur={() => setSubCodeTouched(true)}
-                          placeholder="Enter 10-character M-Pesa Code (e.g. QGH7K2L9MN)"
-                          maxLength={10}
-                          className={`w-full px-3.5 py-2.5 text-xs font-mono border rounded-lg uppercase tracking-wider focus:ring-2 focus:ring-[#ff6600] outline-none ${
-                            subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode)
-                              ? 'border-rose-400 bg-rose-50/30'
-                              : 'border-slate-300 bg-white'
-                          }`}
-                        />
-                        {/* Client-side inline error mirroring the server */}
-                        {subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode) && (
-                          <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                            <span>Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN</span>
-                          </p>
+                  {(() => {
+                    const baseFee = selectedTierId === 'tier_250' ? 250 : selectedTierId === 'tier_500' ? 500 : selectedTierId === 'tier_1500' ? 1500 : selectedTierId === 'tier_3500' ? 3500 : selectedTierId === 'tier_7500' ? 7500 : 15000;
+                    const calcFee = subBillingPeriod === 'yearly' ? baseFee * 12 : baseFee;
+                    const periodLabel = subBillingPeriod === 'yearly' ? '365-day yearly' : '30-day';
+                    return (
+                      <>
+                        {subPaymentMethod === 'mpesa_till' && (
+                          <div className="space-y-2 pt-2 border-t border-slate-200">
+                            <div className="text-[11px] text-emerald-900 font-medium">
+                              Pay KSh {calcFee.toLocaleString()} ({periodLabel}) to <b>Buy Goods Till 196853</b> (Buyoll Platform) or <b>Paybill 522533</b> (Acc: code4363).
+                            </div>
+                            <div>
+                              <input
+                                type="text"
+                                value={subPaymentCode}
+                                onChange={(e) => {
+                                  const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                                  setSubPaymentCode(val);
+                                  setSubCodeTouched(true);
+                                  setSubModalError(null);
+                                }}
+                                onBlur={() => setSubCodeTouched(true)}
+                                placeholder="Enter 10-character M-Pesa Code (e.g. QGH7K2L9MN)"
+                                maxLength={10}
+                                className={`w-full px-3.5 py-2.5 text-xs font-mono border rounded-lg uppercase tracking-wider focus:ring-2 focus:ring-[#ff6600] outline-none ${
+                                  subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode)
+                                    ? 'border-rose-400 bg-rose-50/30'
+                                    : 'border-slate-300 bg-white'
+                                }`}
+                              />
+                              {subCodeTouched && subPaymentCode.length > 0 && !/^[A-Z0-9]{10}$/.test(subPaymentCode) && (
+                                <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN</span>
+                                </p>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              Admin verifies your code against M-Pesa statements and activates your store for {subBillingPeriod === 'yearly' ? '365 days' : '30 days'}.
+                            </p>
+                          </div>
                         )}
-                      </div>
-                      <p className="text-[10px] text-slate-500">
-                        Admin verifies your code against M-Pesa statements and activates your store for 30 days.
-                      </p>
-                    </div>
-                  )}
 
-                  {subPaymentMethod === 'wallet_credit' && (
-                    <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
-                      <p className="text-[11px] text-emerald-900 font-medium">
-                        KSh {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} will be deducted from your Merchant Wallet and your 30-day plan activated immediately!
-                      </p>
-                    </div>
-                  )}
+                        {subPaymentMethod === 'wallet_credit' && (
+                          <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                            <p className="text-[11px] text-emerald-900 font-medium">
+                              KSh {calcFee.toLocaleString()} will be deducted from your Merchant Wallet and your {periodLabel} plan activated immediately!
+                            </p>
+                          </div>
+                        )}
 
-                  {subPaymentMethod === 'wallet_coins' && (
-                    <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
-                      <p className="text-[11px] text-amber-900 font-medium">
-                        {selectedTierId === 'tier_250' ? '250' : selectedTierId === 'tier_500' ? '500' : selectedTierId === 'tier_1500' ? '1,500' : selectedTierId === 'tier_3500' ? '3,500' : selectedTierId === 'tier_7500' ? '7,500' : '15,000'} coins will be deducted from your wallet and your 30-day plan activated immediately!
-                      </p>
-                    </div>
-                  )}
+                        {subPaymentMethod === 'wallet_coins' && (
+                          <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
+                            <p className="text-[11px] text-amber-900 font-medium">
+                              {calcFee.toLocaleString()} coins will be deducted from your wallet and your {periodLabel} plan activated immediately!
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Inline Error Display (Never Silently Fail) */}
@@ -1397,39 +1630,76 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       )}
 
       {/* PROMPT 4: 10-SPEED GROUP CREATION MODAL */}
-      {isSpeedGroupModalOpen && selectedProductForGroup && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+      {isSpeedGroupModalOpen && selectedProductForGroup && (() => {
+        const usedGroupsCount = myGroups.filter(g => g.productId === selectedProductForGroup.id).length;
+        const maxPerProd = subscriptionInfo?.tier?.maxGroupsPerProduct ?? 5;
+        const limitReached = usedGroupsCount >= maxPerProd;
+        const soloDaily = Math.ceil(selectedProductForGroup.price / Math.max(1, selectedDurationDays));
+
+        return (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsSpeedGroupModalOpen(false)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
-                <Users className="w-4 h-4" />
+            <div className="flex items-center justify-between gap-2 mb-2 pr-8">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Create Group Inside Product
+                </h3>
               </div>
-              <h3 className="text-base font-extrabold text-slate-900">
-                Launch Speed Group
-              </h3>
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${limitReached ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                {usedGroupsCount} of {maxPerProd >= 999 ? '∞' : maxPerProd} groups used
+              </span>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Open a new Group for <b>{selectedProductForGroup.title}</b> (KSh {selectedProductForGroup.price.toLocaleString()}) with 1 to 10 member speed options.
+              Add a new Group for <b>{selectedProductForGroup.title}</b> (KSh {selectedProductForGroup.price.toLocaleString()}) with 1 to 10 members.
             </p>
 
+            {limitReached ? (
+              <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-xs space-y-3">
+                <p className="font-bold text-amber-950">
+                  You have reached your subscription limit ({usedGroupsCount} of {maxPerProd} groups used for this product).
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSpeedGroupModalOpen(false)}
+                    className="px-4 py-2 bg-white border border-slate-200 rounded-lg font-semibold text-slate-700"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSpeedGroupModalOpen(false);
+                      setIsSubscriptionModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg cursor-pointer"
+                  >
+                    Upgrade your plan
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleCreateSpeedGroup} className="space-y-4">
               {/* 10 Speed Selection Options */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Choose Group Speed (1 to 10 Members):
+                  Choose Group Size (1 to 10 Members):
                 </label>
                 <div className="grid grid-cols-5 gap-2">
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sz) => {
                     const isSolo = sz === 1;
                     const daily = isSolo
-                      ? Math.ceil(selectedProductForGroup.price / 90)
+                      ? soloDaily
                       : Math.ceil(selectedProductForGroup.price / sz / 10);
 
                     return (
@@ -1437,7 +1707,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                         key={sz}
                         type="button"
                         onClick={() => setSelectedSpeedSize(sz)}
-                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                           selectedSpeedSize === sz
                             ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600] font-black ring-2 ring-[#ff6600]/30'
                             : 'border-slate-200 hover:border-slate-300 text-slate-700 font-bold'
@@ -1453,44 +1723,141 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 </div>
               </div>
 
-              {/* Payment Mode Selection: Option A (Merchant Till) vs Option B (Platform Till) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Choose Payment Collection Mode:
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div
-                    onClick={() => setSelectedPaymentMode('merchant')}
-                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                      selectedPaymentMode === 'merchant'
-                        ? 'border-[#ff6600] bg-emerald-50/50 shadow-xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-slate-900 mb-1">
-                      Option A: Merchant Direct Till
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-normal">
-                      Members pay directly to your store Till ({currentUser?.tillNumber || 'Merchant Till'}). No platform escrow.
-                    </p>
+              {/* 1-Member Payment Duration */}
+              {selectedSpeedSize === 1 && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-900">
+                      1-Member Payment Duration (Days)
+                    </label>
+                    <span className="text-xs font-mono font-bold text-[#ff6600]">
+                      KSh {soloDaily.toLocaleString()} / day
+                    </span>
                   </div>
-
-                  <div
-                    onClick={() => setSelectedPaymentMode('platform')}
-                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                      selectedPaymentMode === 'platform'
-                        ? 'border-[#ff6600] bg-emerald-50/50 shadow-xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-slate-900 mb-1">
-                      Option B: Buyoll Platform Till
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-normal">
-                      Members pay via Buyoll Platform Till (196853) / Paybill (522533). Released upon item collection.
-                    </p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {[30, 60, 90, 120, 150, 180].map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setSelectedDurationDays(days)}
+                        className={`py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer ${
+                          selectedDurationDays === days
+                            ? 'bg-[#ff6600] text-white border-[#ff6600]'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {days}d
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] text-slate-600">Or custom days:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={selectedDurationDays}
+                      onChange={(e) => setSelectedDurationDays(Math.max(1, Math.min(365, Number(e.target.value) || 30)))}
+                      className="w-24 px-2.5 py-1 text-xs font-mono border border-slate-300 rounded-lg bg-white"
+                    />
                   </div>
                 </div>
+              )}
+
+              {/* Payment Receiving Mode Prefill */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800">
+                    Payment Receiving Method (Paybill / Till / Pochi / Bank Paybill)
+                  </label>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'paybill', label: 'Paybill' },
+                    { id: 'till', label: 'Till' },
+                    { id: 'pochi', label: 'Pochi' },
+                    { id: 'bank_paybill', label: 'Bank Paybill' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setGrpPayMode(m.id as PaymentReceivingMode)}
+                      className={`py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer ${
+                        grpPayMode === m.id ? 'border-[#ff6600] bg-white text-[#ff6600]' : 'border-slate-200 bg-white/60 text-slate-600'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {grpPayMode === 'paybill' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={grpPaybillNumber}
+                      onChange={(e) => setGrpPaybillNumber(e.target.value)}
+                      placeholder="Paybill No."
+                      className="px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={grpPaybillAccount}
+                      onChange={(e) => setGrpPaybillAccount(e.target.value)}
+                      placeholder="Account No."
+                      className="px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                    />
+                  </div>
+                )}
+                {grpPayMode === 'till' && (
+                  <input
+                    type="text"
+                    required
+                    value={grpTillNumber}
+                    onChange={(e) => setGrpTillNumber(e.target.value)}
+                    placeholder="Till Number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                  />
+                )}
+                {grpPayMode === 'pochi' && (
+                  <input
+                    type="text"
+                    required
+                    value={grpPochiNumber}
+                    onChange={(e) => setGrpPochiNumber(e.target.value)}
+                    placeholder="Pochi Phone Number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                  />
+                )}
+                {grpPayMode === 'bank_paybill' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={grpBankName}
+                      onChange={(e) => setGrpBankName(e.target.value)}
+                      placeholder="Bank Name"
+                      className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={grpBankPaybill}
+                      onChange={(e) => setGrpBankPaybill(e.target.value)}
+                      placeholder="Bank Paybill"
+                      className="px-2 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={grpBankAccount}
+                      onChange={(e) => setGrpBankAccount(e.target.value)}
+                      placeholder="Account No."
+                      className="px-2 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1504,15 +1871,17 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingSpeedGroup}
-                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
-                  {submittingSpeedGroup ? 'Opening Group...' : `Launch ${selectedSpeedSize}-Member Speed Group`}
+                  {submittingSpeedGroup ? 'Creating Group...' : `Create ${selectedSpeedSize}-Member Group`}
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

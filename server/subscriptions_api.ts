@@ -10,6 +10,7 @@ export const SUBSCRIPTION_PLANS: Array<{
   key: string;
   name: string;
   monthlyFee: number;
+  yearlyFee: number;
   maxProducts: number;
   maxGroupsPerProduct: number;
   description: string;
@@ -20,56 +21,62 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'micro',
     name: 'Micro-Merchant',
     monthlyFee: 250,
+    yearlyFee: 3000,
     maxProducts: 2,
     maxGroupsPerProduct: 2,
     description: 'Caters to very small businesses and solo makers.',
-    features: ['1 to 2 products max', '2 groups per product', '30-day active window'],
+    features: ['1 to 2 products max', '2 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_500',
     key: 'growing',
     name: 'Growing Merchant',
     monthlyFee: 500,
+    yearlyFee: 6000,
     maxProducts: 10,
     maxGroupsPerProduct: 5,
     description: 'Ideal for growing neighborhood retailers.',
-    features: ['Up to 10 products', '5 groups per product', '30-day active window'],
+    features: ['Up to 10 products', '5 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_1500',
     key: 'pro',
     name: 'Pro Merchant',
     monthlyFee: 1500,
+    yearlyFee: 18000,
     maxProducts: 50,
     maxGroupsPerProduct: 10,
     description: 'For active retail businesses and popular shops.',
-    features: ['Up to 50 products', '10 groups per product', '30-day active window'],
+    features: ['Up to 50 products', '10 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_3500',
     key: 'commercial',
     name: 'Commercial',
     monthlyFee: 3500,
+    yearlyFee: 42000,
     maxProducts: 100,
     maxGroupsPerProduct: 30,
     description: 'High capacity volume sales for established stores.',
-    features: ['Up to 100 products', '30 groups per product', '30-day active window'],
+    features: ['Up to 100 products', '30 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'tier_7500',
     key: 'enterprise',
     name: 'Enterprise Scale',
     monthlyFee: 7500,
+    yearlyFee: 90000,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 50,
     description: 'Unlimited catalog for major retail distributors.',
-    features: ['Unlimited products', '50 groups per product', '30-day active window'],
+    features: ['Unlimited products', '50 groups per product', '30-day or yearly active window'],
   },
   {
     id: 'enterprise',
     key: 'custom',
     name: 'Custom Enterprise',
     monthlyFee: 15000,
+    yearlyFee: 180000,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 100,
     description: 'Custom SLA and limits set by Buyoll Admin.',
@@ -174,8 +181,12 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
     });
   }
 
-  const { planId, planKey, paymentMethod, mpesaCode, notes } = req.body || {};
+  const { planId, planKey, paymentMethod, mpesaCode, notes, billingPeriod } = req.body || {};
   const targetPlan = resolvePlan(planId || planKey);
+  const normalizedPeriod: 'monthly' | 'yearly' =
+    String(billingPeriod || 'monthly').toLowerCase().trim() === 'yearly' ? 'yearly' : 'monthly';
+  const durationDays = normalizedPeriod === 'yearly' ? 365 : 30;
+  const durationLabel = normalizedPeriod === 'yearly' ? '1-year (365 days)' : '30-day';
 
   if (!targetPlan) {
     return res.status(422).json({
@@ -270,7 +281,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         }
       }
 
-      const amountExpected = targetPlan.monthlyFee; // DERIVED SERVER-SIDE FROM PLAN CATALOG
+      const amountExpected = normalizedPeriod === 'yearly' ? targetPlan.yearlyFee : targetPlan.monthlyFee; // DERIVED SERVER-SIDE FROM PLAN CATALOG
 
       // METHOD A: M-PESA TILL / PAYBILL (Creates Pending Request for Admin Review)
       if (normalizedMethod === 'mpesa') {
@@ -284,6 +295,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           planId: targetPlan.id,
           planKey: targetPlan.key,
           planName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amountExpected,
           paymentMethod: 'mpesa',
           mpesaCode: cleanedCode,
@@ -299,6 +311,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           merchantId: user.id,
           tierId: targetPlan.id,
           tierName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amount: amountExpected,
           paymentMethod: 'mpesa_till_paybill',
           paymentCode: cleanedCode,
@@ -397,7 +410,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           createdAt: now,
         });
 
-        const expiresAt = now + 30 * 86400000;
+        const expiresAt = now + durationDays * 86400000;
         merchantUser.merchantSubscriptionStatus = 'active';
         merchantUser.merchantSubscriptionPlan = targetPlan.id as any;
         merchantUser.merchantSubscriptionExpiresAt = expiresAt;
@@ -414,6 +427,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           planId: targetPlan.id,
           planKey: targetPlan.key,
           planName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amountExpected,
           paymentMethod: 'wallet',
           status: 'approved',
@@ -429,6 +443,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           merchantId: user.id,
           tierId: targetPlan.id,
           tierName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amount: amountExpected,
           paymentMethod: 'wallet_credit',
           status: 'active',
@@ -440,8 +455,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         db.userNotifications.unshift({
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: user.id,
-          title: `🎉 30-Day Merchant Plan Active: ${targetPlan.name}`,
-          message: `KSh ${amountExpected.toLocaleString()} paid from Merchant Wallet. Store catalog limits active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
+          title: `🎉 ${normalizedPeriod === 'yearly' ? 'Yearly' : '30-Day'} Merchant Plan Active: ${targetPlan.name}`,
+          message: `KSh ${amountExpected.toLocaleString()} paid from Merchant Wallet. Store catalog limits active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}.`,
           type: 'payment',
           read: false,
           timestamp: now,
@@ -452,12 +467,12 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           user.id,
           user.name,
           'SUBSCRIPTION_WALLET_ACTIVATED',
-          `Instantly activated ${targetPlan.name} via Merchant Wallet`
+          `Instantly activated ${targetPlan.name} (${normalizedPeriod}) via Merchant Wallet`
         );
 
         return {
           request: newReq,
-          message: `Subscription activated immediately! Your ${targetPlan.name} is active for 30 days.`,
+          message: `Subscription activated immediately! Your ${targetPlan.name} is active for ${durationLabel}.`,
         };
       }
 
@@ -490,7 +505,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           timestamp: now,
         });
 
-        const expiresAt = now + 30 * 86400000;
+        const expiresAt = now + durationDays * 86400000;
         merchantUser.merchantSubscriptionStatus = 'active';
         merchantUser.merchantSubscriptionPlan = targetPlan.id as any;
         merchantUser.merchantSubscriptionExpiresAt = expiresAt;
@@ -507,6 +522,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           planId: targetPlan.id,
           planKey: targetPlan.key,
           planName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amountExpected,
           paymentMethod: 'coins',
           status: 'approved',
@@ -522,6 +538,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           merchantId: user.id,
           tierId: targetPlan.id,
           tierName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
           amount: amountExpected,
           paymentMethod: 'wallet_coins',
           status: 'active',
@@ -533,8 +550,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         db.userNotifications.unshift({
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: user.id,
-          title: `🎉 30-Day Merchant Plan Active: ${targetPlan.name}`,
-          message: `${coinsRequired} coins paid. Store catalog limits active for 30 days until ${new Date(expiresAt).toLocaleDateString()}.`,
+          title: `🎉 ${normalizedPeriod === 'yearly' ? 'Yearly' : '30-Day'} Merchant Plan Active: ${targetPlan.name}`,
+          message: `${coinsRequired} coins paid. Store catalog limits active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}.`,
           type: 'payment',
           read: false,
           timestamp: now,
@@ -545,12 +562,12 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           user.id,
           user.name,
           'SUBSCRIPTION_COINS_ACTIVATED',
-          `Instantly activated ${targetPlan.name} via Applaud Coins`
+          `Instantly activated ${targetPlan.name} (${normalizedPeriod}) via Applaud Coins`
         );
 
         return {
           request: newReq,
-          message: `Subscription activated immediately! Your ${targetPlan.name} is active for 30 days.`,
+          message: `Subscription activated immediately! Your ${targetPlan.name} is active for ${durationLabel}.`,
         };
       }
 
@@ -642,6 +659,7 @@ subscriptionsRouter.get('/admin/subscriptions/requests', async (req: Request, re
         planKey: plan?.key || 'custom',
         planName: ms.tierName || plan?.name || 'Merchant Plan',
         amountExpected: ms.amount,
+        billingPeriod: ms.billingPeriod || 'monthly',
         paymentMethod: ms.paymentMethod === 'wallet_credit' ? 'wallet' : ms.paymentMethod === 'wallet_coins' ? 'coins' : 'mpesa',
         mpesaCode: ms.paymentCode,
         status: ms.status === 'active' ? 'approved' : ms.status === 'declined' ? 'rejected' : 'pending',
@@ -700,7 +718,10 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
       }
 
       const now = Date.now();
-      const expiresAt = now + 30 * 86400000;
+      const billingPeriod: 'monthly' | 'yearly' =
+        targetReq?.billingPeriod === 'yearly' || targetSub?.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+      const durationDays = billingPeriod === 'yearly' ? 365 : 30;
+      const expiresAt = now + durationDays * 86400000;
       const merchantId = targetReq?.merchantId || targetSub?.merchantId!;
       const merchantUser = db.users.find((u) => u.id === merchantId);
 
@@ -725,6 +746,7 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
       // Update SubscriptionRequest record
       if (targetReq) {
         targetReq.status = 'approved';
+        targetReq.billingPeriod = billingPeriod;
         targetReq.adminId = user.id;
         targetReq.reviewedAt = now;
         targetReq.updatedAt = now;
@@ -736,6 +758,7 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
           shopName: merchantUser?.shopName || 'Store',
           planId,
           planName: plan?.name || targetSub!.tierName,
+          billingPeriod,
           amountExpected: targetSub!.amount,
           paymentMethod: 'mpesa',
           mpesaCode,
@@ -751,6 +774,7 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
       // Update merchantSubscriptions record
       if (targetSub) {
         targetSub.status = 'active';
+        targetSub.billingPeriod = billingPeriod;
         targetSub.startDate = now;
         targetSub.expiresAt = expiresAt;
       } else {
@@ -759,6 +783,7 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
           merchantId,
           tierId: planId,
           tierName: plan?.name || 'Merchant Plan',
+          billingPeriod,
           amount: targetReq.amountExpected,
           paymentMethod: targetReq.paymentMethod === 'wallet' ? 'wallet_credit' : targetReq.paymentMethod === 'coins' ? 'wallet_coins' : 'mpesa_till_paybill',
           paymentCode: mpesaCode,
@@ -792,8 +817,8 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         db.userNotifications.unshift({
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: merchantUser.id,
-          title: `🎉 30-Day Merchant Plan Approved: ${plan?.name || 'Store'}`,
-          message: `Your payment code ${mpesaCode || ''} has been approved by Buyoll Admin! Your 30-day selling window and catalog limits are active until ${new Date(expiresAt).toLocaleDateString()}.`,
+          title: `🎉 ${billingPeriod === 'yearly' ? 'Yearly' : '30-Day'} Merchant Plan Approved: ${plan?.name || 'Store'}`,
+          message: `Your payment code ${mpesaCode || ''} has been approved by Buyoll Admin! Your ${billingPeriod === 'yearly' ? '1-year (365 days)' : '30-day'} selling window and catalog limits are active until ${new Date(expiresAt).toLocaleDateString()}.`,
           type: 'payment',
           read: false,
           timestamp: now,
@@ -805,7 +830,7 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         user.id,
         user.name,
         'SUBSCRIPTION_REQUEST_APPROVED',
-        `Approved subscription request ${reqId} for merchant #${merchantId} (${plan?.name || planId})`
+        `Approved ${billingPeriod} subscription request ${reqId} for merchant #${merchantId} (${plan?.name || planId})`
       );
 
       return {
@@ -815,12 +840,13 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
           merchantId,
           tierId: planId,
           tierName: plan?.name || 'Merchant Plan',
+          billingPeriod,
           status: 'active',
           startDate: now,
           expiresAt,
           activeUntil: expiresAt,
         },
-        message: `Subscription approved for ${merchantUser?.name || 'merchant'}! 30-day selling window is active.`,
+        message: `Subscription approved for ${merchantUser?.name || 'merchant'}! ${billingPeriod === 'yearly' ? '365-day yearly' : '30-day'} selling window is active.`,
       };
     });
 

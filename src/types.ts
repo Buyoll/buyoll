@@ -25,6 +25,24 @@ export interface MerchantReview {
   createdAt: number;
 }
 
+export type BillingPeriod = 'monthly' | 'yearly';
+
+export type PaymentReceivingMode = 'paybill' | 'till' | 'pochi' | 'bank_paybill';
+
+export interface PaymentReceivingDetails {
+  mode: PaymentReceivingMode;
+  paybillNumber?: string;
+  accountNumber?: string;
+  paybillAccount?: string;
+  tillNumber?: string;
+  pochiPhone?: string;
+  pochiNumber?: string;
+  bankName?: string;
+  bankPaybillNumber?: string;
+  bankAccountNumber?: string;
+  accountName?: string;
+}
+
 export interface User {
   id: number;
   name: string;
@@ -58,6 +76,7 @@ export interface User {
   reviews?: MerchantReview[];
   tillNumber?: string; // e.g. merchant M-Pesa till
   paybillNumber?: string;
+  paymentReceiving?: PaymentReceivingDetails;
   credit: number; // in KSh
   nonWithdrawableBalance?: number; // in KSh
   coins: number;
@@ -114,6 +133,9 @@ export interface Product {
   vendorName: string;
   isFeatured?: boolean;
   live: boolean;
+  publicationStatus?: 'draft' | 'posted';
+  publishedAt?: number | null;
+  paymentReceiving?: PaymentReceivingDetails;
   moderationStatus: 'approved' | 'pending' | 'returned';
   moderationNote?: string;
   speedOptions: SpeedOption[];
@@ -155,6 +177,7 @@ export interface GroupSlot {
   dailyPaymentRecords?: DailyPaymentRecord[];
   lastPaymentDate?: number;
   joinedAt?: number;
+  referredByCode?: string | null;
   isDefaulter?: boolean;
   // Chama Priority and Payout Logic Engine
   priorityLevel?: 'Best' | 'Better' | 'Good';
@@ -240,12 +263,20 @@ export interface ChamaGroup {
   size: number;
   totalSlots?: number;
   vendorId?: number;
-  adminId: number; // initial creator and moderator
+  adminId: number; // initial creator or primary moderator
+  moderatorId?: number | null; // assigned automatically to first joining member
   moderators: number[]; // array of userIds
   status: 'active' | 'full' | 'completed' | 'cancelled';
   inviteCode: string;
   dailyAmount: number;
   cycleDays: number;
+  paymentDurationDays?: number;
+  payoutOption?: 'turn_by_turn' | 'end_together';
+  payoutOptionSetBy?: number | null;
+  payoutAgreedUserIds?: number[];
+  payoutLocked?: boolean;
+  payoutLockedAt?: number;
+  paymentReceiving?: PaymentReceivingDetails;
   slots: GroupSlot[];
   occupiedCount: number;
   availableCount: number;
@@ -598,6 +629,7 @@ export interface MerchantSubscriptionTier {
   id: 'tier_250' | 'tier_500' | 'tier_1500' | 'tier_3500' | 'tier_7500' | 'enterprise';
   name: string;
   monthlyFee: number;
+  yearlyFee?: number;
   maxProducts: number; // -1 for unlimited
   maxGroupsPerProduct: number;
   description: string;
@@ -639,6 +671,7 @@ export interface MerchantSubscriptionRecord {
   merchantId: number;
   tierId: string;
   tierName: string;
+  billingPeriod?: BillingPeriod;
   amount: number;
   paymentMethod: 'wallet_coins' | 'wallet_credit' | 'mpesa_till_paybill';
   paymentCode?: string;
@@ -659,6 +692,7 @@ export interface SubscriptionRequest {
   planId: string;
   planKey?: string;
   planName: string;
+  billingPeriod?: BillingPeriod;
   amountExpected: number;
   paymentMethod: 'mpesa' | 'wallet' | 'coins';
   mpesaCode?: string;

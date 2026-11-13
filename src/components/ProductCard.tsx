@@ -1,5 +1,5 @@
 import React from 'react';
-import { Product } from '../types.ts';
+import { Product, ChamaGroup } from '../types.ts';
 import { resolveImageUrl } from '../api.ts';
 import { Users, CheckCircle2, Gift, Sparkles, Flame, Star } from 'lucide-react';
 
@@ -7,6 +7,8 @@ interface ProductCardProps {
   product: Product;
   onSelect: (productId: number) => void;
   activeGroupCount?: number;
+  openGroups?: ChamaGroup[];
+  onJoinGroup?: (product: Product) => void;
   onAskAI?: (product: Product) => void;
 }
 
@@ -14,6 +16,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   product,
   onSelect,
   activeGroupCount = 0,
+  openGroups,
+  onJoinGroup,
   onAskAI,
 }) => {
   // Lowest daily amount across configured speed options
@@ -22,6 +26,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     : Math.ceil(product.price / 10 / 10);
 
   const mainImage = resolveImageUrl(product.images?.[0]);
+
+  const groupList = openGroups || [];
+  const totalOpenGroups = groupList.length > 0 ? groupList.length : activeGroupCount;
+  const totalOpenSlots = groupList.reduce(
+    (sum, g) => sum + g.slots.filter(s => s.status === 'open' || s.status === 'replacement_eligible').length,
+    0
+  );
 
   // Clean vendor name: replace old "Buyoll Direct Official" or "Alibaird Direct Official"
   let cleanVendor = (product.vendorName || 'Buyoll Verified')
@@ -116,9 +127,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </div>
 
           {/* Daily Group rate */}
-          <div className="text-xs text-[#ff6600] font-semibold mb-3">
+          <div className="text-xs text-[#ff6600] font-semibold mb-2">
             From KSh {minDaily.toLocaleString()} / day in Group
           </div>
+
+          {totalOpenGroups > 0 && (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 mb-2 bg-slate-100 text-slate-700 rounded text-[10px] font-semibold">
+              <Users className="w-3 h-3 text-[#ff6600]" />
+              <span>
+                {totalOpenGroups} group{totalOpenGroups !== 1 ? 's' : ''}
+                {totalOpenSlots > 0 ? ` · ${totalOpenSlots} open slot${totalOpenSlots !== 1 ? 's' : ''}` : ''}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Card Footer */}
@@ -141,7 +162,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onSelect(product.id);
+              if (onJoinGroup) {
+                onJoinGroup(product);
+              } else {
+                onSelect(product.id);
+              }
             }}
             className="ml-auto px-3 py-1.5 bg-slate-900 group-hover:bg-[#FF6A00] text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
           >

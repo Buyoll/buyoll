@@ -320,8 +320,16 @@ export const Header: React.FC<HeaderProps> = ({
                     aria-expanded={isUserMenuOpen}
                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] transition-colors cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   >
-                    <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#ff6600] text-white grid place-items-center font-bold text-xs sm:text-[13px] shrink-0 shadow-xs">
-                      {initials}
+                    <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#ff6600] text-white grid place-items-center font-bold text-xs sm:text-[13px] shrink-0 shadow-xs overflow-hidden">
+                      {currentUser.avatar || currentUser.avatarUrl ? (
+                        <img
+                          src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
+                          alt={currentUser.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        initials
+                      )}
                     </span>
                     <span className="hidden md:block text-left leading-[1.2]">
                       <b className="block text-[var(--text)] text-[13px] font-semibold max-w-[120px] truncate">
@@ -702,8 +710,16 @@ export const Header: React.FC<HeaderProps> = ({
                       : 'text-[var(--text)] hover:bg-[var(--field)]'
                   }`}
                 >
-                  <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[10px] font-bold">
-                    {initials}
+                  <span className="w-6 h-6 rounded-full bg-[#ff6600] text-white flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0">
+                    {currentUser.avatar || currentUser.avatarUrl ? (
+                      <img
+                        src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
+                        alt={currentUser.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      initials
+                    )}
                   </span>
                   <span>My Profile ({currentUser.platformId || activeRole})</span>
                 </button>

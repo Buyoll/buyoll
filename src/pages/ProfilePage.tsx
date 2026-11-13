@@ -31,6 +31,9 @@ import {
   Check,
   Landmark,
   Copy,
+  Camera,
+  RotateCcw,
+  Upload,
 } from 'lucide-react';
 import { getUserActiveRole, getUserRoles, getRoleHomeRoute } from '../utils/rbac.ts';
 
@@ -40,7 +43,7 @@ interface ProfilePageProps {
   onNavigate: (view: string, arg?: any) => void;
   onOpenAuth: () => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
-  onUserUpdate?: () => void;
+  onUserUpdate?: (user?: User) => void;
 }
 
 type ProfileTab =
@@ -82,6 +85,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [editEmail, setEditEmail] = useState(currentUser?.email || '');
   const [editAvatarUrl, setEditAvatarUrl] = useState(currentUser?.avatar || currentUser?.avatarUrl || '');
   const [savingPersonal, setSavingPersonal] = useState(false);
+
+  // Camera photo update modal state & refs
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [capturedPhotoDataUrl, setCapturedPhotoDataUrl] = useState('');
+  const [savingCameraPhoto, setSavingCameraPhoto] = useState(false);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Address modal state
   const [showAddressModal, setShowAddressModal] = useState(false);
@@ -185,19 +198,157 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     e.preventDefault();
     setSavingPersonal(true);
     try {
-      await api.updateUserProfile({
+      const res = await api.updateUserProfile({
         name: editName.trim(),
         phone: editPhone.trim(),
         email: editEmail.trim(),
         avatarUrl: editAvatarUrl.trim(),
       });
       onNotify('success', 'Profile personal details updated successfully.');
-      onUserUpdate?.();
+      onUserUpdate?.(res?.user);
       loadProfileData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to update personal details');
     } finally {
       setSavingPersonal(false);
+    }
+  }
+
+  function stopCameraStream() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
+  }
+
+  async function startCameraStream() {
+    stopCameraStream();
+    setCameraError('');
+    setCapturedPhotoDataUrl('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('Live camera access is unavailable on this browser. Please use "Choose Photo from Device" below.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setCameraReady(true);
+    } catch (err: any) {
+      setCameraError(err?.message || 'Camera permission denied or device not found. You can still upload a photo from your device below.');
+    }
+  }
+
+  function openCameraModal() {
+    setShowCameraModal(true);
+    setCapturedPhotoDataUrl('');
+    setCameraError('');
+  }
+
+  function closeCameraModal() {
+    stopCameraStream();
+    setShowCameraModal(false);
+    setCapturedPhotoDataUrl('');
+    setCameraError('');
+  }
+
+  useEffect(() => {
+    if (showCameraModal && !capturedPhotoDataUrl) {
+      startCameraStream();
+    }
+    return () => {
+      if (!showCameraModal) return;
+      stopCameraStream();
+    };
+  }, [showCameraModal]);
+
+  useEffect(() => {
+    return () => {
+      stopCameraStream();
+    };
+  }, []);
+
+  function handleCaptureSnapshot() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      onNotify('error', 'Camera feed is still initializing. Please wait a moment.');
+      return;
+    }
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    const targetSize = Math.min(360, size);
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, targetSize, targetSize);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+    setCapturedPhotoDataUrl(dataUrl);
+    stopCameraStream();
+  }
+
+  function handleDevicePhotoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onNotify('error', 'Please select a valid image file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        const targetSize = Math.min(360, size);
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, targetSize, targetSize);
+          setCapturedPhotoDataUrl(canvas.toDataURL('image/jpeg', 0.82));
+          stopCameraStream();
+        }
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function handleSaveCapturedPhoto() {
+    if (!capturedPhotoDataUrl) return;
+    setSavingCameraPhoto(true);
+    try {
+      const res = await api.updateUserProfile({
+        name: (editName || currentUser?.name || '').trim(),
+        phone: (editPhone || currentUser?.phone || '').trim(),
+        email: (editEmail || currentUser?.email || '').trim(),
+        avatarUrl: capturedPhotoDataUrl,
+      });
+      setEditAvatarUrl(capturedPhotoDataUrl);
+      onUserUpdate?.(res?.user);
+      onNotify('success', 'Profile photo updated from camera!');
+      closeCameraModal();
+      loadProfileData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to save profile photo');
+    } finally {
+      setSavingCameraPhoto(false);
     }
   }
 
@@ -337,16 +488,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       {/* Top Banner / User Identification Bar */}
       <div className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl p-5 sm:p-6 mb-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-[#ff6600] text-white font-black text-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
-            {currentUser.avatar || currentUser.avatarUrl ? (
-              <img
-                src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
-                alt={currentUser.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              currentUser.name.slice(0, 2).toUpperCase()
-            )}
+          <div className="relative shrink-0">
+            <div className="w-16 h-16 rounded-2xl bg-[#ff6600] text-white font-black text-xl flex items-center justify-center shadow-sm overflow-hidden border-2 border-[#ff6600]/20">
+              {currentUser.avatar || currentUser.avatarUrl ? (
+                <img
+                  src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
+                  alt={currentUser.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                currentUser.name.slice(0, 2).toUpperCase()
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={openCameraModal}
+              title="Take or update profile photo with camera"
+              aria-label="Take or update profile photo with camera"
+              className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-slate-900 hover:bg-[#ff6600] text-white flex items-center justify-center shadow-md border-2 border-white dark:border-[#111A17] transition-colors cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -364,25 +526,43 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               )}
             </div>
 
-            {/* Unique Permanent Customer Platform ID */}
-            {currentUser.platformId && (
-              <div className="mt-2 flex items-center gap-2 bg-slate-50 dark:bg-[#1A2622] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#24312C] text-xs font-mono text-slate-700 dark:text-slate-300 w-fit">
-                <span className="font-semibold text-slate-500">Customer ID:</span>
-                <span className="font-bold text-[#ff6600] dark:text-[#ff8000]">{currentUser.platformId}</span>
-                <span className="text-[10.5px] text-slate-400 font-sans hidden sm:inline">(Permanent Platform ID)</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(currentUser.platformId || '');
-                    onNotify('success', 'Permanent Customer ID copied to clipboard!');
-                  }}
-                  title="Copy Customer ID"
-                  className="p-1 text-slate-400 hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors ml-1 cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+            {/* Unique Permanent Customer Platform ID & Friend Referral Code */}
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              {currentUser.platformId && (
+                <div className="flex items-center gap-2 bg-slate-50 dark:bg-[#1A2622] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#24312C] text-xs font-mono text-slate-700 dark:text-slate-300 w-fit">
+                  <span className="font-semibold text-slate-500">Customer ID:</span>
+                  <span className="font-bold text-[#ff6600] dark:text-[#ff8000]">{currentUser.platformId}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentUser.platformId || '');
+                      onNotify('success', 'Permanent Customer ID copied to clipboard!');
+                    }}
+                    title="Copy Customer ID"
+                    className="p-1 text-slate-400 hover:text-[#ff6600] dark:hover:text-[#ff8000] transition-colors ml-1 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              {currentUser.referralCode && (
+                <div className="flex items-center gap-2 bg-[#fff4ec] dark:bg-[#2a1608] px-2.5 py-1.5 rounded-lg border border-[#ff6600]/30 text-xs font-mono text-slate-800 dark:text-orange-100 w-fit">
+                  <span className="font-semibold text-slate-600 dark:text-orange-200/80 font-sans text-[11px]">Friend Referral Code:</span>
+                  <span className="font-black text-[#ff6600] dark:text-[#ff8000]">{currentUser.referralCode}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentUser.referralCode || '');
+                      onNotify('success', 'Friend referral code copied! Share it so friends can join Buyoll groups.');
+                    }}
+                    title="Copy Friend Referral Code"
+                    className="p-1 text-[#ff6600] hover:text-[#ff8000] transition-colors cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Active Role Switcher: Only shown if user holds more than one role */}
             {userRoles.length > 1 && (
@@ -1486,14 +1666,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Profile Photo URL
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
+                    Profile Photo
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3 mb-3 p-3 rounded-xl bg-slate-50 dark:bg-[#16221E] border border-slate-200 dark:border-[#24312C]">
+                    <div className="w-14 h-14 rounded-full bg-[#ff6600] text-white font-black text-base flex items-center justify-center overflow-hidden shrink-0">
+                      {editAvatarUrl ? (
+                        <img src={resolveImageUrl(editAvatarUrl)} alt={editName} className="w-full h-full object-cover" />
+                      ) : (
+                        (editName || currentUser.name).slice(0, 2).toUpperCase()
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={openCameraModal}
+                        className="px-3.5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Take Photo with Camera</span>
+                      </button>
+                      {editAvatarUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditAvatarUrl('')}
+                          className="px-3 py-2 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold rounded-lg cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                    Or paste Profile Photo URL
                   </label>
                   <input
-                    type="url"
+                    type="text"
                     value={editAvatarUrl}
                     onChange={(e) => setEditAvatarUrl(e.target.value)}
-                    placeholder="https://..."
+                    placeholder="https://... or captured camera photo"
                     className="w-full px-3.5 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-[#16221E] text-slate-900 dark:text-white focus:outline-none focus:border-[#ff6600]"
                   />
                 </div>
@@ -1875,6 +2086,119 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Photo Capture Modal */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#111A17] border border-slate-200 dark:border-[#24312C] rounded-2xl max-w-md w-full p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#24312C] mb-4">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-[#ff6600]" />
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  Update Profile Photo
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeCameraModal}
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative aspect-square max-h-[300px] w-full mx-auto rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-[#24312C] flex items-center justify-center">
+                {capturedPhotoDataUrl ? (
+                  <img
+                    src={capturedPhotoDataUrl}
+                    alt="Captured profile preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : cameraError ? (
+                  <div className="p-5 text-center space-y-3">
+                    <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
+                    <p className="text-xs text-slate-200 leading-relaxed">{cameraError}</p>
+                  </div>
+                ) : (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover -scale-x-100"
+                  />
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="user"
+                onChange={handleDevicePhotoFileChange}
+                className="hidden"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                {!capturedPhotoDataUrl ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3.5 py-2 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold rounded-xl flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Choose Photo</span>
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={closeCameraModal}
+                        className="px-3.5 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!cameraReady || Boolean(cameraError)}
+                        onClick={handleCaptureSnapshot}
+                        className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Capture Photo</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCapturedPhotoDataUrl('');
+                        startCameraStream();
+                      }}
+                      className="px-3.5 py-2 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold rounded-xl flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Retake</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingCameraPhoto}
+                      onClick={handleSaveCapturedPhoto}
+                      className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{savingCameraPhoto ? 'Saving...' : 'Use & Save Photo'}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

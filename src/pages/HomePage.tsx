@@ -111,6 +111,13 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [loading, setLoading] = useState(true);
   const [aiModalProduct, setAiModalProduct] = useState<Product | null>(null);
 
+  // Join Group with Friend Referral Modal state
+  const [joinModalProduct, setJoinModalProduct] = useState<Product | null>(null);
+  const [selectedJoinGroupId, setSelectedJoinGroupId] = useState<number | null>(null);
+  const [joinReferralCode, setJoinReferralCode] = useState('');
+  const [joiningGroup, setJoiningGroup] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
   // Admin announcement creation state
   const [showAnnForm, setShowAnnForm] = useState(false);
   const [annTitle, setAnnTitle] = useState('');
@@ -211,11 +218,63 @@ export const HomePage: React.FC<HomePageProps> = ({
     }
   }
 
-  // Count active groups per product
+  // Count active groups & map open groups per product
   const groupCountMap = groups.reduce((acc, g) => {
     acc[g.productId] = (acc[g.productId] || 0) + 1;
     return acc;
   }, {} as Record<number, number>);
+
+  const openGroupsByProduct = groups.reduce((acc, g) => {
+    const hasOpenSlot = g.slots.some(s => s.status === 'open' || s.status === 'replacement_eligible');
+    if (g.status === 'active' && hasOpenSlot) {
+      if (!acc[g.productId]) acc[g.productId] = [];
+      acc[g.productId].push(g);
+    }
+    return acc;
+  }, {} as Record<number, ChamaGroup[]>);
+
+  function openJoinGroupModal(prod: Product) {
+    const available = openGroupsByProduct[prod.id] || [];
+    setJoinModalProduct(prod);
+    setSelectedJoinGroupId(available.length > 0 ? available[0].id : null);
+    setJoinReferralCode('');
+    setJoinError(null);
+  }
+
+  async function handleConfirmJoinModal(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentUser) {
+      setJoinModalProduct(null);
+      onOpenAuth?.();
+      return;
+    }
+    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+      setJoinError('Merchants and Lenders cannot join groups. Log out of your current account and register as a Member to join.');
+      return;
+    }
+    if (!selectedJoinGroupId) {
+      setJoinError('Please choose an active open group to join.');
+      return;
+    }
+    const cleanCode = joinReferralCode.trim().toUpperCase();
+    if (!cleanCode) {
+      setJoinError('A friend referral invite code is required to join a group.');
+      return;
+    }
+    setJoiningGroup(true);
+    setJoinError(null);
+    try {
+      const res = await api.joinGroup(selectedJoinGroupId, cleanCode);
+      setJoinModalProduct(null);
+      setJoinReferralCode('');
+      await loadHomeData();
+      onNavigate?.('group', res.group.id);
+    } catch (err: any) {
+      setJoinError(err.message || 'Could not join group with this referral code.');
+    } finally {
+      setJoiningGroup(false);
+    }
+  }
 
   // Featured announcements (items with isFeatured === true, or fallback to all)
   const featuredAnnouncements = products.filter(p => p.isFeatured);
@@ -906,6 +965,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                           <div className="text-[11px] text-[#ff6600] font-semibold">
                             Group: KSh {minDaily.toLocaleString()} / day
                           </div>
+                          {(openGroupsByProduct[prod.id]?.length || 0) > 0 && (
+                            <div className="text-[10px] text-slate-600 mt-1 font-semibold">
+                              {openGroupsByProduct[prod.id].length} open group{openGroupsByProduct[prod.id].length !== 1 ? 's' : ''}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -913,7 +977,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSelectProduct(prod.id);
+                            openJoinGroupModal(prod);
                           }}
                           className="w-full py-1.5 bg-slate-900 hover:bg-[#FF6A00] text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
                         >
@@ -1040,9 +1104,157 @@ export const HomePage: React.FC<HomePageProps> = ({
               product={p}
               onSelect={onSelectProduct}
               activeGroupCount={groupCountMap[p.id] || 0}
+              openGroups={openGroupsByProduct[p.id] || []}
+              onJoinGroup={openJoinGroupModal}
               onAskAI={(prod) => setAiModalProduct(prod)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Join Group Modal from Announcements / Product Cards (Friend Referral Enforced) */}
+      {joinModalProduct && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <button
+              type="button"
+              onClick={() => setJoinModalProduct(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <h3 className="text-base font-extrabold text-slate-900 pr-6">
+              Join a Group · {joinModalProduct.title}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5 mb-4">
+              Cash Value: <b>KSh {joinModalProduct.price.toLocaleString()}</b> · Pick a merchant-created open group and enter a friend&apos;s referral invite code.
+            </p>
+
+            {currentUser && (currentUser.role === 'merchant' || currentUser.role === 'lender') ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-3">
+                <p className="font-bold text-amber-900">
+                  Member Account Required to Join Groups
+                </p>
+                <p>
+                  Merchants and Lenders cannot join groups. Log out of your current <b>{currentUser.role}</b> account and register as a <b>Member</b> to join this group.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJoinModalProduct(null);
+                      onSelectProduct(joinModalProduct.id);
+                    }}
+                    className="px-3.5 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg"
+                  >
+                    View Product Details
+                  </button>
+                </div>
+              </div>
+            ) : (openGroupsByProduct[joinModalProduct.id] || []).length === 0 ? (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-3">
+                <p>No open groups with vacant slots were found for this product right now.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJoinModalProduct(null);
+                    onSelectProduct(joinModalProduct.id);
+                  }}
+                  className="w-full py-2 bg-slate-900 text-white text-xs font-bold rounded-lg"
+                >
+                  Open Product Page
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleConfirmJoinModal} className="space-y-4">
+                {joinError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-800">
+                    {joinError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    1. Select Open Group
+                  </label>
+                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                    {(openGroupsByProduct[joinModalProduct.id] || []).map((grp) => {
+                      const openSlotsCount = grp.slots.filter(s => s.status === 'open' || s.status === 'replacement_eligible').length;
+                      const isSelected = selectedJoinGroupId === grp.id;
+                      return (
+                        <label
+                          key={grp.id}
+                          className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer text-xs ${
+                            isSelected ? 'border-[#ff6600] bg-orange-50/50' : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="radio"
+                              name="homeJoinGroup"
+                              checked={isSelected}
+                              onChange={() => setSelectedJoinGroupId(grp.id)}
+                              className="text-[#ff6600]"
+                            />
+                            <div>
+                              <div className="font-bold text-slate-900">{grp.name}</div>
+                              <div className="text-[11px] text-slate-500">
+                                {grp.size}-Member{grp.size === 1 ? ` · ${grp.paymentDurationDays || grp.cycleDays} days` : ` · Every ${grp.cycleDays} days`} · {openSlotsCount} open slot{openSlotsCount !== 1 ? 's' : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right font-mono font-bold text-[#ff6600]">
+                            KSh {grp.dailyAmount.toLocaleString()}/d
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    2. Enter Friend Referral Invite Code <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={joinReferralCode}
+                    onChange={(e) => setJoinReferralCode(e.target.value.toUpperCase())}
+                    placeholder="Ask a friend for their Buyoll referral code"
+                    className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                  />
+                  {currentUser?.referralCode && (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Your own referral code to invite friends later: <b className="font-mono text-slate-800">{currentUser.referralCode}</b> (cannot use your own code).
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pid = joinModalProduct.id;
+                      setJoinModalProduct(null);
+                      onSelectProduct(pid);
+                    }}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                  >
+                    Full Product Details
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={joiningGroup}
+                    className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg disabled:opacity-50"
+                  >
+                    {!currentUser ? 'Sign In to Join' : joiningGroup ? 'Joining...' : 'Join Selected Group'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

@@ -23,6 +23,8 @@ import {
   MerchantSubscriptionTier,
   MerchantVerificationRecord,
   MerchantSubscriptionRecord,
+  BillingPeriod,
+  PaymentReceivingDetails,
 } from './types.ts';
 
 const USER_STORAGE_KEY = 'alibaird_current_user';
@@ -948,16 +950,17 @@ export const api = {
   },
 
   // Products
-  async getProducts(params?: { category?: string; search?: string; vendorId?: number }): Promise<{ products: Product[] }> {
+  async getProducts(params?: { category?: string; search?: string; vendorId?: number; includeDrafts?: boolean }): Promise<{ products: Product[] }> {
     try {
       const q = new URLSearchParams();
       if (params?.category) q.set('category', params.category);
       if (params?.search) q.set('search', params.search);
       if (params?.vendorId) q.set('vendorId', String(params.vendorId));
+      if (params?.includeDrafts) q.set('includeDrafts', 'true');
       return await fetchApi<{ products: Product[] }>(`/products?${q.toString()}`);
     } catch {
       const db = getClientDb();
-      let products = db.products.filter(p => p.live && p.moderationStatus === 'approved');
+      let products = db.products.filter(p => (params?.includeDrafts ? true : p.live) && p.moderationStatus === 'approved');
       if (params?.category && params.category !== 'All') {
         products = products.filter(p => p.category === params.category);
       }
@@ -980,7 +983,8 @@ export const api = {
   async getProduct(id: number): Promise<{ product: Product; groups: ChamaGroup[] }> {
     try {
       return await fetchApi<{ product: Product; groups: ChamaGroup[] }>(`/products/${id}`);
-    } catch {
+    } catch (err: any) {
+      if (err?.status) throw err;
       const db = getClientDb();
       const product = db.products.find(p => p.id === Number(id));
       if (!product) throw new Error('Product not found');
@@ -989,13 +993,16 @@ export const api = {
     }
   },
 
-  async createProduct(data: Partial<Product>): Promise<{ product: Product }> {
+  async createProduct(data: Partial<Product>): Promise<{ product: Product; message?: string }> {
     try {
-      return await fetchApi<{ product: Product }>('/products', {
+      return await fetchApi<{ product: Product; message?: string }>('/products', {
         method: 'POST',
         body: JSON.stringify(data),
       });
-    } catch {
+    } catch (err: any) {
+      if (err?.status || (err?.message && !err.message.includes('Static Mode'))) {
+        throw err;
+      }
       const db = getClientDb();
       const user = getStoredUser();
       const numPrice = Number(data.price) || 10000;
@@ -1011,7 +1018,9 @@ export const api = {
         vendorId: user ? user.id : 2,
         vendorName: user?.shopName || user?.name || 'Verified Merchant',
         isFeatured: false,
-        live: true,
+        live: false,
+        publicationStatus: 'draft',
+        paymentReceiving: data.paymentReceiving,
         moderationStatus: 'approved',
         stockQuantity: Number(data.stockQuantity) || 10,
         speedOptions: data.speedOptions || [
@@ -1027,6 +1036,12 @@ export const api = {
       saveClientDb(db);
       return { product: newProduct };
     }
+  },
+
+  async publishProduct(id: number): Promise<{ success: boolean; product: Product; groups: ChamaGroup[]; message: string }> {
+    return await fetchApi<{ success: boolean; product: Product; groups: ChamaGroup[]; message: string }>(`/products/${id}/publish`, {
+      method: 'POST',
+    });
   },
 
   async updateProduct(id: number, data: Partial<Product>): Promise<{ product: Product; message: string }> {
@@ -1162,14 +1177,21 @@ export const api = {
     }
   },
 
-  async createGroup(data: { productId: number; size: number; name?: string; paymentMode?: 'merchant' | 'platform' }): Promise<{ group: ChamaGroup; message: string }> {
+  async createGroup(data: {
+    productId: number;
+    size: number;
+    name?: string;
+    paymentMode?: 'merchant' | 'platform';
+    paymentDurationDays?: number;
+    paymentReceiving?: PaymentReceivingDetails;
+  }): Promise<{ group: ChamaGroup; usage?: { used: number; limit: number }; message: string }> {
     try {
-      return await fetchApi<{ group: ChamaGroup; message: string }>('/groups', {
+      return await fetchApi<{ group: ChamaGroup; usage?: { used: number; limit: number }; message: string }>('/groups', {
         method: 'POST',
         body: JSON.stringify(data),
       });
     } catch (err: any) {
-      if (err.message?.includes('Mandatory speed selection required')) throw err;
+      if (err?.status || (err?.message && !err.message.includes('Static Mode'))) throw err;
       const db = getClientDb();
       const user = getStoredUser();
       if (!user) throw new Error('You must be signed in to start a Group');
@@ -1183,31 +1205,15 @@ export const api = {
       const validSpeed = product.speedOptions.find(s => s.size === speedSize) || product.speedOptions[0];
       const creatorCode = generateCode();
 
-      const slots: GroupSlot[] = Array.from({ length: validSpeed.size }, (_, i) => {
-        const slotNumber = i + 1;
-        if (slotNumber === 1) {
-          return {
-            slotNumber: 1,
-            userId: user.id,
-            userName: user.name,
-            userPhone: user.phone,
-            status: 'active',
-            inviteCode: creatorCode,
-            paidAmount: 0,
-            targetAmount: product.price,
-            joinedAt: Date.now(),
-          };
-        }
-        return {
-          slotNumber,
-          userId: null,
-          userName: null,
-          status: 'open',
-          inviteCode: generateCode(),
-          paidAmount: 0,
-          targetAmount: product.price,
-        };
-      });
+      const slots: GroupSlot[] = Array.from({ length: validSpeed.size }, (_, i) => ({
+        slotNumber: i + 1,
+        userId: null,
+        userName: null,
+        status: 'open',
+        inviteCode: generateCode(),
+        paidAmount: 0,
+        targetAmount: product.price,
+      }));
 
       const newGroup: ChamaGroup = {
         id: db.nextIds.group++,
@@ -1215,46 +1221,45 @@ export const api = {
         productTitle: product.title,
         productPrice: product.price,
         productImage: product.images[0] || '',
-        name: data.name?.trim() || `${user.name}’s ${validSpeed.size}-Member Group`,
+        name: data.name?.trim() || `${product.title} (${validSpeed.size}-Member Group)`,
         size: validSpeed.size,
-        adminId: user.id,
-        moderators: [user.id],
+        vendorId: product.vendorId,
+        adminId: 0,
+        moderatorId: null,
+        moderators: [],
         status: 'active',
         inviteCode: creatorCode,
         dailyAmount: validSpeed.dailyAmount,
-        cycleDays: validSpeed.cycleDays,
+        cycleDays: data.paymentDurationDays || validSpeed.cycleDays,
+        paymentDurationDays: data.paymentDurationDays || validSpeed.cycleDays,
+        paymentReceiving: data.paymentReceiving || product.paymentReceiving,
         slots,
-        occupiedCount: 1,
-        availableCount: validSpeed.size - 1,
-        chat: [
-          {
-            id: `chat_${Date.now()}`,
-            senderId: user.id,
-            senderName: user.name,
-            kind: 'system',
-            text: `Group started! ${user.name} is Member #1 and moderator. Group is active immediately.`,
-            timestamp: Date.now(),
-          },
-        ],
+        occupiedCount: 0,
+        availableCount: validSpeed.size,
+        chat: [],
         createdAt: Date.now(),
       };
 
       db.groups.unshift(newGroup);
       saveClientDb(db);
-      return { group: newGroup, message: 'Your group was created and activated immediately. You are Member #1.' };
+      return { group: newGroup, message: 'Group created successfully!' };
     }
   },
 
-  async joinGroup(id: number, inviteCode?: string, slotNumber?: number): Promise<{ group: ChamaGroup; assignedSlot: number; message: string }> {
+  async joinGroup(id: number, inviteCode?: string, slotNumber?: number): Promise<{ group: ChamaGroup; assignedSlot: number; isModerator?: boolean; message: string }> {
     try {
-      return await fetchApi<{ group: ChamaGroup; assignedSlot: number; message: string }>(`/groups/${id}/join`, {
+      return await fetchApi<{ group: ChamaGroup; assignedSlot: number; isModerator?: boolean; message: string }>(`/groups/${id}/join`, {
         method: 'POST',
         body: JSON.stringify({ inviteCode, slotNumber }),
       });
-    } catch {
+    } catch (err: any) {
+      if (err?.status || (err?.message && !err.message.includes('Static Mode'))) {
+        throw err;
+      }
       const db = getClientDb();
       const user = getStoredUser();
       if (!user) throw new Error('You must be signed in to join a Group');
+      if (!inviteCode || !inviteCode.trim()) throw new Error('A friend referral invite code is required to join any group.');
       const group = db.groups.find(g => g.id === Number(id));
       if (!group) throw new Error('Group not found');
 
@@ -1294,6 +1299,26 @@ export const api = {
         message: `Welcome! You are Member #${targetSlot.slotNumber}. Your allocation rotation is day ${targetSlot.slotNumber * group.cycleDays}.`,
       };
     }
+  },
+
+  async setGroupPayoutOption(
+    groupId: number,
+    payload: { payoutOption: 'turn_by_turn' | 'end_together'; paymentDurationDays?: number }
+  ): Promise<{ success: boolean; group: ChamaGroup; message: string }> {
+    return await fetchApi<{ success: boolean; group: ChamaGroup; message: string }>(`/groups/${groupId}/payout-option`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async agreeGroupPayout(
+    groupId: number,
+    confirmLock = false
+  ): Promise<{ success: boolean; group: ChamaGroup; payoutLocked: boolean; agreedCount: number; activeCount: number; message: string }> {
+    return await fetchApi<{ success: boolean; group: ChamaGroup; payoutLocked: boolean; agreedCount: number; activeCount: number; message: string }>(`/groups/${groupId}/payout-agree`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmLock }),
+    });
   },
 
   async manageModerator(
@@ -2684,7 +2709,7 @@ export const api = {
     return await fetchApi<any>('/user/profile');
   },
 
-  async updateUserProfile(data: { name?: string; phone?: string; email?: string; avatarUrl?: string }): Promise<any> {
+  async updateUserProfile(data: { name?: string; phone?: string; email?: string; avatarUrl?: string; paymentReceiving?: PaymentReceivingDetails }): Promise<any> {
     return await fetchApi<any>('/user/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -2755,10 +2780,10 @@ export const api = {
     return await fetchApi<any>('/merchant/subscription/current');
   },
 
-  async paySubscriptionCoins(tierId: string, paymentMethod: 'wallet_coins' | 'wallet_credit' = 'wallet_coins'): Promise<any> {
+  async paySubscriptionCoins(tierId: string, paymentMethod: 'wallet_coins' | 'wallet_credit' = 'wallet_coins', billingPeriod: BillingPeriod = 'monthly'): Promise<any> {
     return await fetchApi<any>('/merchant/subscription/pay-coins', {
       method: 'POST',
-      body: JSON.stringify({ tierId, paymentMethod }),
+      body: JSON.stringify({ tierId, paymentMethod, billingPeriod }),
     });
   },
 
@@ -2767,6 +2792,7 @@ export const api = {
     paymentMethod: 'mpesa' | 'wallet' | 'coins';
     mpesaCode?: string;
     notes?: string;
+    billingPeriod?: BillingPeriod;
   }): Promise<any> {
     return await fetchApi<any>('/subscriptions/requests', {
       method: 'POST',
@@ -2796,7 +2822,7 @@ export const api = {
     });
   },
 
-  async submitManualSubscription(data: { tierId: string; paymentCode: string; amount: number; channel?: string }): Promise<any> {
+  async submitManualSubscription(data: { tierId: string; paymentCode: string; amount: number; channel?: string; billingPeriod?: BillingPeriod }): Promise<any> {
     try {
       return await fetchApi<any>('/subscriptions/requests', {
         method: 'POST',
@@ -2804,9 +2830,13 @@ export const api = {
           planId: data.tierId,
           paymentMethod: 'mpesa',
           mpesaCode: data.paymentCode,
+          billingPeriod: data.billingPeriod || 'monthly',
         }),
       });
-    } catch {
+    } catch (err: any) {
+      if (err?.status && err.status !== 404) {
+        throw err;
+      }
       return await fetchApi<any>('/merchant/subscription/submit-manual', {
         method: 'POST',
         body: JSON.stringify(data),

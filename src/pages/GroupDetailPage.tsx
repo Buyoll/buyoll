@@ -95,6 +95,11 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   // Group-level moderator-only theme state (Section 3)
   const [togglingTheme, setTogglingTheme] = useState(false);
 
+  // Group Payout Option & Agreement Lock state (Customer Moderator + Members only)
+  const [payoutDurationInput, setPayoutDurationInput] = useState<number>(0);
+  const [savingPayoutOption, setSavingPayoutOption] = useState(false);
+  const [lockingPayout, setLockingPayout] = useState(false);
+
   async function handleToggleGroupTheme() {
     if (!group || !isModerator) return;
     const currentTheme = group.theme || 'light';
@@ -108,6 +113,37 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       onNotify('error', err.message || 'Failed to update group theme');
     } finally {
       setTogglingTheme(false);
+    }
+  }
+
+  async function handleSelectPayoutOption(option: 'turn_by_turn' | 'end_together') {
+    if (!group || !isModerator) return;
+    setSavingPayoutOption(true);
+    try {
+      const res = await api.setGroupPayoutOption(group.id, {
+        payoutOption: option,
+        paymentDurationDays: payoutDurationInput > 0 ? payoutDurationInput : undefined,
+      });
+      setGroup(res.group);
+      onNotify('success', res.message || 'Payout option updated.');
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update payout option.');
+    } finally {
+      setSavingPayoutOption(false);
+    }
+  }
+
+  async function handleAgreePayout(lockNow: boolean) {
+    if (!group) return;
+    setLockingPayout(true);
+    try {
+      const res = await api.agreeGroupPayout(group.id, lockNow);
+      setGroup(res.group);
+      onNotify('success', res.message || (lockNow ? 'Payout option locked!' : 'Recorded your agreement.'));
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update agreement.');
+    } finally {
+      setLockingPayout(false);
     }
   }
 
@@ -169,8 +205,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       ]);
       setGroup(data.group);
       setLoans(loansRes.loans || []);
-      if (data.group && !paymentAmount) {
-        setPaymentAmount(data.group.dailyAmount);
+      if (data.group) {
+        if (!paymentAmount) setPaymentAmount(data.group.dailyAmount);
+        setPayoutDurationInput(data.group.paymentDurationDays || data.group.cycleDays || 10);
       }
 
       // Filter products from other items/merchants (guaranteeing at least 5 recommendations)
@@ -391,10 +428,22 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // Check if current user is moderator
-  const isModerator = currentUser && group
-    ? group.moderators?.includes(currentUser.id) || group.adminId === currentUser.id || currentUser.role === 'admin'
-    : false;
+  // Check if current user is moderator (merchants are strictly excluded from group moderation)
+  const isMerchantViewer = Boolean(
+    currentUser &&
+    group &&
+    (currentUser.role === 'merchant' || currentUser.activeRole === 'merchant' || currentUser.id === group.vendorId) &&
+    currentUser.role !== 'admin'
+  );
+  const isModerator = Boolean(
+    currentUser &&
+    group &&
+    !isMerchantViewer &&
+    (currentUser.role === 'admin' ||
+      group.moderatorId === currentUser.id ||
+      group.moderators?.includes(currentUser.id) ||
+      (group.adminId > 0 && group.adminId === currentUser.id))
+  );
 
   // Check if current user is third party lender
   const isThirdPartyLender = Boolean(
@@ -609,6 +658,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
     setSlotPickerTarget(slot);
     setSlotPickerStep(1);
+    if (!myApprovedInvite?.issuedCode) {
+      setManualInviteCodeInput('');
+    }
   }
 
   async function handleConfirmSlotPick() {
@@ -623,13 +675,19 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
     if (!slotPickerTarget || !group) return;
 
-    const codeToUse = myApprovedInvite?.issuedCode || manualInviteCodeInput.trim().toUpperCase() || slotPickerTarget.inviteCode || group.inviteCode;
+    const codeToUse = (myApprovedInvite?.issuedCode || manualInviteCodeInput).trim().toUpperCase();
+    if (!codeToUse) {
+      onNotify('error', "A friend's Buyoll referral code or approved invite code is required to join.");
+      setSlotPickerStep(1);
+      return;
+    }
 
     setSlotPickerSubmitting(true);
     try {
       const res = await api.joinGroup(group.id, codeToUse, slotPickerTarget.slotNumber);
       onNotify('success', res.message);
       setSlotPickerTarget(null);
+      setManualInviteCodeInput('');
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to claim slot');
@@ -819,6 +877,12 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </button>
                   </>
                 )}
+                {isMerchantViewer && (
+                  <span className="text-xs bg-slate-100 text-slate-700 font-bold px-2.5 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
+                    <Store className="w-3 h-3 text-[#ff6600]" />
+                    <span>Merchant Oversight (Read-Only)</span>
+                  </span>
+                )}
                 {!isModerator && isDarkGroup && (
                   <span className="text-xs bg-slate-800 text-slate-300 font-medium px-2 py-0.5 rounded-full flex items-center gap-1 border border-slate-700">
                     <Moon className="w-3 h-3 text-amber-300" />
@@ -865,12 +929,16 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           <p className="flex items-center gap-1.5 text-emerald-800 font-medium">
             <Info className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
-              Your group starts as soon as the first member joins. Other members can join while the group is active.
+              {group.moderatorId
+                ? `First customer becomes Group Moderator (Moderator #${group.moderatorId}). Members choose and lock the payout schedule.`
+                : 'Group is open. The first Member who joins automatically becomes Group Moderator (merchants have read-only oversight).'}
             </span>
           </p>
-          <div className="font-mono bg-slate-100 px-2.5 py-1 rounded text-slate-700">
-            Invite Code: <b className="text-slate-900">{group.inviteCode}</b>
-          </div>
+          {currentUser?.referralCode && (
+            <div className="font-mono bg-slate-100 px-2.5 py-1 rounded text-slate-700">
+              Your Friend Referral Code: <b className="text-[#ff6600]">{currentUser.referralCode}</b>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1011,6 +1079,151 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
       {/* VISUAL CONTRIBUTION CALENDAR (D3 6-MONTH SAVINGS HEAT MAP) */}
       <ContributionCalendar group={group} isDark={isDarkGroup} />
+
+      {/* GROUP PAYOUT OPTION & AGREEMENT LOCK (Customer Moderator & Members Only) */}
+      {(() => {
+        const activeMembersList = group.slots.filter(s => s.status === 'active' && s.userId);
+        const agreedIds = group.payoutAgreedUserIds || [];
+        const currentOption = group.payoutOption || 'turn_by_turn';
+        const isLocked = Boolean(group.payoutLocked);
+        const iHaveAgreed = Boolean(currentUser && agreedIds.includes(currentUser.id));
+
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 mb-6 shadow-xs">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-[#ff6600]">
+                    Member Payout Schedule &amp; Agreement
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                    isLocked ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {isLocked ? 'Locked · Agreed' : 'Open for Member Agreement'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Controlled exclusively by group members and the Group Moderator (first Member to join). Merchants cannot choose or change this setting.
+                </p>
+              </div>
+              <div className="text-xs font-mono text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shrink-0">
+                Agreed: <b>{agreedIds.length}</b> / {Math.max(1, activeMembersList.length)} active member{activeMembersList.length !== 1 ? 's' : ''} · Duration: <b>{group.paymentDurationDays || group.cycleDays} days</b>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+              <div className={`p-4 rounded-xl border-2 transition-colors ${
+                currentOption === 'turn_by_turn' ? 'border-[#ff6600] bg-orange-50/40' : 'border-slate-200 bg-slate-50/60'
+              }`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-extrabold text-slate-900">
+                    Option A: Turn-by-Turn Rotation
+                  </span>
+                  {currentOption === 'turn_by_turn' && (
+                    <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-bold rounded">Active Choice</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600">
+                  Members receive their product sequentially one-by-one at the end of each {group.cycleDays}-day round.
+                </p>
+              </div>
+
+              <div className={`p-4 rounded-xl border-2 transition-colors ${
+                currentOption === 'end_together' ? 'border-[#ff6600] bg-orange-50/40' : 'border-slate-200 bg-slate-50/60'
+              }`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-extrabold text-slate-900">
+                    Option B: Save &amp; Receive Together at End
+                  </span>
+                  {currentOption === 'end_together' && (
+                    <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-bold rounded">Active Choice</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600">
+                  All members contribute across the agreed payment period ({group.paymentDurationDays || group.cycleDays} days) and receive their items together at completion.
+                </p>
+              </div>
+            </div>
+
+            {!isLocked && (isModerator || mySlot) && (
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                {isModerator ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={savingPayoutOption}
+                      onClick={() => handleSelectPayoutOption('turn_by_turn')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                        currentOption === 'turn_by_turn'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      Set Turn-by-Turn
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingPayoutOption}
+                      onClick={() => handleSelectPayoutOption('end_together')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                        currentOption === 'end_together'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      Set End-Together
+                    </button>
+                    {group.size > 1 && (
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-slate-500">Days:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={payoutDurationInput || group.cycleDays}
+                          onChange={(e) => setPayoutDurationInput(Number(e.target.value))}
+                          className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-600">
+                    Review the payout option selected by the Group Moderator and click Agree.
+                  </span>
+                )}
+
+                <div className="flex items-center gap-2 ml-auto">
+                  {mySlot && (
+                    <button
+                      type="button"
+                      disabled={lockingPayout || iHaveAgreed}
+                      onClick={() => handleAgreePayout(false)}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                        iHaveAgreed
+                          ? 'bg-emerald-100 text-emerald-800 cursor-default'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                    >
+                      {iHaveAgreed ? '✓ You Agreed' : 'Agree to Option'}
+                    </button>
+                  )}
+                  {isModerator && (
+                    <button
+                      type="button"
+                      disabled={lockingPayout}
+                      onClick={() => handleAgreePayout(true)}
+                      className="px-3.5 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs disabled:opacity-50"
+                    >
+                      {lockingPayout ? 'Locking...' : 'Lock Agreed Option'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* REAL-TIME CONTRIBUTION TRACKER & ROTATION CYCLE COMPONENT (Specification Section 6) */}
       {(() => {
@@ -1202,7 +1415,11 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {group.slots.map((slot) => {
                 const isMe = currentUser && slot.userId === currentUser.id;
-                const isModSlot = slot.userId && group.moderators.includes(slot.userId);
+                const isModSlot = Boolean(
+                  slot.userId &&
+                  slot.userId !== group.vendorId &&
+                  (group.moderatorId === slot.userId || group.moderators?.includes(slot.userId))
+                );
                 const isReplacement = slot.status === 'replacement_eligible';
                 const isOpen = slot.status === 'open';
                 const isActive = slot.status === 'active';
@@ -1248,7 +1465,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                           <div className="flex flex-col items-end gap-0.5">
                             {isModSlot && (
                               <span className="text-[9px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">
-                                Moderator
+                                Group Moderator
                               </span>
                             )}
                             {isMe && (
@@ -1842,14 +2059,29 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-1">
                   <div className="flex items-center justify-between font-bold">
                     <span>
-                      {group.merchantTill ? `Merchant Store Till: ${group.merchantTill}` : `Platform Till: 522533`}
+                      {group.paymentReceiving?.mode === 'paybill'
+                        ? `Paybill ${group.paymentReceiving.paybillNumber} · Acc ${group.paymentReceiving.paybillAccount || group.paymentReceiving.accountNumber}`
+                        : group.paymentReceiving?.mode === 'till'
+                        ? `M-Pesa Till: ${group.paymentReceiving.tillNumber}`
+                        : group.paymentReceiving?.mode === 'pochi'
+                        ? `Pochi la Biashara: ${group.paymentReceiving.pochiNumber || group.paymentReceiving.pochiPhone}`
+                        : group.paymentReceiving?.mode === 'bank_paybill'
+                        ? `${group.paymentReceiving.bankName || 'Bank'} Paybill ${group.paymentReceiving.bankPaybillNumber} · Acc ${group.paymentReceiving.bankAccountNumber}`
+                        : group.merchantTill
+                        ? `Merchant Store Till: ${group.merchantTill}`
+                        : 'Platform Till: 522533'}
                     </span>
                     <span className="text-[10px] bg-amber-200 px-1.5 py-0.2 rounded font-mono uppercase">
-                      Buy Goods
+                      {group.paymentReceiving?.mode?.replace('_', ' ') || 'Buy Goods'}
                     </span>
                   </div>
+                  {group.paymentReceiving?.accountName && (
+                    <div className="text-[11px] font-semibold text-amber-900">
+                      Recipient Name: {group.paymentReceiving.accountName}
+                    </div>
+                  )}
                   <p className="text-[11px] text-amber-800 leading-snug">
-                    <b>Manual M-Pesa Payment Notice:</b> This platform has <b>no escrow mechanism or M-Pesa STK push</b>. You must manually pay on your phone via M-Pesa Buy Goods to <b>{group.merchantTill || 'Platform Till 522533'}</b>. Once paid, key in your official M-Pesa transaction code and amount paid below for approval.
+                    <b>Manual M-Pesa Payment Notice:</b> This platform has <b>no escrow mechanism or M-Pesa STK push</b>. Pay manually via M-Pesa to the channel above, then enter your M-Pesa transaction code and amount below for approval.
                   </p>
                 </div>
 
@@ -2884,6 +3116,24 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </span>
                 </div>
 
+                {!myApprovedInvite?.issuedCode && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Friend Referral / Member Invite Code <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualInviteCodeInput}
+                      onChange={(e) => setManualInviteCodeInput(e.target.value.toUpperCase())}
+                      placeholder="Ask a friend for their Buyoll referral code"
+                      className="w-full px-3 py-2 text-xs font-mono uppercase bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Joining a group requires a valid friend referral code or approved invite code (not your own code).
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     onClick={() => setSlotPickerTarget(null)}
@@ -2892,7 +3142,13 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     Cancel
                   </button>
                   <button
-                    onClick={() => setSlotPickerStep(2)}
+                    onClick={() => {
+                      if (!myApprovedInvite?.issuedCode && !manualInviteCodeInput.trim()) {
+                        onNotify('error', 'Please enter a friend referral invite code to proceed.');
+                        return;
+                      }
+                      setSlotPickerStep(2);
+                    }}
                     className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                   >
                     <span>Proceed to Step 2</span>
@@ -2908,18 +3164,20 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500">Group Speed:</span>
-                    <span className="font-bold text-slate-900">{group.size} Members ({group.cycleDays} Days/Round)</span>
-                  </div>
-                  <div className="flex justify-between pb-2 border-b border-slate-200">
-                    <span className="text-slate-500">Payment Collection Mode:</span>
-                    <span className="font-bold text-[#ff6600]">
-                      {group.paymentMode === 'merchant' ? 'Option A: Merchant Direct Till' : 'Option B: Buyoll Platform Till'}
-                    </span>
+                    <span className="font-bold text-slate-900">{group.size} Members ({group.paymentDurationDays || group.cycleDays} Days)</span>
                   </div>
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500">Payment Channel:</span>
-                    <span className="font-mono font-bold text-slate-900">
-                      Till: {group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}
+                    <span className="font-mono font-bold text-[#ff6600] text-right">
+                      {group.paymentReceiving?.mode === 'paybill'
+                        ? `Paybill ${group.paymentReceiving.paybillNumber} · Acc ${group.paymentReceiving.paybillAccount || group.paymentReceiving.accountNumber}`
+                        : group.paymentReceiving?.mode === 'till'
+                        ? `Till ${group.paymentReceiving.tillNumber}`
+                        : group.paymentReceiving?.mode === 'pochi'
+                        ? `Pochi ${group.paymentReceiving.pochiNumber || group.paymentReceiving.pochiPhone}`
+                        : group.paymentReceiving?.mode === 'bank_paybill'
+                        ? `${group.paymentReceiving.bankName || 'Bank'} Paybill ${group.paymentReceiving.bankPaybillNumber} · Acc ${group.paymentReceiving.bankAccountNumber}`
+                        : `Till ${group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}`}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -3077,13 +3335,35 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 </b>
               </div>
 
-              {/* Payment Till Instructions */}
+              {/* Payment Till / Receiving Channel Instructions */}
               <div className="p-3 bg-emerald-50/70 border border-emerald-200/60 rounded-xl text-xs space-y-1 text-emerald-950">
-                <span className="font-bold block">1. Pay via M-Pesa Buy Goods or Paybill:</span>
-                <div className="font-mono text-[11px] space-y-0.5">
-                  <div>Till Number: <b>{group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}</b></div>
-                  <div>Paybill: <b>{group.paymentMode === 'merchant' ? (group.merchantPaybill || '26253326') : (group.platformPaybill || '522533')}</b> (Acc: <b>{group.paymentMode === 'merchant' ? group.merchantAccount : group.platformAccount}</b>)</div>
-                </div>
+                <span className="font-bold block">1. Pay via M-Pesa:</span>
+                {group.paymentReceiving?.mode === 'paybill' ? (
+                  <div className="font-mono text-[11px] space-y-0.5">
+                    <div>Paybill: <b>{group.paymentReceiving.paybillNumber}</b> (Acc: <b>{group.paymentReceiving.paybillAccount || group.paymentReceiving.accountNumber}</b>)</div>
+                    {group.paymentReceiving.accountName && <div>Name: <b>{group.paymentReceiving.accountName}</b></div>}
+                  </div>
+                ) : group.paymentReceiving?.mode === 'till' ? (
+                  <div className="font-mono text-[11px] space-y-0.5">
+                    <div>Buy Goods Till Number: <b>{group.paymentReceiving.tillNumber}</b></div>
+                    {group.paymentReceiving.accountName && <div>Name: <b>{group.paymentReceiving.accountName}</b></div>}
+                  </div>
+                ) : group.paymentReceiving?.mode === 'pochi' ? (
+                  <div className="font-mono text-[11px] space-y-0.5">
+                    <div>Pochi la Biashara Phone: <b>{group.paymentReceiving.pochiNumber || group.paymentReceiving.pochiPhone}</b></div>
+                    {group.paymentReceiving.accountName && <div>Name: <b>{group.paymentReceiving.accountName}</b></div>}
+                  </div>
+                ) : group.paymentReceiving?.mode === 'bank_paybill' ? (
+                  <div className="font-mono text-[11px] space-y-0.5">
+                    <div>{group.paymentReceiving.bankName || 'Bank'} Paybill: <b>{group.paymentReceiving.bankPaybillNumber}</b> (Acc: <b>{group.paymentReceiving.bankAccountNumber}</b>)</div>
+                    {group.paymentReceiving.accountName && <div>Name: <b>{group.paymentReceiving.accountName}</b></div>}
+                  </div>
+                ) : (
+                  <div className="font-mono text-[11px] space-y-0.5">
+                    <div>Till Number: <b>{group.paymentMode === 'merchant' ? (group.merchantTill || '3463533') : (group.platformTill || '196853')}</b></div>
+                    <div>Paybill: <b>{group.paymentMode === 'merchant' ? (group.merchantPaybill || '26253326') : (group.platformPaybill || '522533')}</b> (Acc: <b>{group.paymentMode === 'merchant' ? group.merchantAccount : group.platformAccount}</b>)</div>
+                  </div>
+                )}
               </div>
 
               {/* M-Pesa Code Input */}
