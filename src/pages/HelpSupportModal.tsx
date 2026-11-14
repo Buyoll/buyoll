@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { HelpChatMessage, User } from '../types.ts';
 import { api } from '../api.ts';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../config/support.ts';
 import {
   HelpCircle,
   X,
@@ -129,7 +130,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
         <div className="p-3 bg-slate-50 border-b border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 text-[#ff6600] shrink-0" />
-            <span>Support Email: <a href="mailto:cityandcountyre@gmail.com" className="font-mono font-bold text-[#ff6600] hover:underline">cityandcountyre@gmail.com</a></span>
+            <span>Support Email: <a href={SUPPORT_MAILTO} className="font-mono font-bold text-[#ff6600] hover:underline">{SUPPORT_EMAIL}</a></span>
           </div>
           <div className="text-[11px] text-slate-500">
             Platform Till: <b className="font-mono text-slate-900">196853</b> · Paybill: <b className="font-mono text-slate-900">522533</b> (Acc: <b>4363</b>)
@@ -277,7 +278,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
 
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
             <Info className="w-3 h-3 text-slate-400 shrink-0" />
-            <span>Community rules apply. Sensitive financial matters can also be emailed directly to cityandcountyre@gmail.com.</span>
+            <span>Community rules apply. Sensitive financial matters can also be emailed directly to {SUPPORT_EMAIL}.</span>
           </div>
         </form>
 

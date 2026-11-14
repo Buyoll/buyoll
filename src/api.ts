@@ -26,17 +26,48 @@ import {
   BillingPeriod,
   PaymentReceivingDetails,
 } from './types.ts';
+import { SUPPORT_EMAIL } from './config/support.ts';
 
 const USER_STORAGE_KEY = 'alibaird_current_user';
 const CLIENT_DB_STORAGE_KEY = 'alibaird_client_db';
 
 let isStaticMode = false;
 
-// Helper to resolve image paths reliably on GitHub Pages, subpaths, and root domains
+export const ACCESS_TOKEN_KEY = 'buyoll_access_token';
+
+export function getAccessToken(): string | null {
+  try {
+    return localStorage.getItem(ACCESS_TOKEN_KEY) || sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAccessToken(token: string | null, remember = true): void {
+  try {
+    if (token) {
+      if (remember) {
+        localStorage.setItem(ACCESS_TOKEN_KEY, token);
+        sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+      }
+    } else {
+      localStorage.removeItem(ACCESS_TOKEN_KEY);
+      sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    }
+  } catch {}
+}
+
+// Helper to resolve image paths reliably on subpaths, uploads, and root domains
 export function resolveImageUrl(url?: string): string {
   if (!url) return './images/cookware_set.jpg';
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
     return url;
+  }
+  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+    return url.startsWith('/') ? url : `/${url}`;
   }
   const clean = url.replace(/^\/+/, '');
   if (clean.includes('buyoll_logo') || clean.includes('logo')) return './buyoll_logo.png';
@@ -61,6 +92,7 @@ export function setStoredUser(user: User | null): void {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
   } else {
     localStorage.removeItem(USER_STORAGE_KEY);
+    setAccessToken(null);
   }
 }
 
@@ -109,7 +141,7 @@ function getInitialClientDb(): ClientDatabase {
       id: 1,
       name: 'Buyoll System Admin',
       phone: '0700000000',
-      email: 'cityandcountyre@gmail.com',
+      email: SUPPORT_EMAIL,
       role: 'admin',
       credit: 0,
       coins: 200,
@@ -670,20 +702,57 @@ function saveClientDb(db: ClientDatabase): void {
 // -------------------------------------------------------------
 // DUAL-MODE FETCH API (Tries Express API, fallback to client DB)
 // -------------------------------------------------------------
-async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+let inflightRefresh: Promise<boolean> | null = null;
+
+async function tryRefreshTokens(): Promise<boolean> {
+  if (inflightRefresh) return inflightRefresh;
+  inflightRefresh = (async () => {
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data?.accessToken) {
+        const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
+        setAccessToken(data.accessToken, remember);
+      }
+      if (data?.user) {
+        setStoredUser(data.user);
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      inflightRefresh = null;
+    }
+  })();
+  return inflightRefresh;
+}
+
+async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried = false): Promise<T> {
   if (isStaticMode) {
     throw new Error('Static Mode');
   }
 
   const user = getStoredUser();
+  const token = getAccessToken();
   const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
+  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
   if (user) {
     headers.set('x-user-id', String(user.id));
   }
 
   try {
     const res = await fetch(`/api${endpoint}`, {
+      credentials: 'include',
       ...options,
       headers,
     });
@@ -693,6 +762,19 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
       // Received HTML (like 404 from GitHub Pages) -> switch to client mode!
       isStaticMode = true;
       throw new Error('Static Mode Detected');
+    }
+
+    if (
+      res.status === 401 &&
+      !_retried &&
+      !endpoint.startsWith('/auth/login') &&
+      !endpoint.startsWith('/auth/register') &&
+      !endpoint.startsWith('/auth/refresh')
+    ) {
+      const refreshed = await tryRefreshTokens();
+      if (refreshed) {
+        return fetchApi<T>(endpoint, options, true);
+      }
     }
 
     const data = await res.json();
@@ -706,6 +788,7 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
       const error = new Error(errorMsg) as any;
       error.status = res.status;
       error.code = data.error?.code || (res.status === 409 ? 'CONFLICT' : res.status === 422 ? 'VALIDATION' : 'ERROR');
+      error.fields = data.error?.fields;
       error.data = data;
       throw error;
     }
@@ -745,15 +828,19 @@ export const api = {
     phone?: string;
     password?: string;
     role?: string;
+    rememberMe?: boolean;
     name?: string;
     shopName?: string;
     shopDescription?: string;
-  }): Promise<{ user: User; notice?: string }> {
+  }): Promise<{ user: User; accessToken?: string; notice?: string }> {
     try {
-      const data = await fetchApi<{ user: User; notice?: string }>('/auth/login', {
+      const data = await fetchApi<{ user: User; accessToken?: string; notice?: string }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      if (data.accessToken) {
+        setAccessToken(data.accessToken, payload.rememberMe !== false);
+      }
       setStoredUser(data.user);
       return data;
     } catch (err: any) {
@@ -826,6 +913,7 @@ export const api = {
   async register(payload: {
     role: string;
     name: string;
+    username?: string;
     email: string;
     password: string;
     phone?: string;
@@ -833,12 +921,16 @@ export const api = {
     shopDescription?: string;
     adminPasskey?: string;
     referredBy?: string;
-  }): Promise<{ user: User; notice?: string }> {
+    rememberMe?: boolean;
+  }): Promise<{ user: User; accessToken?: string; notice?: string }> {
     try {
-      const data = await fetchApi<{ user: User; notice?: string }>('/auth/register', {
+      const data = await fetchApi<{ user: User; accessToken?: string; notice?: string }>('/auth/register', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      if (data.accessToken) {
+        setAccessToken(data.accessToken, payload.rememberMe !== false);
+      }
       setStoredUser(data.user);
       return data;
     } catch (err: any) {
@@ -912,7 +1004,52 @@ export const api = {
   },
 
   logout(): void {
+    try {
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    } catch {}
     setStoredUser(null);
+  },
+
+  async checkUsername(username: string): Promise<{ valid: boolean; available: boolean; message?: string }> {
+    return await fetchApi<{ valid: boolean; available: boolean; message?: string }>(
+      `/auth/check-username?username=${encodeURIComponent(username)}`
+    );
+  },
+
+  async forgotPassword(identifier: string): Promise<{ success: boolean; message: string; devResetToken?: string }> {
+    return await fetchApi<{ success: boolean; message: string; devResetToken?: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    });
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return await fetchApi<{ success: boolean; message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; user: User; accessToken?: string }> {
+    const res = await fetchApi<{ success: boolean; user: User; accessToken?: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (res.accessToken) {
+      const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(res.accessToken, remember);
+    }
+    if (res.user) setStoredUser(res.user);
+    return res;
+  },
+
+  async logoutAll(): Promise<{ success: boolean }> {
+    const res = await fetchApi<{ success: boolean }>('/auth/logout-all', { method: 'POST' });
+    setStoredUser(null);
+    return res;
   },
 
   async registerRole(
@@ -950,14 +1087,29 @@ export const api = {
   },
 
   // Products
-  async getProducts(params?: { category?: string; search?: string; vendorId?: number; includeDrafts?: boolean }): Promise<{ products: Product[] }> {
+  async getProducts(params?: {
+    category?: string;
+    search?: string;
+    vendorId?: number;
+    merchantId?: number;
+    groupId?: number;
+    includeDrafts?: boolean;
+    status?: 'draft' | 'published' | 'posted' | 'all';
+    limit?: number;
+    offset?: number;
+  }): Promise<{ products: Product[]; total?: number; limit?: number; offset?: number }> {
     try {
       const q = new URLSearchParams();
       if (params?.category) q.set('category', params.category);
       if (params?.search) q.set('search', params.search);
       if (params?.vendorId) q.set('vendorId', String(params.vendorId));
+      if (params?.merchantId) q.set('merchantId', String(params.merchantId));
+      if (params?.groupId) q.set('groupId', String(params.groupId));
       if (params?.includeDrafts) q.set('includeDrafts', 'true');
-      return await fetchApi<{ products: Product[] }>(`/products?${q.toString()}`);
+      if (params?.status) q.set('status', params.status);
+      if (params?.limit) q.set('limit', String(params.limit));
+      if (params?.offset) q.set('offset', String(params.offset));
+      return await fetchApi<{ products: Product[]; total?: number; limit?: number; offset?: number }>(`/products?${q.toString()}`);
     } catch {
       const db = getClientDb();
       let products = db.products.filter(p => (params?.includeDrafts ? true : p.live) && p.moderationStatus === 'approved');
@@ -2639,9 +2791,140 @@ export const api = {
     });
   },
 
-  // Public Announcements Feed
-  async getAnnouncements(): Promise<{ announcements: Announcement[] }> {
-    return await fetchApi<{ announcements: Announcement[] }>('/announcements');
+  // Public Announcements Feed & Admin Announcements/Notices
+  async getAnnouncements(params?: {
+    type?: string;
+    audience?: string;
+    pinnedOnly?: boolean;
+    limit?: number;
+  }): Promise<{ announcements: Announcement[]; total?: number }> {
+    const q = new URLSearchParams();
+    if (params?.type && params.type !== 'ALL') q.set('type', params.type);
+    if (params?.audience && params.audience !== 'ALL') q.set('audience', params.audience);
+    if (params?.pinnedOnly) q.set('pinnedOnly', 'true');
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return await fetchApi<{ announcements: Announcement[]; total?: number }>(
+      `/announcements${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  async dismissAnnouncement(id: string | number): Promise<{ success: boolean; announcementId: string | number }> {
+    return await fetchApi<{ success: boolean; announcementId: string | number }>(`/announcements/${id}/dismiss`, {
+      method: 'POST',
+    });
+  },
+
+  async getAdminAnnouncements(params?: {
+    status?: string;
+    type?: string;
+    audience?: string;
+    search?: string;
+  }): Promise<{ announcements: Announcement[]; total: number }> {
+    const q = new URLSearchParams();
+    if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+    if (params?.type && params.type !== 'ALL') q.set('type', params.type);
+    if (params?.audience && params.audience !== 'ALL') q.set('audience', params.audience);
+    if (params?.search) q.set('search', params.search);
+    const qs = q.toString();
+    return await fetchApi<{ announcements: Announcement[]; total: number }>(
+      `/admin/announcements${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  async uploadAdminAnnouncementImage(file: File): Promise<{ success: boolean; url: string; mime: string; size: number }> {
+    const formData = new FormData();
+    formData.append('image', file);
+    return await fetchApi<{ success: boolean; url: string; mime: string; size: number }>(
+      '/admin/uploads/announcement-image',
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+  },
+
+  async createAdminAnnouncement(data: {
+    title: string;
+    body: string;
+    type?: 'NOTICE' | 'ANNOUNCEMENT' | 'PROMOTION';
+    audience?: 'ALL' | 'MEMBERS' | 'MERCHANTS';
+    category?: string;
+    pinned?: boolean;
+    startsAt?: number | string | null;
+    endsAt?: number | string | null;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    imageUrl?: string | null;
+    status?: 'DRAFT' | 'PUBLISHED' | 'SCHEDULED' | 'ARCHIVED';
+    publishNow?: boolean;
+  }): Promise<{ success: boolean; announcement: Announcement; message: string }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement; message: string }>(
+      '/admin/announcements',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  async updateAdminAnnouncement(
+    id: string | number,
+    data: Partial<Announcement>
+  ): Promise<{ success: boolean; announcement: Announcement; message: string }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement; message: string }>(
+      `/admin/announcements/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  async publishAdminAnnouncement(id: string | number): Promise<{ success: boolean; announcement: Announcement; message: string }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement; message: string }>(
+      `/admin/announcements/${id}/publish`,
+      { method: 'POST' }
+    );
+  },
+
+  async unpublishAdminAnnouncement(
+    id: string | number,
+    archive = false
+  ): Promise<{ success: boolean; announcement: Announcement; message: string }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement; message: string }>(
+      `/admin/announcements/${id}/unpublish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ archive }),
+      }
+    );
+  },
+
+  async pinAdminAnnouncement(
+    id: string | number,
+    pinned: boolean
+  ): Promise<{ success: boolean; announcement: Announcement }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement }>(
+      `/admin/announcements/${id}/pin`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ pinned }),
+      }
+    );
+  },
+
+  async archiveAdminAnnouncement(id: string | number): Promise<{ success: boolean; announcement: Announcement; message: string }> {
+    return await fetchApi<{ success: boolean; announcement: Announcement; message: string }>(
+      `/admin/announcements/${id}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  async getAdminAnnouncementRevisions(id: string | number): Promise<{ revisions: import('./types.ts').AnnouncementRevisionRecord[] }> {
+    return await fetchApi<{ revisions: import('./types.ts').AnnouncementRevisionRecord[] }>(
+      `/admin/announcements/${id}/revisions`
+    );
   },
 
   async createAnnouncement(data: { title: string; body: string; imageUrl?: string; category?: string }): Promise<any> {
@@ -2710,10 +2993,55 @@ export const api = {
   },
 
   async updateUserProfile(data: { name?: string; phone?: string; email?: string; avatarUrl?: string; paymentReceiving?: PaymentReceivingDetails }): Promise<any> {
-    return await fetchApi<any>('/user/profile', {
+    const res = await fetchApi<any>('/user/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    if (res?.user) setStoredUser(res.user);
+    return res;
+  },
+
+  async uploadMyAvatar(fileOrDataUrl: File | Blob | string): Promise<{ success: boolean; avatarUrl: string; user: User }> {
+    let res: { success: boolean; avatarUrl: string; user: User };
+    if (typeof fileOrDataUrl === 'string') {
+      res = await fetchApi<{ success: boolean; avatarUrl: string; user: User }>('/users/me/avatar', {
+        method: 'POST',
+        body: JSON.stringify({ dataUrl: fileOrDataUrl }),
+      });
+    } else {
+      const formData = new FormData();
+      formData.append('avatar', fileOrDataUrl, fileOrDataUrl instanceof File ? fileOrDataUrl.name : 'avatar.jpg');
+      res = await fetchApi<{ success: boolean; avatarUrl: string; user: User }>('/users/me/avatar', {
+        method: 'POST',
+        body: formData,
+      });
+    }
+    if (res?.user) setStoredUser(res.user);
+    return res;
+  },
+
+  async deleteMyAvatar(): Promise<{ success: boolean; user: User }> {
+    const res = await fetchApi<{ success: boolean; user: User }>('/users/me/avatar', {
+      method: 'DELETE',
+    });
+    if (res?.user) setStoredUser(res.user);
+    return res;
+  },
+
+  async patchMyProfile(data: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    shopName?: string;
+    shopDescription?: string;
+    avatarUrl?: string | null;
+  }): Promise<{ success: boolean; user: User }> {
+    const res = await fetchApi<{ success: boolean; user: User }>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+    if (res?.user) setStoredUser(res.user);
+    return res;
   },
 
   async addUserAddress(data: Omit<DeliveryAddress, 'id' | 'userId' | 'createdAt'>): Promise<any> {
@@ -2773,11 +3101,96 @@ export const api = {
   // PART C & D: MERCHANT SUBSCRIPTION & UPGRADE
   // -------------------------------------------------------------------
   async getSubscriptionTiers(): Promise<{ tiers: MerchantSubscriptionTier[] }> {
-    return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/merchant/subscription-tiers');
+    try {
+      return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/subscription-tiers');
+    } catch {
+      return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/merchant/subscription-tiers');
+    }
+  },
+
+  async adminUpdateSubscriptionTier(
+    id: string,
+    data: { monthlyFee?: number; yearlyFee?: number; yearlyDiscountPercent?: number }
+  ): Promise<{ success: boolean; tiers: MerchantSubscriptionTier[] }> {
+    return await fetchApi<{ success: boolean; tiers: MerchantSubscriptionTier[] }>(`/admin/subscription-tiers/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getMerchantSubscription(): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription');
   },
 
   async getMerchantSubscriptionCurrent(): Promise<any> {
     return await fetchApi<any>('/merchant/subscription/current');
+  },
+
+  async createMerchantSubscription(data: {
+    tierId: string;
+    billingPeriod?: BillingPeriod;
+    paymentMethod?: 'mpesa' | 'wallet' | 'coins';
+    mpesaCode?: string;
+    autoRenew?: boolean;
+  }): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async changeSubscriptionInterval(billingPeriod: BillingPeriod): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription/change-interval', {
+      method: 'POST',
+      body: JSON.stringify({
+        billingPeriod,
+        interval: billingPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+      }),
+    });
+  },
+
+  async cancelMerchantSubscription(): Promise<any> {
+    return await fetchApi<any>('/merchant/subscription/cancel', {
+      method: 'POST',
+    });
+  },
+
+  async getGroupProducts(groupId: number, includeDrafts = false): Promise<{
+    groupId: number;
+    canManage: boolean;
+    productsInGroup: import('./types.ts').GroupProductEntry[];
+    items: Array<import('./types.ts').GroupProductEntry & { product: Product }>;
+    products: Product[];
+  }> {
+    const q = includeDrafts ? '?includeDrafts=true' : '';
+    return await fetchApi<any>(`/groups/${groupId}/products${q}`);
+  },
+
+  async addGroupProduct(
+    groupId: number,
+    data: { productId: number; featured?: boolean; order?: number }
+  ): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/products`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateGroupProduct(
+    groupId: number,
+    productId: number,
+    data: { featured?: boolean; order?: number }
+  ): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/products/${productId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async removeGroupProduct(groupId: number, productId: number): Promise<any> {
+    return await fetchApi<any>(`/groups/${groupId}/products/${productId}`, {
+      method: 'DELETE',
+    });
   },
 
   async paySubscriptionCoins(tierId: string, paymentMethod: 'wallet_coins' | 'wallet_credit' = 'wallet_coins', billingPeriod: BillingPeriod = 'monthly'): Promise<any> {

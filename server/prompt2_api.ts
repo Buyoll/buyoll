@@ -13,83 +13,18 @@ import {
   ChamaGroup,
   Product,
 } from '../src/types.js';
+import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
+import { emitPlatformEvent } from './events.js';
+import { getComputedSubscriptionTiers, resolvePlan } from './subscriptions_api.js';
 
 export const prompt2Router = Router();
 
-// Configurable 6-Tier Subscription Plans Table (Single source of truth)
-export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
-  {
-    id: 'tier_250',
-    name: 'Micro-Merchant (KES 250)',
-    monthlyFee: 250,
-    yearlyFee: 3000,
-    maxProducts: 2,
-    maxGroupsPerProduct: 2,
-    description: 'Caters to very small businesses and solo makers.',
-    features: ['1 to 2 products max', '2 groups per product', '30-day or yearly active window'],
-  },
-  {
-    id: 'tier_500',
-    name: 'Growing Merchant (KES 500)',
-    monthlyFee: 500,
-    yearlyFee: 6000,
-    maxProducts: 10,
-    maxGroupsPerProduct: 5,
-    description: 'Ideal for growing neighborhood retailers.',
-    features: ['Up to 10 products', '5 groups per product', '30-day or yearly active window'],
-  },
-  {
-    id: 'tier_1500',
-    name: 'Pro Merchant (KES 1,500)',
-    monthlyFee: 1500,
-    yearlyFee: 18000,
-    maxProducts: 50,
-    maxGroupsPerProduct: 10,
-    description: 'For active retail businesses and popular shops.',
-    features: ['Up to 50 products', '10 groups per product', 'Priority Group matching'],
-  },
-  {
-    id: 'tier_3500',
-    name: 'Commercial (KES 3,500)',
-    monthlyFee: 3500,
-    yearlyFee: 42000,
-    maxProducts: 100,
-    maxGroupsPerProduct: 30,
-    description: 'High capacity volume sales for established stores.',
-    features: ['Up to 100 products', '30 groups per product', 'Multi-speed groups'],
-  },
-  {
-    id: 'tier_7500',
-    name: 'Enterprise Scale (KES 7,500)',
-    monthlyFee: 7500,
-    yearlyFee: 90000,
-    maxProducts: -1, // Unlimited
-    maxGroupsPerProduct: 50,
-    description: 'Unlimited catalog for major retail distributors.',
-    features: ['Unlimited products', '50 groups per product', 'Dedicated account manager'],
-  },
-  {
-    id: 'enterprise',
-    name: 'Custom Enterprise',
-    monthlyFee: 15000,
-    yearlyFee: 180000,
-    maxProducts: -1,
-    maxGroupsPerProduct: 100,
-    description: 'Custom SLA and limits set by admin.',
-    features: ['Unlimited products', 'Up to 100 groups per product', 'Custom SLA'],
-  },
-];
+// Configurable 6-Tier Subscription Plans Table (Single source of truth synced with subscriptions_api)
+export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
 
-// Helper to authenticate user from headers
+// Helper to authenticate user from headers, signed cookies, or legacy session
 async function getAuthUser(req: Request): Promise<User | null> {
-  const userIdHeader = req.headers['x-user-id'] || req.headers['authorization'];
-  if (!userIdHeader) return null;
-  const idStr = String(userIdHeader).replace(/^Bearer\s+/, '').trim();
-  const uid = Number(idStr);
-  if (isNaN(uid)) return null;
-
-  const db = await getDatabase();
-  return db.users.find((u) => u.id === uid) || null;
+  return resolveAuthenticatedUser(req);
 }
 
 export function isUserMerchant(u: User | null): boolean {
@@ -326,6 +261,7 @@ prompt2Router.put('/user/profile', async (req: Request, res: Response) => {
     const cleanAvatar = String(avatarUrl).trim();
     dbUser.avatar = cleanAvatar;
     dbUser.avatarUrl = cleanAvatar;
+    dbUser.avatarUpdatedAt = Date.now();
     // Propagate updated avatar across all Chama group slots belonging to this user
     (db.groups || []).forEach((g) => {
       (g.slots || []).forEach((s) => {
@@ -360,7 +296,10 @@ prompt2Router.put('/user/profile', async (req: Request, res: Response) => {
   logAudit(db, user.id, user.name, 'PROFILE_UPDATED', 'Updated personal profile details');
   await saveDatabase(db);
 
-  res.json({ success: true, user: dbUser, message: 'Profile details saved successfully.' });
+  const safeUser = sanitizeUser(dbUser);
+  emitPlatformEvent('user.profile.updated', { userId: dbUser.id, user: safeUser });
+
+  res.json({ success: true, user: safeUser, message: 'Profile details saved successfully.' });
 });
 
 // Address Book CRUD
@@ -539,8 +478,9 @@ prompt2Router.post('/user/recently-viewed', async (req: Request, res: Response) 
 // ----------------------------------------------------------------------
 // PART C & D: MERCHANT SUBSCRIPTION & UPGRADE ENGINE
 // ----------------------------------------------------------------------
-prompt2Router.get('/merchant/subscription-tiers', (_req: Request, res: Response) => {
-  res.json({ tiers: SUBSCRIPTION_TIERS });
+prompt2Router.get('/merchant/subscription-tiers', async (_req: Request, res: Response) => {
+  const db = await getDatabase();
+  res.json({ tiers: getComputedSubscriptionTiers(db) });
 });
 
 prompt2Router.get('/merchant/subscription/current', async (req: Request, res: Response) => {
@@ -548,13 +488,14 @@ prompt2Router.get('/merchant/subscription/current', async (req: Request, res: Re
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
   const db = await getDatabase();
+  const tiers = getComputedSubscriptionTiers(db);
   const activeSub = (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id && s.status === 'active');
   const pendingSub = (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id && s.status === 'pending');
   const now = Date.now();
 
   const isExpired = !activeSub || (activeSub.expiresAt ? activeSub.expiresAt < now : false);
   const daysRemaining = activeSub && activeSub.expiresAt && activeSub.expiresAt > now ? Math.ceil((activeSub.expiresAt - now) / 86400000) : 0;
-  const currentTier = SUBSCRIPTION_TIERS.find((t) => t.id === (activeSub?.tierId || pendingSub?.tierId)) || SUBSCRIPTION_TIERS[0];
+  const currentTier = tiers.find((t) => t.id === (activeSub?.tierId || pendingSub?.tierId)) || tiers[0];
 
   res.json({
     hasSubscription: Boolean(activeSub),
@@ -563,6 +504,8 @@ prompt2Router.get('/merchant/subscription/current', async (req: Request, res: Re
     subscription: activeSub || null,
     pendingSubscription: pendingSub || null,
     tier: currentTier,
+    autoRenew: activeSub ? activeSub.autoRenew !== false : false,
+    billingPeriod: activeSub?.billingPeriod || 'monthly',
     canUpgrade: true,
     message: pendingSub
       ? `Subscription request for ${pendingSub.tierName} (${pendingSub.paymentCode || pendingSub.paymentMethod}) is awaiting Admin verification.`
@@ -580,13 +523,14 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
   }
 
   const { tierId, paymentMethod, billingPeriod } = req.body;
-  const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
-  if (!targetTier) return res.status(400).json({ error: 'Invalid subscription tier selected' });
   const period = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
   const durationLabel = period === 'yearly' ? 'Yearly (365-day)' : '30-Day';
 
   try {
     const { newSub, merchantUser, feeAmount } = await runDatabaseTransaction(async (db) => {
+      const targetTier = resolvePlan(tierId, db);
+      if (!targetTier) throw { status: 400, message: 'Invalid subscription tier selected' };
+
       const dbMerchant = db.users.find((u) => u.id === user.id);
       if (!dbMerchant) throw { status: 404, message: 'Merchant not found' };
 
@@ -603,7 +547,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
       }
 
       const useCredit = paymentMethod === 'wallet_credit';
-      const feeAmount = period === 'yearly' ? (targetTier.yearlyFee || targetTier.monthlyFee * 12) : targetTier.monthlyFee;
+      const feeAmount = period === 'yearly' ? targetTier.yearlyFee : targetTier.monthlyFee;
       const now = Date.now();
 
       if (useCredit) {
@@ -735,11 +679,7 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
   }
 
   const { tierId, paymentCode, amount, channel, billingPeriod } = req.body;
-  const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId);
-  if (!targetTier) return res.status(400).json({ error: 'Invalid tier' });
-
   const period = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-  const expectedFee = period === 'yearly' ? (targetTier.yearlyFee || targetTier.monthlyFee * 12) : targetTier.monthlyFee;
   const durationLabel = period === 'yearly' ? 'Yearly (365-day)' : '30-Day';
 
   const code = String(paymentCode || '').trim().toUpperCase();
@@ -747,6 +687,9 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
 
   try {
     const subRecord = await runDatabaseTransaction(async (db) => {
+      const targetTier = resolvePlan(String(tierId || ''), db);
+      if (!targetTier) throw { status: 400, message: 'Invalid tier' };
+      const expectedFee = period === 'yearly' ? targetTier.yearlyFee : targetTier.monthlyFee;
       // Prevent duplicate payment codes across payments and active/pending subscriptions
       const codeExists = (db.payments || []).some((p) => p.code === code && (p.status === 'pending' || p.status === 'approved'));
       const subCodeExists = (db.merchantSubscriptions || []).some((s) => s.paymentCode === code && (s.status === 'pending' || s.status === 'active'));

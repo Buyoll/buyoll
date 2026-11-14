@@ -46,13 +46,9 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 .nav a:hover{color:var(--orange)}
 .nav a.on{color:var(--orange);border-color:var(--orange);background:var(--surface)}
 
-/* admin overlay (demo only) */
+/* promo restore bar */
 .bar{max-width:1280px;margin:16px auto;padding:0 24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;color:var(--muted)}
-.bar label{display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--text)}
 .bar button{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:6px;padding:5px 12px;cursor:pointer}
-[data-admin]{position:relative}
-body.adm [data-admin]{outline:2px dashed var(--admin);outline-offset:-2px}
-body.adm [data-admin]::after{content:"Admin: " attr(data-admin);position:absolute;top:0;left:0;background:var(--admin);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:0 0 4px 0;z-index:5;pointer-events:none;white-space:nowrap}
 
 @media (max-width:760px){
  .main .wrap{flex-wrap:wrap;height:auto;padding:10px 24px;gap:12px}.box{order:3;flex-basis:100%;max-width:none}.logo{margin-right:auto}
@@ -62,7 +58,7 @@ body.adm [data-admin]::after{content:"Admin: " attr(data-admin);position:absolut
 </head>
 <body>
 <header class="hdr">
-  <div class="promo" id="promo" data-admin="Promo banner · text, dates, link, on/off"><div class="wrap">
+  <div class="promo" id="promo"><div class="wrap">
     <b>Buyoll</b><span class="big">11.11</span><b>Mega Sale · up to 15% off</b><a class="tag" href="#">Join the sale</a>
     <button class="x" aria-label="Close banner" onclick="promo.hidden=true"><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div></div>
@@ -78,7 +74,7 @@ body.adm [data-admin]::after{content:"Admin: " attr(data-admin);position:absolut
   </div></div>
 
   <nav class="nav"><div class="wrap">
-    <a href="#" class="on" data-admin="Announcements & Notices · written by admin"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 010 6"/></svg>Announcements</a>
+    <a href="#" class="on"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 010 6"/></svg>Announcements</a>
     <a href="#"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.2 0 4 1.8 4 4"/></svg>My Groups</a>
     <a href="#"><svg viewBox="0 0 24 24"><path d="M4 9l1-5h14l1 5M4 9v11h16V9M4 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3"/></svg>Merchant</a>
     <a href="#"><svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>Lender</a>
@@ -87,7 +83,6 @@ body.adm [data-admin]::after{content:"Admin: " attr(data-admin);position:absolut
 </header>
 
 <div class="bar">
-  <label><input type="checkbox" onchange="document.body.classList.toggle('adm',this.checked)"> Show admin-managed areas</label>
   <button onclick="promo.hidden=false">Restore banner</button>
 </div>
 </body>

@@ -44,6 +44,7 @@ interface ProfilePageProps {
   onOpenAuth: () => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
   onUserUpdate?: (user?: User) => void;
+  onProfileUpdate?: (user?: Partial<User> | User | null) => void;
 }
 
 type ProfileTab =
@@ -65,6 +66,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onOpenAuth,
   onNotify,
   onUserUpdate,
+  onProfileUpdate,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab as ProfileTab);
   const [loading, setLoading] = useState(true);
@@ -134,7 +136,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const res = await api.registerRole(role, details);
       onNotify('success', res.message || `Registered as ${role}!`);
       setShowRoleModal(null);
-      window.location.reload();
+      if (res?.user) {
+        onProfileUpdate?.(res.user);
+        onUserUpdate?.(res.user);
+      }
+      const nextHome = getRoleHomeRoute(role);
+      onNavigate(nextHome.view, nextHome.arg);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to register role');
     } finally {
@@ -198,13 +205,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     e.preventDefault();
     setSavingPersonal(true);
     try {
-      const res = await api.updateUserProfile({
-        name: editName.trim(),
-        phone: editPhone.trim(),
-        email: editEmail.trim(),
-        avatarUrl: editAvatarUrl.trim(),
-      });
+      let res: any;
+      try {
+        res = await api.patchMyProfile({
+          name: editName.trim(),
+          phone: editPhone.trim(),
+          email: editEmail.trim() || undefined,
+          avatarUrl: editAvatarUrl.trim() || null,
+        });
+      } catch (patchErr: any) {
+        if (patchErr?.status === 409 || patchErr?.status === 422) {
+          throw patchErr;
+        }
+        res = await api.updateUserProfile({
+          name: editName.trim(),
+          phone: editPhone.trim(),
+          email: editEmail.trim(),
+          avatarUrl: editAvatarUrl.trim(),
+        });
+      }
       onNotify('success', 'Profile personal details updated successfully.');
+      onProfileUpdate?.(res?.user);
       onUserUpdate?.(res?.user);
       loadProfileData();
     } catch (err: any) {
@@ -334,21 +355,31 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     if (!capturedPhotoDataUrl) return;
     setSavingCameraPhoto(true);
     try {
-      const res = await api.updateUserProfile({
-        name: (editName || currentUser?.name || '').trim(),
-        phone: (editPhone || currentUser?.phone || '').trim(),
-        email: (editEmail || currentUser?.email || '').trim(),
-        avatarUrl: capturedPhotoDataUrl,
-      });
-      setEditAvatarUrl(capturedPhotoDataUrl);
+      const res = await api.uploadMyAvatar(capturedPhotoDataUrl);
+      const nextUrl = res?.avatarUrl || res?.user?.avatarUrl || res?.user?.avatar || capturedPhotoDataUrl;
+      setEditAvatarUrl(nextUrl);
+      onProfileUpdate?.(res?.user);
       onUserUpdate?.(res?.user);
-      onNotify('success', 'Profile photo updated from camera!');
+      onNotify('success', 'Profile photo updated!');
       closeCameraModal();
       loadProfileData();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to save profile photo');
     } finally {
       setSavingCameraPhoto(false);
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    try {
+      const res = await api.deleteMyAvatar();
+      setEditAvatarUrl('');
+      onProfileUpdate?.(res?.user);
+      onUserUpdate?.(res?.user);
+      onNotify('success', 'Profile photo removed.');
+      loadProfileData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to remove profile photo');
     }
   }
 
@@ -1684,12 +1715,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         className="px-3.5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
                       >
                         <Camera className="w-3.5 h-3.5" />
-                        <span>Take Photo with Camera</span>
+                        <span>Take / Upload Photo</span>
                       </button>
                       {editAvatarUrl && (
                         <button
                           type="button"
-                          onClick={() => setEditAvatarUrl('')}
+                          onClick={handleRemoveAvatar}
                           className="px-3 py-2 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold rounded-lg cursor-pointer"
                         >
                           Remove

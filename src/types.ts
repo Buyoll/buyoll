@@ -89,6 +89,14 @@ export interface User {
   lenderLocation?: string;
   verification_status?: 'pending' | 'approved';
   preferences?: UserPreferences;
+  username?: string;
+  avatarUpdatedAt?: number;
+  restrictedLoanBalance?: number;
+  failedLoginCount?: number;
+  lockedUntil?: number;
+  tokenVersion?: number;
+  emailVerifiedAt?: number;
+  phoneVerifiedAt?: number;
   lastActive: number;
   createdAt: number;
 }
@@ -133,6 +141,7 @@ export interface Product {
   vendorName: string;
   isFeatured?: boolean;
   live: boolean;
+  status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   publicationStatus?: 'draft' | 'posted';
   publishedAt?: number | null;
   paymentReceiving?: PaymentReceivingDetails;
@@ -177,6 +186,7 @@ export interface GroupSlot {
   dailyPaymentRecords?: DailyPaymentRecord[];
   lastPaymentDate?: number;
   joinedAt?: number;
+  memberCode?: string | null;
   referredByCode?: string | null;
   isDefaulter?: boolean;
   // Chama Priority and Payout Logic Engine
@@ -306,6 +316,15 @@ export interface ChamaGroup {
   lenderJoinedAt?: number | null;
   // Invite-only and Entry requests
   isInviteOnly?: boolean;
+  joinPolicy?: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY';
+  maxMembers?: number;
+  productsInGroup?: Array<{
+    productId: number;
+    addedBy: number;
+    addedAt: number;
+    isFeatured?: boolean;
+    sortOrder?: number;
+  }>;
   inviteRequests?: GroupInviteRequest[];
   // Chama activity feed
   activities?: ChamaActivityItem[];
@@ -502,11 +521,21 @@ export interface PeerLoanRequest {
   fundedByUserName?: string;
   lenderName?: string;
   fundedAt?: number;
-  platformFeePercent: number; // 3% of amount
-  platformFeeAmount: number; // 3% of amount
+  platformFeePercent: number;
+  platformFeeAmount: number;
   platformFeePaymentCode?: string;
   platformFeeStatus: 'pending' | 'submitted' | 'approved' | 'paid';
   externalAgreementAcknowledged: boolean;
+  borrowerCode?: string;
+  lenderId?: number | null;
+  productId?: number;
+  feeRate?: number;
+  platformFeeCents?: number;
+  netDisbursedCents?: number;
+  netDisbursedAmount?: number;
+  contactedAt?: number | null;
+  contactedBy?: number | null;
+  lenderIdempotencyKey?: string;
 }
 
 export interface MemberStatement {
@@ -547,16 +576,49 @@ export interface AuditLog {
   details: string;
 }
 
+export type AnnouncementType = 'NOTICE' | 'ANNOUNCEMENT' | 'PROMOTION';
+export type AnnouncementAudience = 'ALL' | 'MEMBERS' | 'MERCHANTS';
+export type AnnouncementLifecycleStatus = 'DRAFT' | 'PUBLISHED' | 'SCHEDULED' | 'ARCHIVED';
+
 export interface Announcement {
   id: string | number;
   title: string;
   body: string;
   imageUrl?: string;
   category?: string;
+  type?: AnnouncementType;
+  audience?: AnnouncementAudience;
+  status?: AnnouncementLifecycleStatus;
+  pinned?: boolean;
+  startsAt?: number | null;
+  endsAt?: number | null;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  publishedAt?: number | null;
+  archivedAt?: number | null;
+  createdBy?: number;
+  updatedBy?: number;
+  version?: number;
   createdAt: number;
   updatedAt?: number;
   authorId?: number;
   authorName?: string;
+}
+
+export interface AnnouncementDismissal {
+  id: string;
+  announcementId: string | number;
+  userId: number;
+  dismissedAt: number;
+}
+
+export interface AnnouncementRevisionRecord {
+  id: string;
+  announcementId: string | number;
+  snapshot: Partial<Announcement>;
+  changedBy: number;
+  changedByName: string;
+  changedAt: number;
 }
 
 export interface SupportTicketReply {
@@ -630,6 +692,7 @@ export interface MerchantSubscriptionTier {
   name: string;
   monthlyFee: number;
   yearlyFee?: number;
+  yearlyDiscountPercent?: number;
   maxProducts: number; // -1 for unlimited
   maxGroupsPerProduct: number;
   description: string;
@@ -672,14 +735,78 @@ export interface MerchantSubscriptionRecord {
   tierId: string;
   tierName: string;
   billingPeriod?: BillingPeriod;
+  billingInterval?: 'MONTHLY' | 'YEARLY';
+  autoRenew?: boolean;
+  canceledAt?: number | null;
+  currentPeriodEnd?: number | null;
   amount: number;
   paymentMethod: 'wallet_coins' | 'wallet_credit' | 'mpesa_till_paybill';
   paymentCode?: string;
-  status: 'pending' | 'active' | 'expired' | 'declined';
+  status: 'pending' | 'active' | 'expired' | 'declined' | 'cancelled';
   startDate?: number;
   expiresAt?: number;
   createdAt: number;
   notes?: string;
+}
+
+export interface GroupJoinRequest {
+  id: string;
+  groupId: number;
+  userId: number;
+  userName: string;
+  userPhone?: string;
+  note?: string;
+  referralCode?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  reviewedBy?: number | null;
+  reviewedAt?: number | null;
+  reason?: string;
+  createdAt: number;
+}
+
+export interface GroupLenderAuthorization {
+  id: string;
+  groupId: number;
+  userId: number;
+  userName: string;
+  userPhone?: string;
+  authorizedBy: number;
+  authorizedByName: string;
+  status: 'ACTIVE' | 'REVOKED';
+  createdAt: number;
+  revokedAt?: number | null;
+}
+
+export interface PlatformFeeEntry {
+  id: string;
+  loanId: number;
+  groupId: number;
+  lenderId: number;
+  borrowerId: number;
+  grossAmountCents: number;
+  feeRate: number;
+  feeAmountCents: number;
+  netAmountCents: number;
+  createdAt: number;
+}
+
+export interface RefreshTokenRecord {
+  id: string;
+  userId: number;
+  tokenHash: string;
+  rememberMe: boolean;
+  expiresAt: number;
+  revokedAt?: number | null;
+  createdAt: number;
+}
+
+export interface PasswordResetRecord {
+  id: string;
+  userId: number;
+  tokenHash: string;
+  expiresAt: number;
+  usedAt?: number | null;
+  createdAt: number;
 }
 
 export interface SubscriptionRequest {

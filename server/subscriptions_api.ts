@@ -1,16 +1,22 @@
 import { Router, Request, Response } from 'express';
-import { getDatabase, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
+import { z } from 'zod';
+import { getDatabase, DatabaseSchema, logAudit, runDatabaseTransaction } from './db.js';
 import { User, SubscriptionRequest, MerchantSubscriptionTier } from '../src/types.js';
+import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
+import { sendApiError, sendZodError } from './errors.js';
+import { emitPlatformEvent } from './events.js';
 
 export const subscriptionsRouter = Router();
 
 // Standard 6-Tier Merchant Subscription Catalog (Single source of truth)
+// Yearly pricing reflects ~17% annual discount (2 months free compared to 12x monthly)
 export const SUBSCRIPTION_PLANS: Array<{
   id: string;
   key: string;
   name: string;
   monthlyFee: number;
   yearlyFee: number;
+  yearlyDiscountPercent: number;
   maxProducts: number;
   maxGroupsPerProduct: number;
   description: string;
@@ -21,7 +27,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'micro',
     name: 'Micro-Merchant',
     monthlyFee: 250,
-    yearlyFee: 3000,
+    yearlyFee: 2500,
+    yearlyDiscountPercent: 17,
     maxProducts: 2,
     maxGroupsPerProduct: 2,
     description: 'Caters to very small businesses and solo makers.',
@@ -32,7 +39,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'growing',
     name: 'Growing Merchant',
     monthlyFee: 500,
-    yearlyFee: 6000,
+    yearlyFee: 5000,
+    yearlyDiscountPercent: 17,
     maxProducts: 10,
     maxGroupsPerProduct: 5,
     description: 'Ideal for growing neighborhood retailers.',
@@ -43,7 +51,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'pro',
     name: 'Pro Merchant',
     monthlyFee: 1500,
-    yearlyFee: 18000,
+    yearlyFee: 15000,
+    yearlyDiscountPercent: 17,
     maxProducts: 50,
     maxGroupsPerProduct: 10,
     description: 'For active retail businesses and popular shops.',
@@ -54,7 +63,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'commercial',
     name: 'Commercial',
     monthlyFee: 3500,
-    yearlyFee: 42000,
+    yearlyFee: 35000,
+    yearlyDiscountPercent: 17,
     maxProducts: 100,
     maxGroupsPerProduct: 30,
     description: 'High capacity volume sales for established stores.',
@@ -65,7 +75,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'enterprise',
     name: 'Enterprise Scale',
     monthlyFee: 7500,
-    yearlyFee: 90000,
+    yearlyFee: 75000,
+    yearlyDiscountPercent: 17,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 50,
     description: 'Unlimited catalog for major retail distributors.',
@@ -76,7 +87,8 @@ export const SUBSCRIPTION_PLANS: Array<{
     key: 'custom',
     name: 'Custom Enterprise',
     monthlyFee: 15000,
-    yearlyFee: 180000,
+    yearlyFee: 150000,
+    yearlyDiscountPercent: 17,
     maxProducts: -1, // Unlimited
     maxGroupsPerProduct: 100,
     description: 'Custom SLA and limits set by Buyoll Admin.',
@@ -84,14 +96,53 @@ export const SUBSCRIPTION_PLANS: Array<{
   },
 ];
 
-export function resolvePlan(keyOrId: string) {
+export function computeYearlyDiscountPercent(monthlyFee: number, yearlyFee: number): number {
+  const annualBaseline = monthlyFee * 12;
+  if (!annualBaseline || yearlyFee >= annualBaseline) return 0;
+  return Math.max(0, Math.round(((annualBaseline - yearlyFee) / annualBaseline) * 100));
+}
+
+export function getComputedSubscriptionTiers(db?: DatabaseSchema): MerchantSubscriptionTier[] {
+  const overrides = db?.tierOverrides || {};
+  return SUBSCRIPTION_PLANS.map((plan) => {
+    const ov = overrides[plan.id] || {};
+    const monthlyFee = typeof ov.monthlyFee === 'number' && ov.monthlyFee > 0 ? ov.monthlyFee : plan.monthlyFee;
+    let yearlyFee = typeof ov.yearlyFee === 'number' && ov.yearlyFee > 0 ? ov.yearlyFee : plan.yearlyFee;
+    if (typeof ov.yearlyDiscountPercent === 'number' && ov.yearlyDiscountPercent >= 0 && ov.yearlyDiscountPercent <= 90 && typeof ov.yearlyFee !== 'number') {
+      yearlyFee = Math.round(monthlyFee * 12 * (1 - ov.yearlyDiscountPercent / 100));
+    }
+    const yearlyDiscountPercent =
+      typeof ov.yearlyDiscountPercent === 'number' && typeof ov.yearlyFee !== 'number'
+        ? Math.round(ov.yearlyDiscountPercent)
+        : computeYearlyDiscountPercent(monthlyFee, yearlyFee);
+    return {
+      id: plan.id as MerchantSubscriptionTier['id'],
+      name: plan.name,
+      monthlyFee,
+      yearlyFee,
+      yearlyDiscountPercent,
+      maxProducts: plan.maxProducts,
+      maxGroupsPerProduct: plan.maxGroupsPerProduct,
+      description: plan.description,
+      features: plan.features,
+    };
+  });
+}
+
+export function resolvePlan(keyOrId: string, db?: DatabaseSchema) {
   if (!keyOrId) return null;
   const norm = String(keyOrId).toLowerCase().trim();
-  return (
-    SUBSCRIPTION_PLANS.find(
-      (p) => p.id.toLowerCase() === norm || p.key.toLowerCase() === norm
-    ) || null
+  const base = SUBSCRIPTION_PLANS.find(
+    (p) => p.id.toLowerCase() === norm || p.key.toLowerCase() === norm
   );
+  if (!base) return null;
+  const computed = getComputedSubscriptionTiers(db).find((t) => t.id === base.id);
+  return {
+    ...base,
+    monthlyFee: computed?.monthlyFee ?? base.monthlyFee,
+    yearlyFee: computed?.yearlyFee ?? base.yearlyFee,
+    yearlyDiscountPercent: computed?.yearlyDiscountPercent ?? base.yearlyDiscountPercent,
+  };
 }
 
 // In-memory sliding window rate limiter: 5 requests per 60s per user ID
@@ -110,35 +161,9 @@ function checkRateLimit(userId: number, maxReqs = 5, windowMs = 60000): boolean 
   return true;
 }
 
-// Helper to authenticate user from headers or cookies
+// Helper to authenticate user from headers, signed cookies, or legacy session
 async function getAuthUser(req: Request): Promise<User | null> {
-  const userIdHeader = req.headers['x-user-id'] || req.headers['authorization'];
-  let uid: number | null = null;
-
-  if (userIdHeader) {
-    const idStr = String(userIdHeader).replace(/^Bearer\s+/, '').trim();
-    const parsed = Number(idStr);
-    if (!isNaN(parsed) && parsed > 0) uid = parsed;
-  }
-
-  const db = await getDatabase();
-
-  // Also check cookie session token if header is not present
-  if (!uid && req.headers.cookie) {
-    const cookies = Object.fromEntries(
-      req.headers.cookie.split(';').map((c) => {
-        const [k, ...v] = c.trim().split('=');
-        return [k, decodeURIComponent(v.join('='))];
-      })
-    );
-    if (cookies.buyoll_session) {
-      const sessUser = db.users.find((u) => u.sessionToken === cookies.buyoll_session);
-      if (sessUser) return sessUser;
-    }
-  }
-
-  if (!uid) return null;
-  return db.users.find((u) => u.id === uid) || null;
+  return resolveAuthenticatedUser(req);
 }
 
 function isUserAdmin(u: User | null): boolean {
@@ -281,7 +306,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         }
       }
 
-      const amountExpected = normalizedPeriod === 'yearly' ? targetPlan.yearlyFee : targetPlan.monthlyFee; // DERIVED SERVER-SIDE FROM PLAN CATALOG
+      const effectivePlan = resolvePlan(targetPlan.id, db) || targetPlan;
+      const amountExpected = normalizedPeriod === 'yearly' ? effectivePlan.yearlyFee : effectivePlan.monthlyFee; // DERIVED SERVER-SIDE FROM PLAN CATALOG
 
       // METHOD A: M-PESA TILL / PAYBILL (Creates Pending Request for Admin Review)
       if (normalizedMethod === 'mpesa') {
@@ -312,6 +338,9 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           tierId: targetPlan.id,
           tierName: targetPlan.name,
           billingPeriod: normalizedPeriod,
+          billingInterval: normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+          autoRenew: true,
+          canceledAt: null,
           amount: amountExpected,
           paymentMethod: 'mpesa_till_paybill',
           paymentCode: cleanedCode,
@@ -334,7 +363,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           createdAt: now,
           verifiedAt: null,
           verifiedBy: null,
-          notes: `Subscription request for ${targetPlan.name}. Code: ${cleanedCode}. Pending Admin Approval.`,
+          notes: `Subscription request for ${targetPlan.name} (${durationLabel}). Code: ${cleanedCode}. Pending Admin Approval.`,
         });
 
         merchantUser.merchantSubscriptionStatus = 'pending_verification';
@@ -344,7 +373,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: user.id,
           title: `⏳ Subscription Code Submitted: ${targetPlan.name}`,
-          message: `M-Pesa confirmation code ${cleanedCode} for KSh ${amountExpected.toLocaleString()} submitted. Admin will verify against statements and activate your store for 30 days.`,
+          message: `M-Pesa confirmation code ${cleanedCode} for KSh ${amountExpected.toLocaleString()} (${durationLabel}) submitted. Admin will verify against statements and activate your store for ${durationLabel}.`,
           type: 'payment',
           read: false,
           timestamp: now,
@@ -444,6 +473,10 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           tierId: targetPlan.id,
           tierName: targetPlan.name,
           billingPeriod: normalizedPeriod,
+          billingInterval: normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+          autoRenew: true,
+          canceledAt: null,
+          currentPeriodEnd: expiresAt,
           amount: amountExpected,
           paymentMethod: 'wallet_credit',
           status: 'active',
@@ -539,6 +572,10 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           tierId: targetPlan.id,
           tierName: targetPlan.name,
           billingPeriod: normalizedPeriod,
+          billingInterval: normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+          autoRenew: true,
+          canceledAt: null,
+          currentPeriodEnd: expiresAt,
           amount: amountExpected,
           paymentMethod: 'wallet_coins',
           status: 'active',
@@ -966,5 +1003,390 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/reject', async (req:
     return res.status(err.status || 500).json({
       error: { code: err.code || 'SERVER_ERROR', message: err.message || 'Failed to reject subscription request' },
     });
+  }
+});
+
+// ======================================================================
+// 6. ITEM 2: UNIFIED SUBSCRIPTION TIERS & YEARLY BILLING LIFECYCLE
+// ======================================================================
+
+subscriptionsRouter.get('/subscription-tiers', async (_req: Request, res: Response) => {
+  const db = await getDatabase();
+  const tiers = getComputedSubscriptionTiers(db);
+  return res.json({ tiers });
+});
+
+const AdminUpdateTierSchema = z.object({
+  monthlyFee: z.coerce.number().int().positive().max(1000000).optional(),
+  yearlyFee: z.coerce.number().int().positive().max(12000000).optional(),
+  yearlyDiscountPercent: z.coerce.number().min(0).max(90).optional(),
+});
+
+subscriptionsRouter.patch('/admin/subscription-tiers/:id', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!isUserAdmin(user)) return sendApiError(res, 403, 'FORBIDDEN', 'Administrator access required');
+
+  const tierId = String(req.params.id || '').trim();
+  const parsed = AdminUpdateTierSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendZodError(res, parsed.error);
+
+  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === tierId || p.key === tierId);
+  if (!plan) return sendApiError(res, 404, 'NOT_FOUND', 'Subscription tier not found');
+
+  const { tier: updatedTier, tiers: updatedTiers } = await runDatabaseTransaction(async (db) => {
+    if (!db.tierOverrides) db.tierOverrides = {};
+    const existing = db.tierOverrides[plan.id] || {};
+    const nextOverride = { ...existing, ...parsed.data };
+    db.tierOverrides[plan.id] = nextOverride;
+    const tiers = getComputedSubscriptionTiers(db);
+    const tier = tiers.find((t) => t.id === plan.id)!;
+    logAudit(
+      db,
+      user.id,
+      user.name,
+      'SUBSCRIPTION_TIER_UPDATED',
+      `Updated ${plan.name}: KSh ${tier.monthlyFee}/mo, KSh ${tier.yearlyFee}/yr (${tier.yearlyDiscountPercent}% savings)`
+    );
+    return { tier, tiers };
+  });
+
+  emitPlatformEvent('subscription.updated', { tier: updatedTier, tiers: updatedTiers });
+  return res.json({ success: true, tier: updatedTier, tiers: updatedTiers });
+});
+
+subscriptionsRouter.get('/merchant/subscription', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+
+  const db = await getDatabase();
+  const tiers = getComputedSubscriptionTiers(db);
+  const now = Date.now();
+  const activeSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+  );
+  const pendingSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === user.id && s.status === 'pending'
+  );
+  const latestSub = activeSub || (db.merchantSubscriptions || []).find((s) => s.merchantId === user.id) || null;
+  const tier = tiers.find((t) => t.id === (activeSub?.tierId || pendingSub?.tierId || latestSub?.tierId)) || tiers[0];
+  const billingPeriod = activeSub?.billingPeriod || (activeSub?.billingInterval === 'YEARLY' ? 'yearly' : 'monthly');
+  const daysRemaining =
+    activeSub?.expiresAt && activeSub.expiresAt > now
+      ? Math.max(0, Math.ceil((activeSub.expiresAt - now) / 86400000))
+      : 0;
+
+  return res.json({
+    hasSubscription: Boolean(activeSub),
+    isExpired: !activeSub,
+    daysRemaining,
+    billingPeriod,
+    billingInterval: billingPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+    autoRenew: activeSub ? activeSub.autoRenew !== false : false,
+    nextRenewalDate: activeSub?.expiresAt || null,
+    canceledAt: activeSub?.canceledAt || null,
+    subscription: activeSub || latestSub,
+    pendingSubscription: pendingSub || null,
+    tier,
+    tiers,
+  });
+});
+
+const CreateMerchantSubscriptionSchema = z.object({
+  tierId: z.string().min(1).optional(),
+  planId: z.string().min(1).optional(),
+  interval: z.enum(['MONTHLY', 'YEARLY', 'monthly', 'yearly']).optional(),
+  billingPeriod: z.enum(['monthly', 'yearly']).optional(),
+  paymentMethod: z.enum(['mpesa', 'wallet', 'coins', 'wallet_credit', 'wallet_coins']).default('wallet'),
+  mpesaCode: z.string().optional(),
+  autoRenew: z.boolean().optional(),
+});
+
+subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!isUserMerchant(user) && !isUserAdmin(user)) {
+    return sendApiError(res, 403, 'FORBIDDEN', 'Only merchants can subscribe to a merchant plan');
+  }
+
+  const parsed = CreateMerchantSubscriptionSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendZodError(res, parsed.error);
+
+  const data = parsed.data;
+  const planKeyOrId = data.tierId || data.planId;
+  if (!planKeyOrId) {
+    return sendApiError(res, 400, 'VALIDATION_ERROR', 'tierId or planId is required', { tierId: 'Select a subscription tier' });
+  }
+
+  const normalizedPeriod: 'monthly' | 'yearly' =
+    (data.billingPeriod || data.interval || 'monthly').toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
+  const normalizedMethod: 'mpesa' | 'wallet' | 'coins' =
+    data.paymentMethod === 'wallet' || data.paymentMethod === 'wallet_credit'
+      ? 'wallet'
+      : data.paymentMethod === 'coins' || data.paymentMethod === 'wallet_coins'
+      ? 'coins'
+      : 'mpesa';
+
+  const cleanedCode = data.mpesaCode ? data.mpesaCode.trim().toUpperCase() : undefined;
+  if (normalizedMethod === 'mpesa' && (!cleanedCode || !/^[A-Z0-9]{10}$/.test(cleanedCode))) {
+    return sendApiError(
+      res,
+      422,
+      'INVALID_MPESA_CODE',
+      'Enter the 10-character M-Pesa code, e.g. QGH7K2L9MN (letters and digits only).',
+      { mpesaCode: '10-character M-Pesa code required' }
+    );
+  }
+
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      const targetPlan = resolvePlan(planKeyOrId, db);
+      if (!targetPlan) {
+        throw { status: 422, code: 'INVALID_PLAN', message: 'Invalid merchant subscription tier.' };
+      }
+
+      const merchantUser = db.users.find((u) => u.id === user.id);
+      if (!merchantUser) throw { status: 404, code: 'NOT_FOUND', message: 'Merchant account not found.' };
+
+      const now = Date.now();
+      if (!db.subscriptionRequests) db.subscriptionRequests = [];
+      if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
+      if (!db.payments) db.payments = [];
+      if (!db.userNotifications) db.userNotifications = [];
+
+      const hasActiveCycle =
+        db.merchantSubscriptions.some((s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now) ||
+        Boolean(merchantUser.merchantSubscriptionStatus === 'active' && merchantUser.merchantSubscriptionExpiresAt && merchantUser.merchantSubscriptionExpiresAt > now);
+
+      if (hasActiveCycle) {
+        throw {
+          status: 409,
+          code: 'ACTIVE_CYCLE_EXISTS',
+          message: 'An active subscription cycle already exists. Use change-interval to switch between Monthly and Yearly.',
+        };
+      }
+
+      const amountExpected = normalizedPeriod === 'yearly' ? targetPlan.yearlyFee : targetPlan.monthlyFee;
+      const durationDays = normalizedPeriod === 'yearly' ? 365 : 30;
+      const expiresAt = now + durationDays * 86400000;
+      const billingInterval = normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY';
+
+      if (normalizedMethod === 'wallet') {
+        const walletCredit = merchantUser.roleWallets?.merchant?.credit ?? merchantUser.credit ?? 0;
+        if (walletCredit < amountExpected) {
+          throw {
+            status: 400,
+            code: 'INSUFFICIENT_BALANCE',
+            message: `Insufficient merchant wallet balance. Need KSh ${amountExpected.toLocaleString()}, available KSh ${walletCredit.toLocaleString()}.`,
+          };
+        }
+        if (!merchantUser.roleWallets) merchantUser.roleWallets = {};
+        if (!merchantUser.roleWallets.merchant) merchantUser.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
+        merchantUser.roleWallets.merchant.credit = Math.max(0, walletCredit - amountExpected);
+        if ((merchantUser.activeRole || merchantUser.role) === 'merchant') {
+          merchantUser.credit = merchantUser.roleWallets.merchant.credit;
+        }
+        if (!db.storeCreditLedger) db.storeCreditLedger = [];
+        db.storeCreditLedger.unshift({
+          id: db.nextIds.ledger++,
+          userId: merchantUser.id,
+          amount: -amountExpected,
+          balanceAfter: merchantUser.roleWallets.merchant.credit,
+          type: 'transfer_out',
+          referenceId: `SUB-${now}`,
+          note: `Merchant ${normalizedPeriod} subscription for ${targetPlan.name}`,
+          createdAt: now,
+        });
+      } else if (normalizedMethod === 'coins') {
+        if ((merchantUser.coins || 0) < amountExpected) {
+          throw {
+            status: 400,
+            code: 'INSUFFICIENT_COINS',
+            message: `Insufficient coins. Need ${amountExpected}, available ${merchantUser.coins || 0}.`,
+          };
+        }
+        merchantUser.coins = (merchantUser.coins || 0) - amountExpected;
+      }
+
+      const isInstant = normalizedMethod !== 'mpesa';
+      const subId = `sub_${now}_${Math.random().toString(36).substring(2, 6)}`;
+      const reqRecord: SubscriptionRequest = {
+        id: subId,
+        merchantId: user.id,
+        merchantName: merchantUser.name,
+        shopName: merchantUser.shopName || merchantUser.name,
+        phone: merchantUser.phone,
+        email: merchantUser.email,
+        planId: targetPlan.id,
+        planKey: targetPlan.key,
+        planName: targetPlan.name,
+        billingPeriod: normalizedPeriod,
+        amountExpected,
+        paymentMethod: normalizedMethod,
+        mpesaCode: cleanedCode,
+        status: isInstant ? 'approved' : 'pending',
+        createdAt: now,
+        updatedAt: now,
+      };
+      db.subscriptionRequests.unshift(reqRecord);
+
+      const subRecord = {
+        id: subId,
+        merchantId: user.id,
+        tierId: targetPlan.id,
+        tierName: targetPlan.name,
+        billingPeriod: normalizedPeriod,
+        billingInterval: billingInterval as 'MONTHLY' | 'YEARLY',
+        autoRenew: data.autoRenew !== false,
+        canceledAt: null,
+        currentPeriodEnd: isInstant ? expiresAt : null,
+        amount: amountExpected,
+        paymentMethod: (normalizedMethod === 'wallet'
+          ? 'wallet_credit'
+          : normalizedMethod === 'coins'
+          ? 'wallet_coins'
+          : 'mpesa_till_paybill') as 'wallet_credit' | 'wallet_coins' | 'mpesa_till_paybill',
+        paymentCode: cleanedCode,
+        status: (isInstant ? 'active' : 'pending') as 'active' | 'pending',
+        startDate: isInstant ? now : undefined,
+        expiresAt: isInstant ? expiresAt : undefined,
+        createdAt: now,
+      };
+      db.merchantSubscriptions.unshift(subRecord);
+
+      if (isInstant) {
+        merchantUser.merchantSubscriptionStatus = 'active';
+        merchantUser.merchantSubscriptionPlan = targetPlan.id as any;
+        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
+        merchantUser.verified = true;
+        merchantUser.verifiedAt = now;
+      } else {
+        merchantUser.merchantSubscriptionStatus = 'pending_verification';
+      }
+
+      logAudit(
+        db,
+        user.id,
+        user.name,
+        'MERCHANT_SUBSCRIPTION_CREATED',
+        `Created ${normalizedPeriod} subscription (${targetPlan.name}, KSh ${amountExpected}) via ${normalizedMethod}`
+      );
+
+      return { request: reqRecord, subscription: subRecord, user: sanitizeUser(merchantUser) };
+    });
+
+    return res.status(201).json({
+      success: true,
+      request: result.request,
+      subscription: result.subscription,
+      user: result.user,
+      message: `Subscription ${result.subscription.status === 'active' ? 'activated' : 'submitted for admin approval'}.`,
+    });
+  } catch (err: any) {
+    return sendApiError(res, err.status || 500, err.code || 'SUBSCRIPTION_ERROR', err.message || 'Subscription failed');
+  }
+});
+
+const ChangeIntervalSchema = z.object({
+  interval: z.enum(['MONTHLY', 'YEARLY', 'monthly', 'yearly']).optional(),
+  billingPeriod: z.enum(['monthly', 'yearly']).optional(),
+});
+
+subscriptionsRouter.post('/merchant/subscription/change-interval', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!isUserMerchant(user) && !isUserAdmin(user)) {
+    return sendApiError(res, 403, 'FORBIDDEN', 'Only merchants can change billing interval');
+  }
+
+  const parsed = ChangeIntervalSchema.safeParse(req.body || {});
+  if (!parsed.success) return sendZodError(res, parsed.error);
+
+  const rawInterval = parsed.data.billingPeriod || parsed.data.interval;
+  if (!rawInterval) {
+    return sendApiError(res, 400, 'VALIDATION_ERROR', 'billingPeriod or interval (monthly/yearly) is required');
+  }
+  const targetPeriod: 'monthly' | 'yearly' = rawInterval.toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
+  const targetInterval = targetPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY';
+
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      const now = Date.now();
+      const activeSub = (db.merchantSubscriptions || []).find(
+        (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+      );
+      if (!activeSub) {
+        throw { status: 404, code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active merchant subscription found to update.' };
+      }
+
+      const plan = resolvePlan(activeSub.tierId, db);
+      const nextRenewalRate = plan ? (targetPeriod === 'yearly' ? plan.yearlyFee : plan.monthlyFee) : activeSub.amount;
+      activeSub.billingPeriod = targetPeriod;
+      activeSub.billingInterval = targetInterval;
+      activeSub.notes = `Renewal interval switched to ${targetInterval} (next renewal KSh ${nextRenewalRate.toLocaleString()})`;
+
+      logAudit(
+        db,
+        user.id,
+        user.name,
+        'SUBSCRIPTION_INTERVAL_CHANGED',
+        `Changed subscription #${activeSub.id} renewal interval to ${targetInterval} (next renewal KSh ${nextRenewalRate})`
+      );
+
+      return { subscription: activeSub, nextRenewalRate };
+    });
+
+    return res.json({
+      success: true,
+      subscription: result.subscription,
+      billingPeriod: targetPeriod,
+      billingInterval: targetInterval,
+      nextRenewalRate: result.nextRenewalRate,
+      message: `Renewal interval updated to ${targetPeriod === 'yearly' ? 'Yearly (365 days)' : 'Monthly (30 days)'} starting on next cycle.`,
+    });
+  } catch (err: any) {
+    return sendApiError(res, err.status || 500, err.code || 'INTERVAL_CHANGE_ERROR', err.message || 'Failed to change interval');
+  }
+});
+
+subscriptionsRouter.post('/merchant/subscription/cancel', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!isUserMerchant(user) && !isUserAdmin(user)) {
+    return sendApiError(res, 403, 'FORBIDDEN', 'Only merchants can cancel subscription auto-renewal');
+  }
+
+  try {
+    const sub = await runDatabaseTransaction(async (db) => {
+      const now = Date.now();
+      const activeSub = (db.merchantSubscriptions || []).find(
+        (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+      );
+      if (!activeSub) {
+        throw { status: 404, code: 'NO_ACTIVE_SUBSCRIPTION', message: 'No active merchant subscription found.' };
+      }
+      activeSub.autoRenew = false;
+      activeSub.canceledAt = now;
+      activeSub.currentPeriodEnd = activeSub.expiresAt || now;
+
+      logAudit(
+        db,
+        user.id,
+        user.name,
+        'SUBSCRIPTION_AUTOREW_CANCELLED',
+        `Cancelled auto-renewal for subscription #${activeSub.id}; access remains active until ${new Date(activeSub.expiresAt || now).toLocaleDateString()}`
+      );
+      return activeSub;
+    });
+
+    return res.json({
+      success: true,
+      subscription: sub,
+      autoRenew: false,
+      activeUntil: sub.expiresAt,
+      message: `Auto-renewal cancelled. Your merchant access remains active until ${new Date(sub.expiresAt || Date.now()).toLocaleDateString()}.`,
+    });
+  } catch (err: any) {
+    return sendApiError(res, err.status || 500, err.code || 'CANCEL_ERROR', err.message || 'Failed to cancel auto-renewal');
   }
 });

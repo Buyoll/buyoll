@@ -26,12 +26,37 @@ import {
   MerchantVerificationRecord,
   MerchantSubscriptionRecord,
   ChatStrikeRecord,
+  AnnouncementDismissal,
+  AnnouncementRevisionRecord,
+  GroupJoinRequest,
+  GroupLenderAuthorization,
+  PlatformFeeEntry,
+  RefreshTokenRecord,
+  PasswordResetRecord,
 } from '../src/types.js';
+import { SUPPORT_EMAIL } from './config.js';
+import { runPendingMigrations, MigrationRecord } from './migrations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_DIR = path.resolve(__dirname, '../data');
-const DB_FILE = path.resolve(DATA_DIR, 'alibaird_db.json');
+const DEFAULT_DATA_DIR = path.resolve(__dirname, '../data');
+let activeDbFile = process.env.BUYOLL_DB_FILE
+  ? path.resolve(process.env.BUYOLL_DB_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, 'alibaird_db.json');
+
+export function getActiveDbFile(): string {
+  return process.env.BUYOLL_DB_FILE
+    ? path.resolve(process.env.BUYOLL_DB_FILE)
+    : activeDbFile;
+}
+
+export function resetDatabaseCacheForTest(customDbFile?: string): void {
+  dbCache = null;
+  writeLock = Promise.resolve();
+  if (customDbFile) {
+    activeDbFile = path.resolve(customDbFile);
+  }
+}
 
 export interface DatabaseSchema {
   users: User[];
@@ -65,6 +90,16 @@ export interface DatabaseSchema {
   // FEATURE B: 3-Card Platform Hero Announcements & Revisions
   announcementCards: import('../src/types.js').PlatformAnnouncementSlot[];
   announcementRevisions: import('../src/types.js').PlatformAnnouncementRevision[];
+  // Platform Improvements Extensions
+  announcementDismissals?: AnnouncementDismissal[];
+  announcementItemRevisions?: AnnouncementRevisionRecord[];
+  groupJoinRequests?: GroupJoinRequest[];
+  groupLenders?: GroupLenderAuthorization[];
+  platformFees?: PlatformFeeEntry[];
+  refreshTokens?: RefreshTokenRecord[];
+  passwordResets?: PasswordResetRecord[];
+  tierOverrides?: Record<string, { monthlyFee?: number; yearlyFee?: number; yearlyDiscountPercent?: number }>;
+  migrationsApplied?: MigrationRecord[];
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -106,7 +141,8 @@ function getInitialDatabase(): DatabaseSchema {
       id: 1,
       name: 'Buyoll System Admin',
       phone: '0700000000',
-      email: 'cityandcountyre@gmail.com',
+      email: SUPPORT_EMAIL,
+      username: 'buyoll_admin',
       role: 'admin',
       credit: 0,
       coins: 200,
@@ -669,7 +705,7 @@ function getInitialDatabase(): DatabaseSchema {
       },
     ],
     nextIds: {
-      user: 10,
+      user: 31,
       product: 20,
       group: 200,
       defaultRecord: 1,
@@ -974,7 +1010,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
           ctaLabel: 'Explore Groups',
           ctaUrl: '/groups',
           status: 'published',
-          updatedBy: 'cityandcountyre@gmail.com',
+          updatedBy: SUPPORT_EMAIL,
           updatedAt: Date.now() - 86400000,
           version: 1,
         },
@@ -987,7 +1023,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
           ctaLabel: 'How It Works',
           ctaUrl: '/groups',
           status: 'published',
-          updatedBy: 'cityandcountyre@gmail.com',
+          updatedBy: SUPPORT_EMAIL,
           updatedAt: Date.now() - 43200000,
           version: 1,
         },
@@ -1000,13 +1036,17 @@ export async function getDatabase(): Promise<DatabaseSchema> {
           ctaLabel: 'Browse Deals',
           ctaUrl: '/announcements',
           status: 'published',
-          updatedBy: 'cityandcountyre@gmail.com',
+          updatedBy: SUPPORT_EMAIL,
           updatedAt: Date.now() - 21600000,
           version: 1,
         },
       ];
     }
 
+    const mig = runPendingMigrations(dbCache!);
+    if (mig.dirty || mig.applied.length > 0) {
+      await saveDatabase(dbCache!);
+    }
     return dbCache!;
   } catch {
     const initial = getInitialDatabase();
@@ -1032,6 +1072,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     ];
     if (!initial.nextIds.coinLedger) initial.nextIds.coinLedger = 1;
     if (!initial.nextIds.moderation) initial.nextIds.moderation = 1;
+    runPendingMigrations(initial);
     await saveDatabase(initial);
     dbCache = initial;
     return dbCache;
@@ -1040,13 +1081,15 @@ export async function getDatabase(): Promise<DatabaseSchema> {
 
 export async function saveDatabase(data: DatabaseSchema): Promise<void> {
   dbCache = data;
+  const dbFile = getActiveDbFile();
+  const dataDir = path.dirname(dbFile);
   writeLock = writeLock
     .catch(() => {})
     .then(async () => {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      await fs.mkdir(dataDir, { recursive: true });
+      const tempFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
       await fs.writeFile(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-      await fs.rename(tempFile, DB_FILE);
+      await fs.rename(tempFile, dbFile);
     });
   return writeLock;
 }
@@ -1082,10 +1125,12 @@ export async function runDatabaseTransaction<T>(
           const db = await getDatabase();
           const result = await operation(db);
           dbCache = db;
-          await fs.mkdir(DATA_DIR, { recursive: true });
-          const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+          const dbFile = getActiveDbFile();
+          const dataDir = path.dirname(dbFile);
+          await fs.mkdir(dataDir, { recursive: true });
+          const tempFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
           await fs.writeFile(tempFile, JSON.stringify(db, null, 2), 'utf-8');
-          await fs.rename(tempFile, DB_FILE);
+          await fs.rename(tempFile, dbFile);
           resolve(result);
         } catch (err) {
           reject(err);

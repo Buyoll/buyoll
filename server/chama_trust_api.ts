@@ -10,6 +10,7 @@ import {
   PlatformAnnouncementRevision,
   JoinRelationship,
 } from '../src/types.js';
+import { SUPPORT_EMAIL } from './config.js';
 
 export const chamaTrustRouter = Router();
 
@@ -1201,7 +1202,7 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
       ctaLabel: 'Explore Groups',
       ctaUrl: '/groups',
       status: 'published',
-      updatedBy: 'cityandcountyre@gmail.com',
+      updatedBy: SUPPORT_EMAIL,
       updatedAt: Date.now() - 86400000,
       version: 1,
     };
@@ -1216,7 +1217,7 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
       ctaLabel: 'How It Works',
       ctaUrl: '/groups',
       status: 'published',
-      updatedBy: 'cityandcountyre@gmail.com',
+      updatedBy: SUPPORT_EMAIL,
       updatedAt: Date.now() - 43200000,
       version: 1,
     };
@@ -1230,7 +1231,7 @@ function getDefaultSlot(slot: 1 | 2 | 3): PlatformAnnouncementSlot {
     ctaLabel: 'Browse Deals',
     ctaUrl: '/announcements',
     status: 'published',
-    updatedBy: 'cityandcountyre@gmail.com',
+    updatedBy: SUPPORT_EMAIL,
     updatedAt: Date.now() - 21600000,
     version: 1,
   };

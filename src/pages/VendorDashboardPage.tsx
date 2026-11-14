@@ -113,6 +113,20 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [grpAccountName, setGrpAccountName] = useState('');
   const [submittingSpeedGroup, setSubmittingSpeedGroup] = useState(false);
   const [publishingProductId, setPublishingProductId] = useState<number | null>(null);
+  const [productStatusFilter, setProductStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
+  const [switchingInterval, setSwitchingInterval] = useState(false);
+  const [isCancelAutoRenewModalOpen, setIsCancelAutoRenewModalOpen] = useState(false);
+  const [cancelingAutoRenew, setCancelingAutoRenew] = useState(false);
+
+  const fallbackTiers: MerchantSubscriptionTier[] = [
+    { id: 'tier_250', name: 'Micro-Merchant', monthlyFee: 250, yearlyFee: 2500, yearlyDiscountPercent: 17, maxProducts: 2, maxGroupsPerProduct: 2, description: 'Caters to very small businesses and solo makers', features: [] },
+    { id: 'tier_500', name: 'Growing Merchant', monthlyFee: 500, yearlyFee: 5000, yearlyDiscountPercent: 17, maxProducts: 10, maxGroupsPerProduct: 5, description: 'Ideal for growing neighborhood retailers', features: [] },
+    { id: 'tier_1500', name: 'Pro Merchant', monthlyFee: 1500, yearlyFee: 15000, yearlyDiscountPercent: 17, maxProducts: 50, maxGroupsPerProduct: 10, description: 'For active retail businesses and popular shops', features: [] },
+    { id: 'tier_3500', name: 'Commercial', monthlyFee: 3500, yearlyFee: 35000, yearlyDiscountPercent: 17, maxProducts: 100, maxGroupsPerProduct: 30, description: 'High capacity volume sales for established stores', features: [] },
+    { id: 'tier_7500', name: 'Enterprise Scale', monthlyFee: 7500, yearlyFee: 75000, yearlyDiscountPercent: 17, maxProducts: -1, maxGroupsPerProduct: 50, description: 'Unlimited catalog for major retail distributors', features: [] },
+    { id: 'enterprise', name: 'Custom Enterprise', monthlyFee: 15000, yearlyFee: 150000, yearlyDiscountPercent: 17, maxProducts: -1, maxGroupsPerProduct: 100, description: 'Custom SLA and limits set by Buyoll Admin', features: [] },
+  ];
+  const displayTiers = tiersList.length > 0 ? tiersList : fallbackTiers;
 
   const now = Date.now();
   const subExpiresAt = subscriptionInfo?.subscription?.expiresAt || currentUser?.merchantSubscriptionExpiresAt;
@@ -149,16 +163,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     setSubmittingSubscription(true);
 
     try {
-      const tierMap: Record<string, { name: string; monthlyFee: number }> = {
-        tier_250: { name: 'Micro-Merchant', monthlyFee: 250 },
-        tier_500: { name: 'Growing Merchant', monthlyFee: 500 },
-        tier_1500: { name: 'Pro Merchant', monthlyFee: 1500 },
-        tier_3500: { name: 'Commercial', monthlyFee: 3500 },
-        tier_7500: { name: 'Enterprise Scale', monthlyFee: 7500 },
-        enterprise: { name: 'Custom Enterprise', monthlyFee: 15000 },
-      };
-      const plan = tierMap[selectedTierId] || { name: 'Growing Merchant', monthlyFee: 500 };
-      const expectedFee = subBillingPeriod === 'yearly' ? plan.monthlyFee * 12 : plan.monthlyFee;
+      const plan = displayTiers.find((t) => t.id === selectedTierId) || displayTiers[1];
+      const expectedFee = subBillingPeriod === 'yearly'
+        ? (plan.yearlyFee ?? Math.round(plan.monthlyFee * 10))
+        : plan.monthlyFee;
       const normalizedMethod =
         subPaymentMethod === 'wallet_credit' ? 'wallet' : subPaymentMethod === 'wallet_coins' ? 'coins' : 'mpesa';
 
@@ -225,6 +233,33 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       onNotify('error', message);
     } finally {
       setSubmittingSubscription(false);
+    }
+  }
+
+  async function handleSwitchBillingInterval(nextPeriod: BillingPeriod) {
+    setSwitchingInterval(true);
+    try {
+      const res = await api.changeSubscriptionInterval(nextPeriod);
+      onNotify('success', res.message || `Updated billing interval to ${nextPeriod}.`);
+      await loadVendorData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update billing interval');
+    } finally {
+      setSwitchingInterval(false);
+    }
+  }
+
+  async function handleConfirmCancelAutoRenew() {
+    setCancelingAutoRenew(true);
+    try {
+      const res = await api.cancelMerchantSubscription();
+      onNotify('info', res.message || 'Auto-renewal cancelled.');
+      setIsCancelAutoRenewModalOpen(false);
+      await loadVendorData();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to cancel auto-renewal');
+    } finally {
+      setCancelingAutoRenew(false);
     }
   }
 
@@ -521,6 +556,66 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
       </div>
 
+      {/* ACTIVE SUBSCRIPTION MANAGEMENT BAR (Interval Switch & Auto-Renew) */}
+      {subscriptionInfo?.subscription && !subscriptionInfo.isExpired && (
+        <div className="mb-6 p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-black uppercase rounded-full">
+                {subscriptionInfo.subscription.billingInterval === 'YEARLY' || subscriptionInfo.subscription.billingPeriod === 'yearly'
+                  ? 'Yearly Plan (365d)'
+                  : 'Monthly Plan (30d)'}
+              </span>
+              <span className="text-xs font-bold text-emerald-950">
+                {subscriptionInfo.tier?.name || subscriptionInfo.subscription.tierName}
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                subscriptionInfo.subscription.autoRenew === false
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-white text-emerald-700 border border-emerald-200'
+              }`}>
+                {subscriptionInfo.subscription.autoRenew === false ? 'Auto-Renew Off' : 'Auto-Renew Active'}
+              </span>
+            </div>
+            <p className="text-xs text-emerald-900 mt-1">
+              {subscriptionInfo.subscription.autoRenew === false
+                ? `Active until ${new Date(subscriptionInfo.subscription.expiresAt).toLocaleDateString()} (will not auto-renew).`
+                : `Next renewal: ${new Date(subscriptionInfo.subscription.expiresAt).toLocaleDateString()}.`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {subscriptionInfo.subscription.billingPeriod === 'yearly' || subscriptionInfo.subscription.billingInterval === 'YEARLY' ? (
+              <button
+                type="button"
+                disabled={switchingInterval}
+                onClick={() => handleSwitchBillingInterval('monthly')}
+                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {switchingInterval ? 'Updating...' : 'Switch Next Renewal to 30-Day'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={switchingInterval}
+                onClick={() => handleSwitchBillingInterval('yearly')}
+                className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {switchingInterval ? 'Updating...' : 'Switch to Yearly (Save 17%)'}
+              </button>
+            )}
+            {subscriptionInfo.subscription.autoRenew !== false && (
+              <button
+                type="button"
+                onClick={() => setIsCancelAutoRenewModalOpen(true)}
+                className="px-3 py-1.5 bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel Auto-Renew
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* PENDING ADMIN APPROVAL BANNER */}
       {subscriptionInfo?.pendingSubscription && (
         <div className="mb-6 p-4 bg-amber-50/90 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
@@ -533,7 +628,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 Subscription Request Under Admin Verification
               </h4>
               <p className="text-xs text-amber-900 mt-0.5">
-                Your request for <b>{subscriptionInfo.pendingSubscription.tierName}</b> ({subscriptionInfo.pendingSubscription.paymentCode || (subscriptionInfo.pendingSubscription.paymentMethod === 'wallet_credit' ? 'Wallet Credit' : 'Wallet Coins')}) is awaiting Admin verification against M-Pesa statements. Once approved, your catalog limits will activate for 30 days!
+                Your request for <b>{subscriptionInfo.pendingSubscription.tierName}</b> ({subscriptionInfo.pendingSubscription.paymentCode || (subscriptionInfo.pendingSubscription.paymentMethod === 'wallet_credit' ? 'Wallet Credit' : 'Wallet Coins')}) is awaiting Admin verification against M-Pesa statements. Once approved, your catalog limits will activate for {subscriptionInfo.pendingSubscription.billingPeriod === 'yearly' ? '365 days' : '30 days'}!
               </p>
             </div>
           </div>
@@ -667,9 +762,29 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
 
       {/* Product Listings Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs mb-8">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-900">Your Product Listings</h2>
-          <span className="text-xs text-slate-500">{products.length} items</span>
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Your Product Listings</h2>
+            <span className="text-xs text-slate-500">{products.length} total items</span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+            {([
+              { id: 'all', label: `All (${products.length})` },
+              { id: 'published', label: `Published (${products.filter((p) => p.publicationStatus !== 'draft' && p.live !== false).length})` },
+              { id: 'draft', label: `Drafts (${products.filter((p) => p.publicationStatus === 'draft' || p.live === false).length})` },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setProductStatusFilter(tab.id)}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  productStatusFilter === tab.id ? 'bg-white text-[#ff6600] shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
@@ -725,7 +840,14 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {products.map((p) => {
+                {products
+                  .filter((p) => {
+                    const isDraftItem = p.publicationStatus === 'draft' || p.live === false;
+                    if (productStatusFilter === 'draft') return isDraftItem;
+                    if (productStatusFilter === 'published') return !isDraftItem;
+                    return true;
+                  })
+                  .map((p) => {
                   const itemGroups = myGroups.filter(g => g.productId === p.id);
                   const members = itemGroups.reduce((a, g) => a + g.occupiedCount, 0);
                   const isDraft = p.publicationStatus === 'draft' || p.live === false;
@@ -1236,22 +1358,20 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                         subBillingPeriod === 'yearly' ? 'bg-white text-[#ff6600] shadow-xs' : 'text-slate-600'
                       }`}
                     >
-                      Yearly (365d)
+                      Yearly (365d) <span className="ml-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[9px] font-black">Save {displayTiers[0]?.yearlyDiscountPercent ?? 17}%</span>
                     </button>
                   </div>
                 </div>
 
                 {/* 6 Tiers Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-                  {[
-                    { id: 'tier_250', name: 'Micro-Merchant', fee: 250, prods: 'Max 2 Products', grps: '2 Groups / Product', desc: 'Caters to very small businesses and solo makers' },
-                    { id: 'tier_500', name: 'Growing Merchant', fee: 500, prods: 'Up to 10 Products', grps: '5 Groups / Product', desc: 'Ideal for growing neighborhood retailers' },
-                    { id: 'tier_1500', name: 'Pro Merchant', fee: 1500, prods: 'Up to 50 Products', grps: '10 Groups / Product', desc: 'For active retail businesses and popular shops' },
-                    { id: 'tier_3500', name: 'Commercial', fee: 3500, prods: 'Up to 100 Products', grps: '30 Groups / Product', desc: 'High capacity volume sales for established stores' },
-                    { id: 'tier_7500', name: 'Enterprise Scale', fee: 7500, prods: 'Unlimited Products', grps: '50 Groups / Product', desc: 'Unlimited catalog for major retail distributors' },
-                    { id: 'enterprise', name: 'Custom Enterprise', fee: 15000, prods: 'Unlimited Products', grps: 'Up to 100 Groups', desc: 'Custom SLA and limits set by Buyoll Admin' },
-                  ].map((tier) => {
-                    const displayFee = subBillingPeriod === 'yearly' ? tier.fee * 12 : tier.fee;
+                  {displayTiers.map((tier) => {
+                    const annualBaseline = tier.monthlyFee * 12;
+                    const yearlyFee = tier.yearlyFee ?? Math.round(tier.monthlyFee * 10);
+                    const discountPct = tier.yearlyDiscountPercent ?? Math.round(((annualBaseline - yearlyFee) / annualBaseline) * 100);
+                    const displayFee = subBillingPeriod === 'yearly' ? yearlyFee : tier.monthlyFee;
+                    const prodsText = tier.maxProducts < 0 ? 'Unlimited Products' : `Up to ${tier.maxProducts} Products`;
+                    const grpsText = `${tier.maxGroupsPerProduct} Groups / Product`;
                     return (
                     <div
                       key={tier.id}
@@ -1265,17 +1385,24 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                           : 'border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <div className="flex items-start justify-between mb-1">
+                      <div className="flex items-start justify-between mb-1 gap-2">
                         <span className="font-bold text-xs text-slate-900">{tier.name}</span>
-                        <span className="text-xs font-mono font-bold text-[#ff6600]">
-                          KSh {displayFee.toLocaleString()}
-                          <span className="text-[10px] font-normal text-slate-500">{subBillingPeriod === 'yearly' ? '/yr' : '/30d'}</span>
-                        </span>
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-bold text-[#ff6600]">
+                            KSh {displayFee.toLocaleString()}
+                            <span className="text-[10px] font-normal text-slate-500">{subBillingPeriod === 'yearly' ? '/yr' : '/30d'}</span>
+                          </span>
+                          {subBillingPeriod === 'yearly' && discountPct > 0 && (
+                            <span className="block text-[9px] font-extrabold text-emerald-700">
+                              Save {discountPct}% (vs KSh {annualBaseline.toLocaleString()})
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-[11px] font-semibold text-emerald-800 mb-1">
-                        {tier.prods} · {tier.grps}
+                        {prodsText} · {grpsText}
                       </div>
-                      <p className="text-[10px] text-slate-500 leading-tight">{tier.desc}</p>
+                      <p className="text-[10px] text-slate-500 leading-tight">{tier.description}</p>
                     </div>
                   );})}
                 </div>
@@ -1351,8 +1478,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   </div>
 
                   {(() => {
-                    const baseFee = selectedTierId === 'tier_250' ? 250 : selectedTierId === 'tier_500' ? 500 : selectedTierId === 'tier_1500' ? 1500 : selectedTierId === 'tier_3500' ? 3500 : selectedTierId === 'tier_7500' ? 7500 : 15000;
-                    const calcFee = subBillingPeriod === 'yearly' ? baseFee * 12 : baseFee;
+                    const activePlan = displayTiers.find((t) => t.id === selectedTierId) || displayTiers[1];
+                    const calcFee = subBillingPeriod === 'yearly'
+                      ? (activePlan.yearlyFee ?? Math.round(activePlan.monthlyFee * 10))
+                      : activePlan.monthlyFee;
                     const periodLabel = subBillingPeriod === 'yearly' ? '365-day yearly' : '30-day';
                     return (
                       <>
@@ -1472,6 +1601,43 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* CANCEL AUTO-RENEW CONFIRMATION MODAL (No window.confirm) */}
+      {isCancelAutoRenewModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <h3 className="text-base font-extrabold text-slate-900 mb-2">
+              Cancel Subscription Auto-Renewal?
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              Your current merchant subscription will remain active with full catalog limits until{' '}
+              <b>
+                {subscriptionInfo?.subscription?.expiresAt
+                  ? new Date(subscriptionInfo.subscription.expiresAt).toLocaleDateString()
+                  : 'the end of your billing cycle'}
+              </b>
+              , and you will not be billed automatically at renewal.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCancelAutoRenewModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+              >
+                Keep Auto-Renew
+              </button>
+              <button
+                type="button"
+                disabled={cancelingAutoRenew}
+                onClick={handleConfirmCancelAutoRenew}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50"
+              >
+                {cancelingAutoRenew ? 'Cancelling...' : 'Confirm Cancel Auto-Renew'}
+              </button>
+            </div>
           </div>
         </div>
       )}

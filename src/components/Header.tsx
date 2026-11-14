@@ -43,7 +43,23 @@ export const Header: React.FC<HeaderProps> = ({
   const [, setNotifPermission] = useState<NotificationPermission>('default');
   const [topPromoBanner, setTopPromoBanner] = useState<any>(null);
   const [isPromoDismissed, setIsPromoDismissed] = useState(false);
-  const [showAdminManagedAreas, setShowAdminManagedAreas] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+
+  const rawAvatarUrl = currentUser?.avatarUrl || currentUser?.avatar || '';
+  const resolvedAvatarSrc = rawAvatarUrl
+    ? `${resolveImageUrl(rawAvatarUrl)}${
+        currentUser?.avatarUpdatedAt && rawAvatarUrl.startsWith('/uploads/')
+          ? `${rawAvatarUrl.includes('?') ? '&' : '?'}t=${currentUser.avatarUpdatedAt}`
+          : ''
+      }`
+    : '';
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [rawAvatarUrl, currentUser?.avatarUpdatedAt]);
+
+  const avatarColors = ['#ff6600', '#0f766e', '#1d4ed8', '#7c3aed', '#b45309', '#be123c'];
+  const avatarBgColor = avatarColors[(currentUser?.id || 0) % avatarColors.length];
 
   useEffect(() => {
     api.getHeroAnnouncementCards()
@@ -195,13 +211,6 @@ export const Header: React.FC<HeaderProps> = ({
     onNavigate('home');
   };
 
-  const toggleAdminOutline = (checked: boolean) => {
-    setShowAdminManagedAreas(checked);
-    if (typeof document !== 'undefined') {
-      document.body.classList.toggle('adm', checked);
-    }
-  };
-
   return (
     <>
       <header className="hdr sticky top-0 z-50 bg-[var(--surface)] border-t-[3px] border-t-[#ff6600] shadow-[0_1px_0_var(--line)]">
@@ -210,7 +219,6 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             className="promo bg-gradient-to-r from-[#d9102f] via-[#f91c3f] to-[#d9102f] text-white relative transition-all duration-200"
             id="promo"
-            data-admin="Promo banner · text, dates, link, on/off"
           >
             <div className="wrap max-w-[1280px] mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-center gap-3 sm:gap-4.5 relative text-center">
               {topPromoBanner ? (
@@ -320,11 +328,15 @@ export const Header: React.FC<HeaderProps> = ({
                     aria-expanded={isUserMenuOpen}
                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] transition-colors cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   >
-                    <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#ff6600] text-white grid place-items-center font-bold text-xs sm:text-[13px] shrink-0 shadow-xs overflow-hidden">
-                      {currentUser.avatar || currentUser.avatarUrl ? (
+                    <span
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full text-white grid place-items-center font-bold text-xs sm:text-[13px] shrink-0 shadow-xs overflow-hidden ring-1 ring-black/10"
+                      style={!resolvedAvatarSrc || avatarError ? { backgroundColor: avatarBgColor } : undefined}
+                    >
+                      {resolvedAvatarSrc && !avatarError ? (
                         <img
-                          src={resolveImageUrl(currentUser.avatar || currentUser.avatarUrl)}
+                          src={resolvedAvatarSrc}
                           alt={currentUser.name}
+                          onError={() => setAvatarError(true)}
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -478,7 +490,6 @@ export const Header: React.FC<HeaderProps> = ({
                 e.preventDefault();
                 onNavigate('home');
               }}
-              data-admin="Announcements & Notices · written by admin"
               className={`flex items-center gap-2 px-5 font-semibold whitespace-nowrap transition-colors border-b-[3px] text-[13.5px] cursor-pointer ${
                 currentView === 'home'
                   ? 'on text-[#ff6600] border-[#ff6600] bg-[var(--surface)]'
@@ -729,18 +740,9 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </header>
 
-      {/* Admin Demo Bar */}
-      <div className="bar max-w-[1280px] mx-auto my-3 px-4 sm:px-6 flex gap-4 items-center flex-wrap text-xs text-[var(--muted)]">
-        <label className="flex gap-2 items-center cursor-pointer text-[var(--text)]">
-          <input
-            type="checkbox"
-            checked={showAdminManagedAreas}
-            onChange={(e) => toggleAdminOutline(e.target.checked)}
-            className="rounded text-[#ff6600] focus:ring-[#ff6600]"
-          />
-          <span>Show admin-managed areas</span>
-        </label>
-        {isPromoDismissed && (
+      {/* Dismissed Promo Restore Bar */}
+      {isPromoDismissed && (
+        <div className="bar max-w-[1280px] mx-auto my-3 px-4 sm:px-6 flex gap-4 items-center flex-wrap text-xs text-[var(--muted)]">
           <button
             type="button"
             onClick={() => setIsPromoDismissed(false)}
@@ -748,8 +750,8 @@ export const Header: React.FC<HeaderProps> = ({
           >
             Restore banner
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Share Fallback Modal */}
       {isShareModalOpen && (

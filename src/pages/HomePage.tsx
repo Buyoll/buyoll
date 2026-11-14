@@ -3,6 +3,7 @@ import { Product, ChamaGroup } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { ProductCard } from '../components/ProductCard.tsx';
 import { BuyollAIModal } from '../components/BuyollAIModal.tsx';
+import { PublicAnnouncementsFeed } from '../components/PublicAnnouncementsFeed.tsx';
 import {
   Sparkles,
   Users,
@@ -549,6 +550,9 @@ export const HomePage: React.FC<HomePageProps> = ({
               })}
             </div>
           )}
+
+          {/* Admin-Managed Notices, Announcements & Promotional Image Banners */}
+          <PublicAnnouncementsFeed currentUser={currentUser ?? null} onNavigate={onNavigate} />
         </section>
       )}
 

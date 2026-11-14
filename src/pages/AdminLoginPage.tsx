@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { Shield, Lock, Mail, ArrowRight, ArrowLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { SUPPORT_EMAIL } from '../config/support.ts';
 
 interface AdminLoginPageProps {
   onSuccess: (user: User) => void;
@@ -14,7 +15,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
   onNavigate,
   onNotify,
 }) => {
-  const [identifier, setIdentifier] = useState('cityandcountyre@gmail.com');
+  const [identifier, setIdentifier] = useState(SUPPORT_EMAIL);
   const [password, setPassword] = useState('admin123');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +92,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
                 type="text"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="cityandcountyre@gmail.com"
+                placeholder={SUPPORT_EMAIL}
                 required
                 className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />

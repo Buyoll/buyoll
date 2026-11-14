@@ -45,8 +45,10 @@ import {
   triggerVisualPushAlert,
 } from './utils/notifications.ts';
 
+import { useUser } from './context/UserContext.tsx';
+
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser());
+  const { currentUser, setCurrentUser, onProfileUpdate } = useUser();
   const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-portal' | 'lenders-dashboard' | 'profile'>('home');
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -391,7 +393,7 @@ export default function App() {
 
   function handleLogout() {
     api.logout();
-    setCurrentUser(null);
+    onProfileUpdate(null);
     setPendingTargetView(null);
     setPendingTargetArg(null);
     if (typeof localStorage !== 'undefined') {
@@ -498,9 +500,7 @@ export default function App() {
               onOpenAuth={() => handleOpenAuth('member')}
               onNotify={handleNotify}
               onUserUpdate={() => {
-                if (currentUser) {
-                  api.getMe().then(r => setCurrentUser(r.user)).catch(() => {});
-                }
+                onProfileUpdate();
               }}
             />
           </RoleGuard>
@@ -520,7 +520,7 @@ export default function App() {
           <AdminPortalPage
             currentUser={currentUser}
             onSuccess={(user) => {
-              setCurrentUser(user);
+              onProfileUpdate(user);
               handleNavigate('admin-dashboard');
             }}
             onNavigate={handleNavigate}
@@ -564,22 +564,9 @@ export default function App() {
             onNavigate={handleNavigate}
             onOpenAuth={() => handleOpenAuth('member')}
             onNotify={handleNotify}
+            onProfileUpdate={onProfileUpdate}
             onUserUpdate={(updated?: User) => {
-              if (updated) {
-                setCurrentUser(updated);
-                try {
-                  localStorage.setItem('alibaird_current_user', JSON.stringify(updated));
-                } catch {}
-              } else {
-                api.getMe().then((r) => {
-                  if (r?.user) {
-                    setCurrentUser(r.user);
-                    try {
-                      localStorage.setItem('alibaird_current_user', JSON.stringify(r.user));
-                    } catch {}
-                  }
-                }).catch(() => {});
-              }
+              onProfileUpdate(updated);
             }}
             initialTab={viewArg || 'overview'}
           />
@@ -752,7 +739,7 @@ export default function App() {
           initialRole={authInitialRole}
           onClose={() => setIsAuthOpen(false)}
           onSuccess={(user, targetRoute) => {
-            setCurrentUser(user);
+            onProfileUpdate(user);
             setIsAuthOpen(false);
             if (targetRoute) {
               handleNavigate(targetRoute);

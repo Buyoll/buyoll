@@ -88,78 +88,30 @@ import {
   ChatStrikeRecord,
 } from '../src/types.js';
 
-export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = [
-  {
-    id: 'tier_250',
-    name: 'Micro-Merchant (KES 250)',
-    monthlyFee: 250,
-    yearlyFee: 3000,
-    maxProducts: 2,
-    maxGroupsPerProduct: 2,
-    description: 'Caters to very small businesses.',
-    features: ['1 to 2 products max', '2 groups per product', '30-day or yearly active window'],
-  },
-  {
-    id: 'tier_500',
-    name: 'Growing Merchant (KES 500)',
-    monthlyFee: 500,
-    yearlyFee: 6000,
-    maxProducts: 10,
-    maxGroupsPerProduct: 5,
-    description: 'Ideal for budding local stores.',
-    features: ['Up to 10 products', '5 groups per product', '30-day or yearly active window'],
-  },
-  {
-    id: 'tier_1500',
-    name: 'Pro Merchant (KES 1,500)',
-    monthlyFee: 1500,
-    yearlyFee: 18000,
-    maxProducts: 50,
-    maxGroupsPerProduct: 10,
-    description: 'For active retail businesses.',
-    features: ['Up to 50 products', '10 groups per product', 'Priority Chama matching'],
-  },
-  {
-    id: 'tier_3500',
-    name: 'Commercial (KES 3,500)',
-    monthlyFee: 3500,
-    yearlyFee: 42000,
-    maxProducts: 100,
-    maxGroupsPerProduct: 30,
-    description: 'High capacity volume sales.',
-    features: ['Up to 100 products', '30 groups per product', 'Multi-speed groups'],
-  },
-  {
-    id: 'tier_7500',
-    name: 'Enterprise Scale (KES 7,500)',
-    monthlyFee: 7500,
-    yearlyFee: 90000,
-    maxProducts: -1, // Unlimited
-    maxGroupsPerProduct: 50,
-    description: 'Unlimited catalog for major distributors.',
-    features: ['Unlimited products', '50 groups per product', 'Dedicated account manager'],
-  },
-  {
-    id: 'enterprise',
-    name: 'Custom Enterprise',
-    monthlyFee: 15000,
-    yearlyFee: 180000,
-    maxProducts: -1,
-    maxGroupsPerProduct: 100,
-    description: 'Custom SLA and limits set by admin.',
-    features: ['Unlimited products', 'Up to 100 groups per product', 'Custom SLA'],
-  },
-];
-
 import { prompt2Router } from './prompt2_api.js';
 import { chamaTrustRouter } from './chama_trust_api.js';
-import { subscriptionsRouter } from './subscriptions_api.js';
+import { subscriptionsRouter, getComputedSubscriptionTiers } from './subscriptions_api.js';
+import { announcementsRouter } from './announcements_api.js';
+import { profileAndGroupsRouter } from './profile_and_groups_api.js';
+import { authRouter } from './auth_api.js';
+import { resolveAuthenticatedUser } from './auth_utils.js';
+import { handleEventsSse } from './events.js';
+import { SUPPORT_EMAIL } from './config.js';
+
+export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
 
 export const apiRouter = Router();
 apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', time: Date.now() });
 });
+apiRouter.get('/events', async (req: Request, res: Response) => {
+  const user = await resolveAuthenticatedUser(req).catch(() => null);
+  handleEventsSse(req, res, user?.id ?? null);
+});
+apiRouter.use(authRouter);
+apiRouter.use(announcementsRouter);
 apiRouter.use(subscriptionsRouter);
+apiRouter.use(profileAndGroupsRouter);
 apiRouter.use(prompt2Router);
 apiRouter.use(chamaTrustRouter);
 
@@ -222,13 +174,9 @@ function normalizePaymentReceiving(input: any, fallback?: any) {
   };
 }
 
-// Simple session helper: parses 'x-user-id' header or query param
+// Session helper: resolves JWT access token, httpOnly cookies, or header UID
 async function getAuthenticatedUser(req: Request): Promise<User | null> {
-  const userIdHeader = req.headers['x-user-id'] || req.query.authUserId;
-  if (!userIdHeader) return null;
-  const db = await getDatabase();
-  const userId = Number(userIdHeader);
-  return db.users.find(u => u.id === userId) || null;
+  return resolveAuthenticatedUser(req);
 }
 
 // Section 1.3: Server-side authorization helper (401 unauthenticated, 403 non-admin)
@@ -278,115 +226,7 @@ apiRouter.post('/user/preferences', async (req: Request, res: Response) => {
   res.status(404).json({ error: 'User not found' });
 });
 
-// -------------------------------------------------------------
-// SECTION 1 & 5: ANNOUNCEMENTS (PUBLIC FEED, ADMIN POST/DELETE)
-// -------------------------------------------------------------
-apiRouter.get('/announcements', async (req: Request, res: Response) => {
-  const db = await getDatabase();
-  const list = (db.announcements || []).map((a) => ({
-    id: a.id,
-    title: a.title,
-    body: a.body,
-    imageUrl: a.imageUrl,
-    category: a.category || 'General',
-    createdAt: a.createdAt,
-    authorName: a.authorName || 'Buyoll Admin',
-  }));
-  list.sort((a, b) => b.createdAt - a.createdAt);
-  res.json({ announcements: list });
-});
-
-apiRouter.post('/announcements', async (req: Request, res: Response) => {
-  const auth = await requireAdminUser(req, res);
-  if (!auth) return;
-  const { user, db } = auth;
-
-  const { title, body, imageUrl, category } = req.body;
-  if (!title || !body) {
-    return res.status(400).json({ error: 'Title and body are required for an announcement.' });
-  }
-
-  if (!db.announcements) db.announcements = [];
-  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
-
-  const newAnnouncement: Announcement = {
-    id: db.nextIds.announcement++,
-    title: String(title).trim(),
-    body: String(body).trim(),
-    imageUrl: imageUrl ? String(imageUrl).trim() : undefined,
-    category: category ? String(category).trim() : 'Platform News',
-    createdAt: Date.now(),
-    authorId: user.id,
-    authorName: user.name,
-  };
-
-  db.announcements.unshift(newAnnouncement);
-  // Admin broadcast: Post once and deliver to notifications of all users on platform (Part A)
-  if (!db.userNotifications) db.userNotifications = [];
-  db.users.forEach((u) => {
-    db.userNotifications.unshift({
-      id: `notif_broadcast_${newAnnouncement.id}_${u.id}_${Date.now()}`,
-      userId: u.id,
-      title: `📢 Platform Announcement: ${newAnnouncement.title}`,
-      message: newAnnouncement.body,
-      type: 'broadcast',
-      link: '/announcements',
-      read: false,
-      timestamp: Date.now(),
-    });
-  });
-
-  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_CREATED', `Created announcement: "${newAnnouncement.title}" & broadcasted to all users.`);
-  await saveDatabase(db);
-
-  res.status(201).json({
-    success: true,
-    announcement: newAnnouncement,
-    message: 'Announcement posted to public feed and broadcasted to all member notification feeds.',
-  });
-});
-
-apiRouter.put('/announcements/:id', async (req: Request, res: Response) => {
-  const auth = await requireAdminUser(req, res);
-  if (!auth) return;
-  const { user, db } = auth;
-
-  const announcementId = req.params.id;
-  const announcement = (db.announcements || []).find((a) => String(a.id) === announcementId);
-  if (!announcement) {
-    return res.status(404).json({ error: 'Announcement not found.' });
-  }
-
-  const { title, body, imageUrl, category } = req.body;
-  if (title) announcement.title = String(title).trim();
-  if (body) announcement.body = String(body).trim();
-  if (imageUrl !== undefined) announcement.imageUrl = imageUrl ? String(imageUrl).trim() : undefined;
-  if (category) announcement.category = String(category).trim();
-  announcement.updatedAt = Date.now();
-
-  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_UPDATED', `Updated announcement #${announcement.id}`);
-  await saveDatabase(db);
-
-  res.json({ success: true, announcement, message: 'Announcement updated.' });
-});
-
-apiRouter.delete('/announcements/:id', async (req: Request, res: Response) => {
-  const auth = await requireAdminUser(req, res);
-  if (!auth) return;
-  const { user, db } = auth;
-
-  const announcementId = req.params.id;
-  const index = (db.announcements || []).findIndex((a) => String(a.id) === announcementId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Announcement not found.' });
-  }
-
-  const removed = db.announcements.splice(index, 1)[0];
-  logAudit(db, user.id, user.name, 'ANNOUNCEMENT_DELETED', `Deleted announcement #${removed.id} "${removed.title}"`);
-  await saveDatabase(db);
-
-  res.json({ success: true, message: 'Announcement removed from public feed.' });
-});
+// Announcements routes handled by announcementsRouter mounted above
 
 // -------------------------------------------------------------
 // SECTION 3: DARK MODE (GROUP-LEVEL, MODERATOR-ONLY)
@@ -584,7 +424,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
   );
 
   // Check rate limit if logging in as admin
-  if (role === 'admin' || lookup === 'cityandcountyre@gmail.com' || lookup.includes('admin')) {
+  if (role === 'admin' || lookup === SUPPORT_EMAIL.toLowerCase() || lookup.includes('admin')) {
     const rate = checkAdminLoginRateLimit(lookup);
     if (!rate.allowed) {
       return res.status(429).json({
@@ -1054,42 +894,76 @@ apiRouter.get('/search', async (req: Request, res: Response) => {
 apiRouter.get('/products', async (req: Request, res: Response) => {
   const db = await getDatabase();
   const authUser = await getAuthenticatedUser(req);
-  const { category, search, vendorId, includeDrafts } = req.query;
+  const { category, search, vendorId, merchantId, groupId, includeDrafts, status, limit, offset } = req.query;
 
-  const canViewDrafts =
-    includeDrafts === 'true' &&
-    Boolean(authUser) &&
-    (authUser!.role === 'admin' ||
-      authUser!.activeRole === 'admin' ||
-      (vendorId && Number(vendorId) === authUser!.id) ||
-      (!vendorId && (authUser!.role === 'merchant' || authUser!.activeRole === 'merchant')));
+  const targetVendorId = vendorId ? Number(vendorId) : merchantId ? Number(merchantId) : null;
+  const isAdmin = Boolean(authUser && (authUser.role === 'admin' || authUser.activeRole === 'admin'));
+  const isMerchant = Boolean(
+    authUser && (authUser.role === 'merchant' || authUser.activeRole === 'merchant' || isAdmin)
+  );
+  const requestedStatus = status ? String(status).toLowerCase().trim() : '';
+  const wantsDrafts = includeDrafts === 'true' || requestedStatus === 'draft' || requestedStatus === 'all';
 
-  let products = db.products.filter(p => {
-    if (canViewDrafts && (authUser!.role === 'admin' || authUser!.activeRole === 'admin' || p.vendorId === authUser!.id)) {
+  // Strict draft security: drafts are NEVER visible to unauthenticated visitors, members, lenders,
+  // or non-owning merchants (even if includeDrafts=true or status=draft is passed).
+  let products = db.products.filter((p) => {
+    const isPublished = isProductPosted(p) && p.moderationStatus === 'approved';
+    const isOwner = Boolean(authUser && p.vendorId === authUser.id);
+    const canSeeThisDraft = Boolean(wantsDrafts && authUser && (isAdmin || (isMerchant && isOwner)));
+
+    if (requestedStatus === 'draft') {
+      return !isPublished && canSeeThisDraft && (p.moderationStatus as string) !== 'rejected';
+    }
+    if (requestedStatus === 'published' || requestedStatus === 'posted') {
+      return isPublished;
+    }
+    if (canSeeThisDraft) {
       return (p.moderationStatus as string) !== 'rejected';
     }
-    return isProductPosted(p) && p.moderationStatus === 'approved';
+    return isPublished;
   });
 
   if (category && typeof category === 'string' && category !== 'All') {
-    products = products.filter(p => p.category === category);
+    products = products.filter((p) => p.category === category);
   }
 
   if (search && typeof search === 'string' && search.trim()) {
     const q = search.toLowerCase().trim();
-    products = products.filter(p =>
-      p.title.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.vendorName.toLowerCase().includes(q)
+    products = products.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        p.vendorName.toLowerCase().includes(q)
     );
   }
 
-  if (vendorId) {
-    products = products.filter(p => p.vendorId === Number(vendorId));
+  if (targetVendorId) {
+    products = products.filter((p) => p.vendorId === targetVendorId);
   }
 
-  res.json({ products });
+  if (groupId) {
+    const gid = Number(groupId);
+    const grp = db.groups.find((g) => g.id === gid);
+    if (!grp) {
+      return res.json({ products: [], total: 0, limit: Number(limit) || 0, offset: Number(offset) || 0 });
+    }
+    const linkedIds = new Set<number>([grp.productId]);
+    (grp.productsInGroup || []).forEach((entry) => linkedIds.add(entry.productId));
+    products = products.filter((p) => linkedIds.has(p.id));
+  }
+
+  const total = products.length;
+  const parsedOffset = Math.max(0, Number(offset) || 0);
+  const parsedLimit = Number(limit) > 0 ? Math.min(200, Number(limit)) : 0;
+  const paginated = parsedLimit > 0 ? products.slice(parsedOffset, parsedOffset + parsedLimit) : products.slice(parsedOffset);
+
+  res.json({
+    products: paginated,
+    total,
+    limit: parsedLimit || total,
+    offset: parsedOffset,
+  });
 });
 
 apiRouter.get('/products/:id', async (req: Request, res: Response) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent, WalletDepositRequest, PlatformAnnouncementSlot, PlatformAnnouncementRevision } from '../types.ts';
 import { api } from '../api.ts';
+import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager.tsx';
 import {
   Shield,
   Check,
@@ -1707,9 +1708,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       )}
 
-      {/* TAB: HERO ANNOUNCEMENTS & NOTICES (3 SLOTS) - FEATURE B */}
+      {/* TAB: ADMIN-ONLY ANNOUNCEMENTS, PROMOTIONS & HERO SLOTS */}
       {activeTab === 'announcements' && (
         <div className="space-y-6">
+          <AdminAnnouncementsManager onNotify={onNotify} />
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">

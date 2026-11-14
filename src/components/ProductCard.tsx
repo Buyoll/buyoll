@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, ChamaGroup } from '../types.ts';
 import { resolveImageUrl } from '../api.ts';
-import { Users, CheckCircle2, Gift, Sparkles, Flame, Star } from 'lucide-react';
+import { Users, CheckCircle2, Gift, Sparkles, Flame, Star, HandCoins, Plus, Trash2 } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
@@ -10,6 +10,15 @@ interface ProductCardProps {
   openGroups?: ChamaGroup[];
   onJoinGroup?: (product: Product) => void;
   onAskAI?: (product: Product) => void;
+  groupId?: number;
+  isGroupManager?: boolean;
+  isInGroup?: boolean;
+  isDraft?: boolean;
+  isFeaturedInGroup?: boolean;
+  onAddToGroup?: (product: Product, groupId?: number) => void;
+  onRemoveFromGroup?: (product: Product, groupId?: number) => void;
+  onFeatureInGroup?: (product: Product, groupId?: number) => void;
+  onRequestLoan?: (product: Product, groupId?: number) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -19,6 +28,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   openGroups,
   onJoinGroup,
   onAskAI,
+  groupId,
+  isGroupManager = false,
+  isInGroup = false,
+  isDraft,
+  isFeaturedInGroup = false,
+  onAddToGroup,
+  onRemoveFromGroup,
+  onFeatureInGroup,
+  onRequestLoan,
 }) => {
   // Lowest daily amount across configured speed options
   const minDaily = product.speedOptions && product.speedOptions.length > 0
@@ -26,6 +44,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     : Math.ceil(product.price / 10 / 10);
 
   const mainImage = resolveImageUrl(product.images?.[0]);
+  const showDraftBadge = isDraft ?? (product.publicationStatus === 'draft' || product.live === false);
 
   const groupList = openGroups || [];
   const totalOpenGroups = groupList.length > 0 ? groupList.length : activeGroupCount;
@@ -35,7 +54,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   );
 
   // Clean vendor name: replace old "Buyoll Direct Official" or "Alibaird Direct Official"
-  let cleanVendor = (product.vendorName || 'Buyoll Verified')
+  const cleanVendor = (product.vendorName || 'Buyoll Verified')
     .replace(/Alibaird Direct Official/gi, 'Buyoll Verified')
     .replace(/Buyoll Direct Official/gi, 'Buyoll Verified');
 
@@ -56,9 +75,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           }}
         />
 
-        {/* Promotion Badges (Daily, Weekly, Monthly) */}
-        {product.promotionType && product.promotionType !== 'none' && (
+        {/* Promotion & Group Status Badges */}
+        {(showDraftBadge || isInGroup || isFeaturedInGroup || (product.promotionType && product.promotionType !== 'none')) && (
           <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1">
+            {showDraftBadge && (
+              <span className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-xs">
+                Draft
+              </span>
+            )}
+            {isFeaturedInGroup && (
+              <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-black uppercase tracking-wider rounded shadow-xs flex items-center gap-1">
+                <Star className="w-3 h-3 fill-current" />
+                <span>Featured in Group</span>
+              </span>
+            )}
+            {isInGroup && !isFeaturedInGroup && (
+              <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-xs">
+                In Group
+              </span>
+            )}
             {product.promotionType === 'daily' && (
               <span className="px-2 py-0.5 bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-xs flex items-center gap-1">
                 <Flame className="w-3 h-3 fill-current" />
@@ -101,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <div>
           {/* Merchant Header with Buyoll Verified & 5-Star Rating */}
           <div className="flex items-center justify-between gap-1.5 text-xs text-slate-500 mb-1.5">
-            <span className="truncate">{product.category}</span>
+            <span className="truncate" title={cleanVendor}>{product.category}</span>
             <span className="flex items-center gap-1 text-emerald-700 font-semibold shrink-0">
               <span className="text-amber-500 tracking-tighter text-[11px]">★★★★★</span>
               <span className="text-[11px] font-bold text-slate-800">(Buyoll Verified)</span>
@@ -142,6 +177,55 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
 
+        {/* Group Management Controls (rendered only when isGroupManager is true) */}
+        {isGroupManager && (
+          <div className="pt-2 pb-2 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
+            {!isInGroup && onAddToGroup && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddToGroup(product, groupId);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Add to Group</span>
+              </button>
+            )}
+            {isInGroup && onFeatureInGroup && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFeatureInGroup(product, groupId);
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                  isFeaturedInGroup
+                    ? 'bg-amber-50 border-amber-300 text-amber-800'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50'
+                }`}
+              >
+                <Star className={`w-3 h-3 ${isFeaturedInGroup ? 'fill-amber-500 text-amber-500' : ''}`} />
+                <span>{isFeaturedInGroup ? 'Featured' : 'Feature'}</span>
+              </button>
+            )}
+            {isInGroup && onRemoveFromGroup && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveFromGroup(product, groupId);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-lg border border-rose-200 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Remove</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Card Footer */}
         <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap">
           {onAskAI && (
@@ -156,6 +240,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             >
               <Sparkles className="w-3 h-3 text-amber-500 fill-current" />
               <span>Ask Buyoll.ai</span>
+            </button>
+          )}
+
+          {onRequestLoan && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestLoan(product, groupId);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-[11px] font-bold rounded-lg border border-amber-200 transition-colors cursor-pointer"
+            >
+              <HandCoins className="w-3 h-3 text-amber-600" />
+              <span>Request Loan</span>
             </button>
           )}
 

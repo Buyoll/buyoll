@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { resolveImageUrl } from '../api.ts';
 import { X } from 'lucide-react';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../config/support.ts';
 
 interface FooterProps {
   onNavigate?: (view: string, arg?: any) => void;
@@ -223,13 +224,13 @@ export const Footer: React.FC<FooterProps> = ({
                 Official support email
               </div>
               <a
-                href="mailto:cityandcountyre@gmail.com"
+                href={SUPPORT_MAILTO}
                 className="inline-flex gap-2 items-center text-[#ff6600] dark:text-[#ff8000] font-semibold text-sm hover:underline break-all"
               >
                 <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
                 </svg>
-                <span>cityandcountyre@gmail.com</span>
+                <span>{SUPPORT_EMAIL}</span>
               </a>
             </details>
 
@@ -311,50 +312,6 @@ export const Footer: React.FC<FooterProps> = ({
 
 
 
-          {/* Section: Transparent Manual Payments */}
-          <details className="mt-6 border border-[#E5E7EB] dark:border-[#24312C] rounded-xl bg-[#F9FAFB] dark:bg-[#15201C] group" open>
-            <summary className="list-none cursor-pointer flex items-center gap-2.5 p-3.5 sm:p-4 font-bold text-sm text-[#111827] dark:text-[#F3F4F6]">
-              <svg className="w-[18px] h-[18px] shrink-0 text-[#ff6600] dark:text-[#ff8000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" /><path d="m9 12 2 2 4-4" />
-              </svg>
-              <span>Transparent Manual Payments</span>
-              <svg
-                className="w-4 h-4 shrink-0 text-[#4B5563] dark:text-[#9CA3AF] ml-auto group-open:rotate-180 transition-transform"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </summary>
-            <div className="px-4 pb-4 text-[13.5px] text-[#4B5563] dark:text-[#9CA3AF]">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
-                <div className="bg-white dark:bg-[#0E1613] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-2.5 sm:px-3">
-                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] dark:text-[#9CA3AF] font-medium">
-                    Platform Till
-                  </small>
-                  <b className="text-base text-[#111827] dark:text-[#F3F4F6] tabular-nums font-mono">196853</b>
-                </div>
-                <div className="bg-white dark:bg-[#0E1613] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-2.5 sm:px-3">
-                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] dark:text-[#9CA3AF] font-medium">
-                    Paybill (Acc: 4363)
-                  </small>
-                  <b className="text-base text-[#111827] dark:text-[#F3F4F6] tabular-nums font-mono">522533</b>
-                </div>
-                <div className="bg-white dark:bg-[#0E1613] border border-[#E5E7EB] dark:border-[#24312C] rounded-xl p-2.5 sm:px-3">
-                  <small className="block text-[11px] uppercase tracking-[0.06em] text-[#4B5563] dark:text-[#9CA3AF] font-medium">
-                    Merchant Till
-                  </small>
-                  <b className="text-base text-[#111827] dark:text-[#F3F4F6] tabular-nums font-mono">3463533</b>
-                </div>
-              </div>
-              Payments are made manually to the Platform Till or Paybill above, or directly to the Merchant Till. Buyoll facilitates coordinated shopping and does not claim 100% escrow protection.
-            </div>
-          </details>
-
           {/* Bottom Copyright & Legal/Help links */}
           <div className="mt-8 border-t border-[#E5E7EB] dark:border-[#24312C] py-5 sm:py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-[13px] text-[#4B5563] dark:text-[#9CA3AF]">
             <span>© 2026 Buyoll Fintech. All rights reserved. Made in Kenya.</span>
@@ -425,7 +382,7 @@ export const Footer: React.FC<FooterProps> = ({
                     </ul>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    To register, send your credentials to <b>cityandcountyre@gmail.com</b>.
+                    To register, send your credentials to <b>{SUPPORT_EMAIL}</b>.
                   </p>
                 </>
               )}
@@ -491,7 +448,7 @@ export const Footer: React.FC<FooterProps> = ({
                 Close
               </button>
               <a
-                href="mailto:cityandcountyre@gmail.com?subject=Buyoll%20Inquiry"
+                href={`${SUPPORT_MAILTO}?subject=Buyoll%20Inquiry`}
                 className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg shadow-xs"
               >
                 Contact Support

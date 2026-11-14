@@ -100,10 +100,14 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
   }
 }
 
+import { UserProvider } from './context/UserContext.tsx';
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <UserProvider>
+        <App />
+      </UserProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );
