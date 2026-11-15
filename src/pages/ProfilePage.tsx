@@ -141,7 +141,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         onUserUpdate?.(res.user);
       }
       const nextHome = getRoleHomeRoute(role);
-      onNavigate(nextHome.view, nextHome.arg);
+      onNavigate(nextHome.view);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to register role');
     } finally {
@@ -1059,7 +1059,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             <h4 className="text-xs font-bold text-slate-900 dark:text-white">Become a Group Lender</h4>
                           </div>
                           <p className="text-[11.5px] text-slate-500 leading-relaxed mb-3">
-                            Finance Group savings groups with secured delivery cycles and earn a 3% platform return.
+                            Fund moderator-authorized Group members directly inside atomic 1% fee loan transactions.
                           </p>
                         </div>
                         <button
@@ -2020,7 +2020,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
               {showRoleModal === 'merchant'
                 ? 'Create an isolated Merchant Wallet, list products, and organize community Groups.'
-                : 'Accredit your profile as a Buyoll Group Lender. Earn 3% return on Group micro-credit facility settlements.'}
+                : 'Accredit your profile as a Buyoll Group Lender. Authorized group lenders fund member installment requests with a 1% platform fee.'}
             </p>
 
             <form

@@ -8,7 +8,8 @@ export type PlatformEventType =
   | 'group.loan.updated'
   | 'group.membership.updated'
   | 'group.products.updated'
-  | 'subscription.updated';
+  | 'subscription.updated'
+  | 'user.wallet.updated';
 
 interface SseClient {
   id: string;

@@ -14,13 +14,18 @@ export function sendApiError(
   status: number,
   code: string,
   message: string,
-  fields?: Record<string, string>
+  fields?: Record<string, string | undefined>
 ): Response {
+  const cleanFields = fields
+    ? (Object.fromEntries(
+        Object.entries(fields).filter(([, v]) => typeof v === 'string' && v.length > 0)
+      ) as Record<string, string>)
+    : undefined;
   const body: ApiErrorBody = {
     error: {
       code,
       message,
-      ...(fields && Object.keys(fields).length > 0 ? { fields } : {}),
+      ...(cleanFields && Object.keys(cleanFields).length > 0 ? { fields: cleanFields } : {}),
     },
   };
   return res.status(status).json(body);

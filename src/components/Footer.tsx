@@ -431,7 +431,7 @@ export const Footer: React.FC<FooterProps> = ({
                     2. <b>Non-Withdrawable Store Credit Policy</b>: All balances in user wallets are exclusively designated for marketplace item purchases and cannot be withdrawn as liquid cash.
                   </p>
                   <p>
-                    3. <b>Peer Loans &amp; Speed Options</b>: 3rd-Party Group lenders operate under a fixed 3% facilitator rate. Members must fulfill their contribution obligations in full to maintain a high platform Financial CV.
+                    3. <b>Peer Loans &amp; Speed Options</b>: Authorized group lenders fund members under a 1% platform fee (99% net credited to a group-locked non-withdrawable wallet). Members must fulfill their contribution obligations in full to maintain a high platform Financial CV.
                   </p>
                   <p>
                     4. <b>Merchant Ratings</b>: Members agree to submit verified star ratings and constructive feedback for shop owners upon group completion or interaction.

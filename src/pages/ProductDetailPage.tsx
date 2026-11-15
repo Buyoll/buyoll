@@ -275,8 +275,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     }
   }
 
-  // Direct join button on a specific group card — opens referral invite code input (no auto-fill)
-  function handleDirectJoinGroup(targetGroup: ChamaGroup) {
+  // Direct join button on a specific group card
+  async function handleDirectJoinGroup(targetGroup: ChamaGroup) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to join a Group.');
       onOpenAuth();
@@ -288,8 +288,23 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       return;
     }
 
-    setJoiningGroupId(targetGroup.id);
-    setInviteCodeInput('');
+    const policy = targetGroup.joinPolicy || (targetGroup.isInviteOnly ? 'INVITE_ONLY' : 'OPEN');
+    if (policy === 'INVITE_ONLY') {
+      setJoiningGroupId(targetGroup.id);
+      setInviteCodeInput('');
+      return;
+    }
+
+    setSubmittingJoin(true);
+    try {
+      const res = await api.joinGroup(targetGroup.id);
+      onNotify('success', res.message || 'Group request updated!');
+      onNavigate('group', res.group?.id || targetGroup.id);
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to join group.');
+    } finally {
+      setSubmittingJoin(false);
+    }
   }
 
   // Section 8: Media Replacement Handlers (Photos cap: 3, Videos cap: 2)
@@ -686,7 +701,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       <span>Possibility of Loan Advance for this Product</span>
                     </div>
                     <p className="text-[11.5px] text-slate-600 leading-relaxed">
-                      Active savers on this product are eligible for 3rd-Party Group Peer Loan Advances up to 100% of product value. Apply on the Lenders Desk at a transparent 3% rate to receive this item before your final rotation!
+                      Active savers on this product are eligible for Group-Scoped Peer Loan Advances funded by moderator-authorized lenders at a 1% platform fee (99% net credited to your group-locked wallet). Apply inside your Group Loan Desk!
                     </p>
                   </div>
 

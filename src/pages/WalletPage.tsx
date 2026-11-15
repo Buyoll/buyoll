@@ -316,23 +316,41 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
       {/* 3 Main Balances */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* Isolated Role Balance */}
+        {/* Isolated Role Balance & Restricted Loan Balance */}
         <div className="bg-white border-2 border-emerald-500/30 rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                {roleWalletName} Balance
+                Available {roleWalletName} Balance
               </span>
               <Wallet className="w-5 h-5 text-[#ff6600]" />
             </div>
             <div className="text-3xl font-black text-slate-900 tabular-nums mb-1">
               KSh {roleBalance.toLocaleString()}
             </div>
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
-              <span>Locked Group Balance:</span>
-              <span className="font-bold text-emerald-800 tabular-nums">
-                KSh {(currentUser.nonWithdrawableBalance || 0).toLocaleString()}
-              </span>
+            <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[11px] text-slate-500">
+              <div className="flex items-center justify-between">
+                <span>Restricted Loan Balance (Group-Locked):</span>
+                <span className="font-bold text-amber-700 tabular-nums">
+                  KSh {(currentUser.restrictedLoanBalance || currentUser.nonWithdrawableBalance || 0).toLocaleString()}
+                </span>
+              </div>
+              {currentUser.restrictedLoanByGroup && Object.entries(currentUser.restrictedLoanByGroup).filter(([, v]) => Number(v) > 0).length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {Object.entries(currentUser.restrictedLoanByGroup)
+                    .filter(([, v]) => Number(v) > 0)
+                    .map(([gid, amt]) => (
+                      <span key={gid} className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-[10px] font-semibold tabular-nums">
+                        Group #{gid}: KSh {Number(amt).toLocaleString()}
+                      </span>
+                    ))}
+                </div>
+              )}
+              {(currentUser.restrictedLoanBalance || currentUser.nonWithdrawableBalance || 0) > 0 && (
+                <p className="text-[10px] text-amber-800">
+                  Non-withdrawable · Usable only inside your funded group(s).
+                </p>
+              )}
             </div>
           </div>
 

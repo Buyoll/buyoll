@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChamaGroup, User, GroupSlot, Product, PeerLoanRequest, MemberStatement } from '../types.ts';
+import { ChamaGroup, User, GroupSlot, Product, PeerLoanRequest, MemberStatement, GroupCallerMembership, GroupJoinRequest, GroupLenderAuthorization } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import {
   Users,
@@ -82,15 +82,17 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [selectedLoanToFund, setSelectedLoanToFund] = useState<PeerLoanRequest | null>(null);
   const [lenderAgreedTerms, setLenderAgreedTerms] = useState(false);
   const [submittingFund, setSubmittingFund] = useState(false);
-  const [loanFeePaymentCode, setLoanFeePaymentCode] = useState('');
-  const [submittingLoanFee, setSubmittingLoanFee] = useState(false);
+  const [authorizedLenders, setAuthorizedLenders] = useState<GroupLenderAuthorization[]>([]);
+  const [lenderIdentifierInput, setLenderIdentifierInput] = useState('');
+  const [authorizingLender, setAuthorizingLender] = useState(false);
+  const [revokingLenderId, setRevokingLenderId] = useState<number | null>(null);
+  const [markingContactedLoanId, setMarkingContactedLoanId] = useState<number | null>(null);
   const [submittingCompleteRound, setSubmittingCompleteRound] = useState(false);
 
   // Member removal modal state (for moderators)
   const [slotToRemove, setSlotToRemove] = useState<GroupSlot | null>(null);
   const [removeReason, setRemoveReason] = useState('Non-participation in mandatory daily Group payment');
   const [submittingRemove, setSubmittingRemove] = useState(false);
-  const [claimingLender, setClaimingLender] = useState(false);
 
   // Group-level moderator-only theme state (Section 3)
   const [togglingTheme, setTogglingTheme] = useState(false);
@@ -99,6 +101,16 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [payoutDurationInput, setPayoutDurationInput] = useState<number>(0);
   const [savingPayoutOption, setSavingPayoutOption] = useState(false);
   const [lockingPayout, setLockingPayout] = useState(false);
+
+  // Item 6: Stateful Membership & Join Policy state
+  const [membership, setMembership] = useState<GroupCallerMembership | null>(null);
+  const [numericJoinRequests, setNumericJoinRequests] = useState<GroupJoinRequest[]>([]);
+  const [joiningDirect, setJoiningDirect] = useState(false);
+  const [cancellingJoinRequest, setCancellingJoinRequest] = useState(false);
+  const [leavingGroup, setLeavingGroup] = useState(false);
+  const [showConfirmLeaveModal, setShowConfirmLeaveModal] = useState(false);
+  const [updatingJoinPolicy, setUpdatingJoinPolicy] = useState(false);
+  const [reviewingJoinReqId, setReviewingJoinReqId] = useState<string | null>(null);
 
   async function handleToggleGroupTheme() {
     if (!group || !isModerator) return;
@@ -192,6 +204,26 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
   useEffect(() => {
     loadGroup();
+  }, [groupId, currentUser?.id]);
+
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return;
+    const es = new EventSource('/api/events');
+    const handleMembershipEvent = (evt: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(evt.data);
+        if (Number(parsed?.payload?.groupId) === Number(groupId)) {
+          loadGroup();
+        }
+      } catch {
+        loadGroup();
+      }
+    };
+    es.addEventListener('group.membership.updated', handleMembershipEvent as EventListener);
+    es.addEventListener('group.loan.updated', handleMembershipEvent as EventListener);
+    return () => {
+      es.close();
+    };
   }, [groupId]);
 
   async function loadGroup() {
@@ -201,13 +233,30 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       const [data, prodsRes, loansRes] = await Promise.all([
         api.getGroup(groupId),
         api.getProducts(),
-        api.getGroupLoans(groupId).catch(() => ({ loans: [] })),
+        api.getGroupLoans(groupId).catch(() => ({ loans: [], lenders: [] })),
       ]);
       setGroup(data.group);
+      setMembership(data.membership || null);
       setLoans(loansRes.loans || []);
+      setAuthorizedLenders(loansRes.lenders || []);
       if (data.group) {
         if (!paymentAmount) setPaymentAmount(data.group.dailyAmount);
         setPayoutDurationInput(data.group.paymentDurationDays || data.group.cycleDays || 10);
+        const canMod = Boolean(
+          currentUser &&
+            (currentUser.role === 'admin' ||
+              data.membership?.isModerator ||
+              data.group.moderatorId === currentUser.id ||
+              data.group.moderators?.includes(currentUser.id))
+        );
+        if (canMod) {
+          api
+            .getNumericGroupJoinRequests(groupId)
+            .then((jr) => setNumericJoinRequests(jr.requests || []))
+            .catch(() => setNumericJoinRequests([]));
+        } else {
+          setNumericJoinRequests([]);
+        }
       }
 
       // Filter products from other items/merchants (guaranteeing at least 5 recommendations)
@@ -227,10 +276,12 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     ? group.slots.find(s => s.userId === currentUser.id && s.status === 'active')
     : null;
 
-  // Pay slot directly using wallet credit balance (from loan or store credit)
+  // Pay slot directly using group-locked loan balance or available wallet credit
   async function handlePayFromWallet() {
     if (!currentUser || !mySlot || !group) return;
-    const amountToPay = Math.min(paymentAmount || group.dailyAmount, currentUser.credit || 0);
+    const groupLocked = Number(currentUser.restrictedLoanByGroup?.[group.id] || 0);
+    const totalSpendable = (currentUser.credit || 0) + groupLocked;
+    const amountToPay = Math.min(paymentAmount || group.dailyAmount, totalSpendable);
     if (amountToPay <= 0) {
       onNotify('error', 'You do not have sufficient wallet balance to pay.');
       return;
@@ -243,6 +294,13 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
         amount: amountToPay,
       });
       currentUser.credit = res.walletBalance;
+      if (res.restrictedLoanBalance !== undefined) {
+        currentUser.restrictedLoanBalance = res.restrictedLoanBalance;
+        currentUser.nonWithdrawableBalance = res.restrictedLoanBalance;
+      }
+      if (res.restrictedLoanByGroup) {
+        currentUser.restrictedLoanByGroup = res.restrictedLoanByGroup;
+      }
       setGroup(res.group);
       onNotify('success', res.message);
       loadGroup();
@@ -304,48 +362,81 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // 3rd-Party Lender Funds Member Wallet directly
+  // 3rd-Party Lender Funds Member Wallet atomically (1% platform fee, 99% to group-locked balance)
   async function handleConfirmFundLoan() {
     if (!currentUser || !selectedLoanToFund || !group) return;
     if (!lenderAgreedTerms) {
-      onNotify('error', 'Please confirm that loan terms and repayments are handled manually outside the platform.');
+      onNotify('error', 'Please confirm that loan terms and repayments are arranged externally.');
       return;
     }
 
     setSubmittingFund(true);
     try {
       const res = await api.fundPeerLoan(group.id, selectedLoanToFund.id);
+      if (res.lenderBalance !== undefined) {
+        currentUser.credit = res.lenderBalance;
+      }
       onNotify('success', res.message);
       setSelectedLoanToFund(null);
       setLenderAgreedTerms(false);
       loadGroup();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to fund member wallet');
+      onNotify('error', err.message || 'Failed to fund loan');
     } finally {
       setSubmittingFund(false);
     }
   }
 
-  // Lender pays mandatory 3% platform commission to unlock console
-  async function handleSubmitLoanFee(loanId: number, approvedAmount: number) {
-    if (!loanFeePaymentCode.trim() || !group) {
-      onNotify('error', 'Please enter your M-Pesa transaction code for the 3% platform fee payment.');
-      return;
-    }
-
-    setSubmittingLoanFee(true);
+  async function handleAuthorizeLender(e: React.FormEvent) {
+    e.preventDefault();
+    if (!group || !lenderIdentifierInput.trim()) return;
+    setAuthorizingLender(true);
     try {
-      const res = await api.submitLoanFee(group.id, loanId, {
-        approvedAmount,
-        paymentCode: loanFeePaymentCode.trim().toUpperCase(),
-      });
-      onNotify('success', res.message || '3% platform commission fee submitted successfully.');
-      setLoanFeePaymentCode('');
+      const trimmed = lenderIdentifierInput.trim();
+      const isNum = /^\d+$/.test(trimmed);
+      const res = await api.authorizeGroupLender(
+        group.id,
+        isNum ? { userId: Number(trimmed) } : { identifier: trimmed }
+      );
+      setAuthorizedLenders(res.lenders || []);
+      setGroup(res.group);
+      setLenderIdentifierInput('');
+      onNotify('success', res.message);
       loadGroup();
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to submit loan fee');
+      onNotify('error', err.message || 'Failed to authorize lender');
     } finally {
-      setSubmittingLoanFee(false);
+      setAuthorizingLender(false);
+    }
+  }
+
+  async function handleRevokeLender(lenderUserId: number) {
+    if (!group) return;
+    setRevokingLenderId(lenderUserId);
+    try {
+      const res = await api.revokeGroupLender(group.id, lenderUserId);
+      setAuthorizedLenders(res.lenders || []);
+      setGroup(res.group);
+      onNotify('success', res.message);
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to revoke lender');
+    } finally {
+      setRevokingLenderId(null);
+    }
+  }
+
+  async function handleMarkLoanContacted(loanId: number) {
+    if (!group) return;
+    setMarkingContactedLoanId(loanId);
+    try {
+      const res = await api.markLoanContacted(group.id, loanId);
+      onNotify('success', res.message);
+      loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update loan status');
+    } finally {
+      setMarkingContactedLoanId(null);
     }
   }
 
@@ -371,9 +462,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     try {
       await api.sendGroupChat(group.id, {
         kind: 'system',
-        text: `🔔 MODERATOR NOTICE: Group members are seeking optional peer-to-peer installment loans. 3rd-party lenders in this group can review open loan requests below and fund member wallets directly (3% platform commission applies). Loan agreements and repayments are settled manually outside Buyoll.`,
+        text: `🔔 MODERATOR NOTICE: Group members are seeking installment loans. Authorized lenders for this group can review loan requests below and fund member group-locked wallets directly (1% platform fee applies). Loan agreements and repayments are settled manually outside Buyoll.`,
       });
-      onNotify('success', 'Notification alert sent to group chat and 3rd-party lenders.');
+      onNotify('success', 'Notification alert sent to group chat.');
       loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to send alert');
@@ -400,9 +491,15 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     if (!group || !slotToRemove) return;
     setSubmittingRemove(true);
     try {
-      const res = await api.removeMember(group.id, { slotNumber: slotToRemove.slotNumber, reason: removeReason });
-      setGroup(res.group);
-      onNotify('success', res.message || `Member #${slotToRemove.slotNumber} removed and funds refunded to wallet.`);
+      if ((slotToRemove.paidAmount || 0) === 0 && slotToRemove.userId) {
+        const res = await api.removeGroupMember(group.id, slotToRemove.userId);
+        setGroup(res.group);
+        onNotify('success', `Member #${slotToRemove.slotNumber} (${slotToRemove.userName || 'Member'}) removed and slot reopened.`);
+      } else {
+        const res = await api.removeMember(group.id, { slotNumber: slotToRemove.slotNumber, reason: removeReason });
+        setGroup(res.group);
+        onNotify('success', res.message || `Member #${slotToRemove.slotNumber} removed and funds refunded to wallet.`);
+      }
       setSlotToRemove(null);
       loadGroup();
     } catch (err: any) {
@@ -412,21 +509,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     }
   }
 
-  // Handle 3rd-Party Lender claiming this group (1 lender per group limit: 1st come 1st serve)
-  async function handleClaimGroupLender() {
-    if (!currentUser || !group) return;
-    setClaimingLender(true);
-    try {
-      const res = await api.claimGroupLender(group.id);
-      setGroup(res.group);
-      onNotify('success', res.message || 'You are now the authorized Third-Party Lender for this Group!');
-      loadGroup();
-    } catch (err: any) {
-      onNotify('error', err.message || 'Failed to claim group lender desk');
-    } finally {
-      setClaimingLender(false);
-    }
-  }
+
 
   // Check if current user is moderator (merchants are strictly excluded from group moderation)
   const isMerchantViewer = Boolean(
@@ -636,21 +719,125 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
     r => r.userId === currentUser?.id && r.status === 'pending'
   );
 
-  // PROMPT 3: 3-step slot picking flow with Invite-Only Gate
+  const effectiveJoinPolicy: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY' =
+    membership?.joinPolicy ||
+    group?.joinPolicy ||
+    (group?.isInviteOnly ? 'INVITE_ONLY' : 'OPEN');
+
+  // Primary "Join This Group" handler (handles OPEN direct join, APPROVAL request, and INVITE_ONLY modal)
+  async function handlePrimaryJoinGroup(preferredSlotNumber?: number) {
+    if (!currentUser) {
+      onNotify('info', 'Please sign in as a Member to join this group.');
+      onOpenAuth();
+      return;
+    }
+    const role = currentUser.activeRole || currentUser.role;
+    if (role === 'merchant' || role === 'lender' || role === 'admin') {
+      onNotify('error', 'Merchants, Lenders, and Admins cannot join groups. Log out and sign in as a Member.');
+      return;
+    }
+    if (!group) return;
+
+    if (effectiveJoinPolicy === 'INVITE_ONLY' && !myApprovedInvite && !manualInviteCodeInput.trim()) {
+      setShowManualCodeModal(true);
+      return;
+    }
+
+    setJoiningDirect(true);
+    try {
+      const code = (myApprovedInvite?.issuedCode || manualInviteCodeInput || '').trim().toUpperCase();
+      const res = await api.joinGroup(group.id, code || undefined, preferredSlotNumber);
+      onNotify('success', res.message);
+      setManualInviteCodeInput('');
+      if (res.membership) setMembership(res.membership);
+      if (res.group) setGroup(res.group);
+      await loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to join group');
+    } finally {
+      setJoiningDirect(false);
+    }
+  }
+
+  async function handleCancelJoinRequest() {
+    if (!group) return;
+    setCancellingJoinRequest(true);
+    try {
+      const res = await api.cancelGroupJoinRequest(group.id);
+      onNotify('info', res.message || 'Join request cancelled.');
+      await loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to cancel join request');
+    } finally {
+      setCancellingJoinRequest(false);
+    }
+  }
+
+  async function handleConfirmLeaveGroup() {
+    if (!group) return;
+    setLeavingGroup(true);
+    try {
+      const res = await api.leaveGroup(group.id);
+      setGroup(res.group);
+      setShowConfirmLeaveModal(false);
+      onNotify('success', res.message || 'You have left the group.');
+      await loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Could not leave group');
+    } finally {
+      setLeavingGroup(false);
+    }
+  }
+
+  async function handleUpdateJoinPolicy(nextPolicy: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY') {
+    if (!group || !isModerator) return;
+    setUpdatingJoinPolicy(true);
+    try {
+      const res = await api.updateGroupJoinPolicy(group.id, nextPolicy);
+      setGroup(res.group);
+      onNotify('success', `Group join policy updated to ${nextPolicy.replace('_', ' ')}.`);
+      await loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || 'Failed to update join policy');
+    } finally {
+      setUpdatingJoinPolicy(false);
+    }
+  }
+
+  async function handleReviewNumericJoinRequest(reqId: string, action: 'approve' | 'reject') {
+    if (!group) return;
+    setReviewingJoinReqId(reqId);
+    try {
+      if (action === 'approve') {
+        await api.approveNumericJoinRequest(group.id, reqId);
+        onNotify('success', 'Member approved and added to the group!');
+      } else {
+        await api.rejectNumericJoinRequest(group.id, reqId, 'Declined by Group Moderator');
+        onNotify('info', 'Join request rejected.');
+      }
+      await loadGroup();
+    } catch (err: any) {
+      onNotify('error', err.message || `Failed to ${action} join request`);
+    } finally {
+      setReviewingJoinReqId(null);
+    }
+  }
+
+  // Slot picking flow respecting group joinPolicy
   function handleDirectJoin(slot: GroupSlot) {
     if (!currentUser) {
       onNotify('info', 'Please sign in to join this Group slot.');
       onOpenAuth();
       return;
     }
-    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+    const role = currentUser.activeRole || currentUser.role;
+    if (role === 'merchant' || role === 'lender' || role === 'admin') {
       onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
       return;
     }
     if (!group) return;
 
-    // If group is invite-only and user doesn't have an approved invite, prompt to request invite
-    if (group.isInviteOnly && !myApprovedInvite) {
+    if (effectiveJoinPolicy === 'INVITE_ONLY' && !myApprovedInvite) {
       setDesiredSlotForInvite(slot.slotNumber);
       setShowInviteRequestModal(true);
       return;
@@ -669,26 +856,27 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       onOpenAuth();
       return;
     }
-    if (currentUser.role === 'merchant' || currentUser.role === 'lender') {
+    const role = currentUser.activeRole || currentUser.role;
+    if (role === 'merchant' || role === 'lender' || role === 'admin') {
       onNotify('error', 'Merchants and Lenders cannot join groups. To join groups as a customer, please log out and sign in or register as a Member.');
       return;
     }
     if (!slotPickerTarget || !group) return;
 
     const codeToUse = (myApprovedInvite?.issuedCode || manualInviteCodeInput).trim().toUpperCase();
-    if (!codeToUse) {
-      onNotify('error', "A friend's Buyoll referral code or approved invite code is required to join.");
+    if (effectiveJoinPolicy === 'INVITE_ONLY' && !codeToUse) {
+      onNotify('error', 'An approved invite or friend referral code is required to join this group.');
       setSlotPickerStep(1);
       return;
     }
 
     setSlotPickerSubmitting(true);
     try {
-      const res = await api.joinGroup(group.id, codeToUse, slotPickerTarget.slotNumber);
+      const res = await api.joinGroup(group.id, codeToUse || undefined, slotPickerTarget.slotNumber);
       onNotify('success', res.message);
       setSlotPickerTarget(null);
       setManualInviteCodeInput('');
-      loadGroup();
+      await loadGroup();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to claim slot');
     } finally {
@@ -870,8 +1058,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     >
                       <Users className="w-3.5 h-3.5" />
                       <span>
-                        Invite Requests (
-                        {(group.inviteRequests || []).filter(r => r.status === 'pending').length}
+                        Join & Invite Requests (
+                        {numericJoinRequests.filter(r => r.status === 'PENDING').length +
+                          (group.inviteRequests || []).filter(r => r.status === 'pending').length}
                         )
                       </span>
                     </button>
@@ -924,28 +1113,105 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
           </div>
         </div>
 
-        {/* Start Notice */}
+        {/* Start Notice & Join Policy Pill */}
         <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 gap-2">
           <p className="flex items-center gap-1.5 text-emerald-800 font-medium">
             <Info className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
               {group.moderatorId
-                ? `First customer becomes Group Moderator (Moderator #${group.moderatorId}). Members choose and lock the payout schedule.`
-                : 'Group is open. The first Member who joins automatically becomes Group Moderator (merchants have read-only oversight).'}
+                ? `First customer becomes Group Moderator (Moderator #${group.moderatorId}). Policy: ${effectiveJoinPolicy.replace('_', ' ')}.`
+                : `Group is open (${effectiveJoinPolicy.replace('_', ' ')}). The first Member who joins automatically becomes Group Moderator.`}
             </span>
           </p>
-          {currentUser?.referralCode && (
-            <div className="font-mono bg-slate-100 px-2.5 py-1 rounded text-slate-700">
-              Your Friend Referral Code: <b className="text-[#ff6600]">{currentUser.referralCode}</b>
-            </div>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {isModerator && (
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-700 text-[11px]">Admission:</span>
+                <select
+                  value={effectiveJoinPolicy}
+                  disabled={updatingJoinPolicy}
+                  onChange={(e) => handleUpdateJoinPolicy(e.target.value as 'OPEN' | 'APPROVAL' | 'INVITE_ONLY')}
+                  className="bg-white border border-slate-300 rounded px-2 py-0.5 text-[11px] font-bold text-slate-800"
+                >
+                  <option value="OPEN">OPEN (Instant Join)</option>
+                  <option value="APPROVAL">APPROVAL (Moderator Approves)</option>
+                  <option value="INVITE_ONLY">INVITE ONLY (Code Required)</option>
+                </select>
+              </div>
+            )}
+            {currentUser?.referralCode && (
+              <div className="font-mono bg-slate-100 px-2.5 py-1 rounded text-slate-700">
+                Your Friend Referral Code: <b className="text-[#ff6600]">{currentUser.referralCode}</b>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* INVITE-ONLY ADMISSION & ENTRY CODE STATUS BANNER */}
-      {!mySlot && (
+      {/* STATEFUL MEMBERSHIP & "JOIN THIS GROUP" PRIMARY BAR */}
+      {mySlot ? (
+        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 font-black text-[10px] uppercase rounded-full">
+                  Joined · Slot #{mySlot.slotNumber}
+                </span>
+                {(mySlot.memberCode || membership?.memberCode) && (
+                  <span className="px-2 py-0.5 bg-white border border-emerald-300 text-emerald-900 font-mono font-bold text-[11px] rounded">
+                    Code: {mySlot.memberCode || membership?.memberCode}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-emerald-900 mt-0.5">
+                You are an active member of <b>{group.name}</b>. Delivery rotation is scheduled for Day {mySlot.slotNumber * group.cycleDays}.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowConfirmLeaveModal(true)}
+            disabled={leavingGroup}
+            className="px-3.5 py-2 bg-white hover:bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+          >
+            <UserMinus className="w-3.5 h-3.5" />
+            <span>Leave Group</span>
+          </button>
+        </div>
+      ) : (
         <div className="mb-6">
-          {myApprovedInvite ? (
+          {membership?.joinRequestStatus === 'PENDING' ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[10px] uppercase rounded-full">
+                    Request Sent · Pending Moderator Approval
+                  </span>
+                  <h4 className="text-sm font-extrabold text-amber-950 mt-0.5">
+                    Your Join Request is Under Review
+                  </h4>
+                  <p className="text-xs text-amber-800">
+                    The Group Moderator will approve or reject your request shortly.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelJoinRequest}
+                disabled={cancellingJoinRequest}
+                className="px-4 py-2 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                {cancellingJoinRequest ? 'Cancelling...' : 'Cancel Request'}
+              </button>
+            </div>
+          ) : effectiveJoinPolicy === 'INVITE_ONLY' && myApprovedInvite ? (
             <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
@@ -964,31 +1230,34 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     Your Admission Request Has Been Approved by the Moderator!
                   </h4>
                   <p className="text-xs text-emerald-800">
-                    You can now join Slot #{myApprovedInvite.desiredSlot || 'Any Open Slot'} in this Group. Click on your slot below to activate your rotation!
+                    Click Join This Group to claim Slot #{myApprovedInvite.desiredSlot || 'Any Open Slot'}!
                   </p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => handlePrimaryJoinGroup(myApprovedInvite.desiredSlot || undefined)}
+                disabled={joiningDirect || availableSlots <= 0}
+                className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {joiningDirect ? 'Joining...' : 'Join This Group'}
+              </button>
             </div>
-          ) : myPendingInvite ? (
+          ) : effectiveJoinPolicy === 'INVITE_ONLY' && myPendingInvite ? (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[10px] uppercase rounded-full">
-                      Pending Moderator Review
-                    </span>
-                    <span className="text-xs text-amber-800 font-semibold">
-                      Slot #{myPendingInvite.desiredSlot || 'Any'}
-                    </span>
-                  </div>
+                  <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[10px] uppercase rounded-full">
+                    Pending Moderator Review
+                  </span>
                   <h4 className="text-sm font-extrabold text-amber-950 mt-0.5">
                     Your Entry Invite Request is Awaiting Approval
                   </h4>
                   <p className="text-xs text-amber-800">
-                    The group moderator will review your request and issue an entry code. You will receive a push notification alert once approved!
+                    The group moderator will review your request and issue an entry code.
                   </p>
                 </div>
               </div>
@@ -997,42 +1266,94 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-[#ff6600] text-white flex items-center justify-center shrink-0 mt-0.5">
-                  <Shield className="w-5 h-5" />
+                  <UserPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2 py-0.5 bg-[#ff6600] text-white font-black text-[10px] uppercase rounded-full">
-                      Invite-Only Admission
+                      {effectiveJoinPolicy === 'OPEN'
+                        ? 'Open Group Admission'
+                        : effectiveJoinPolicy === 'APPROVAL'
+                        ? 'Moderator Approval Admission'
+                        : 'Invite-Only Admission'}
                     </span>
-                    <span className="text-xs text-slate-500">
-                      Store Owner / Moderator Controlled
+                    <span className="text-xs text-slate-600 font-medium">
+                      {availableSlots} of {group.size} slots open · KSh {group.dailyAmount.toLocaleString()}/day
                     </span>
                   </div>
                   <h4 className="text-sm font-extrabold text-slate-900 mt-0.5">
-                    Join This Group by Moderator Invitation
+                    {availableSlots <= 0
+                      ? 'This Group is Currently Full'
+                      : effectiveJoinPolicy === 'OPEN'
+                      ? 'Ready to Join This Savings Group'
+                      : effectiveJoinPolicy === 'APPROVAL'
+                      ? 'Request Membership in This Group'
+                      : 'Join This Group with Invite Code'}
                   </h4>
                   <p className="text-xs text-slate-600">
-                    This Group requires an approved entry code to guarantee member payment commitment. Request an invite or enter your code to claim a slot.
+                    {currentUser && (isMerchantViewer || currentUser.role === 'lender' || currentUser.role === 'admin')
+                      ? 'Merchants, Lenders, and Admins cannot join groups. Log out and sign in as a Member to join.'
+                      : effectiveJoinPolicy === 'OPEN'
+                      ? 'Click Join This Group to claim an open slot immediately and start rotating toward this item.'
+                      : effectiveJoinPolicy === 'APPROVAL'
+                      ? 'Submit a join request to the Group Moderator. Once approved, your slot activates automatically.'
+                      : 'Enter a friend referral or moderator invite code, or request an entry invite below.'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => {
-                    setDesiredSlotForInvite(null);
-                    setShowInviteRequestModal(true);
-                  }}
-                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
-                >
-                  Request Entry Invite
-                </button>
-                <button
-                  onClick={() => setShowManualCodeModal(true)}
-                  className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-                >
-                  Enter Invite Code
-                </button>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {availableSlots <= 0 ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="px-4 py-2.5 bg-slate-200 text-slate-500 text-xs font-bold rounded-xl cursor-not-allowed"
+                  >
+                    Group Full
+                  </button>
+                ) : currentUser && (isMerchantViewer || currentUser.role === 'lender' || currentUser.role === 'admin') ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="px-4 py-2.5 bg-slate-200 text-slate-500 text-xs font-bold rounded-xl cursor-not-allowed"
+                  >
+                    Member Account Required
+                  </button>
+                ) : effectiveJoinPolicy === 'INVITE_ONLY' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!currentUser) {
+                          onOpenAuth();
+                          return;
+                        }
+                        setDesiredSlotForInvite(null);
+                        setShowInviteRequestModal(true);
+                      }}
+                      className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                    >
+                      Request Entry Invite
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowManualCodeModal(true)}
+                      className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                    >
+                      Join with Invite Code
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handlePrimaryJoinGroup()}
+                    disabled={joiningDirect}
+                    className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>{joiningDirect ? 'Processing...' : 'Join This Group'}</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1814,68 +2135,100 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               </div>
             </div>
 
-            {/* THIRD-PARTY LENDER STATUS & 1-LENDER-PER-GROUP ENFORCEMENT */}
-            <div className="mb-4">
-              {group.lenderId ? (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span className="text-emerald-950">
-                      Designated 3rd-Party Lender: <b>{group.lenderName || 'Verified Lender'}</b> (1 lender per group limit fulfilled)
-                    </span>
-                  </div>
-                  {isAssignedGroupLender && (
-                    <span className="text-[11px] font-bold bg-[#ff6600] text-white px-2.5 py-0.5 rounded-full shrink-0">
-                      You are Serving This Group
-                    </span>
-                  )}
+            {/* GROUP-SCOPED AUTHORIZED LENDERS */}
+            <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-slate-900 block">
+                    Authorized Group Lenders ({authorizedLenders.length})
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Lenders are group-scoped and authorized exclusively by the Group Moderator or Admin.
+                  </span>
                 </div>
-              ) : currentUser?.role === 'lender' ? (
-                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <span className="font-bold text-indigo-950 block">This group needs an authorized Third-Party Lender!</span>
-                    <span className="text-indigo-800 text-[11px]">
-                      Rule: Only 1 lender is accepted per group (First come, first served).
-                    </span>
-                  </div>
+                {currentUser && authorizedLenders.some(al => al.userId === currentUser.id) && (
+                  <span className="text-[11px] font-bold bg-[#ff6600] text-white px-2.5 py-0.5 rounded-full shrink-0 self-start sm:self-auto">
+                    Authorized for This Group
+                  </span>
+                )}
+              </div>
+
+              {authorizedLenders.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {authorizedLenders.map((gl) => (
+                    <div
+                      key={gl.id}
+                      className="inline-flex items-center gap-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="font-bold text-slate-900">{gl.userName}</span>
+                      {gl.userPhone && <span className="text-[11px] font-mono text-slate-500">{gl.userPhone}</span>}
+                      {isModerator && (
+                        <button
+                          type="button"
+                          disabled={revokingLenderId === gl.userId}
+                          onClick={() => handleRevokeLender(gl.userId)}
+                          className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 rounded border border-rose-200 cursor-pointer"
+                        >
+                          {revokingLenderId === gl.userId ? '...' : 'Revoke'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  No lenders authorized yet for this group. {isModerator ? 'Authorize a registered lender below.' : 'Ask the Group Moderator to authorize a lender.'}
+                </p>
+              )}
+
+              {isModerator && (
+                <form onSubmit={handleAuthorizeLender} className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-slate-200">
+                  <input
+                    type="text"
+                    value={lenderIdentifierInput}
+                    onChange={(e) => setLenderIdentifierInput(e.target.value)}
+                    placeholder="Lender email, phone, or username to authorize"
+                    className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                  />
                   <button
-                    onClick={handleClaimGroupLender}
-                    disabled={claimingLender}
-                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shadow-xs shrink-0"
+                    type="submit"
+                    disabled={authorizingLender || !lenderIdentifierInput.trim()}
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-[#ff6600] text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
                   >
-                    {claimingLender ? 'Claiming...' : 'Serve as Group Lender'}
+                    {authorizingLender ? 'Authorizing...' : 'Authorize Lender'}
                   </button>
-                </div>
-              ) : null}
+                </form>
+              )}
             </div>
 
             {/* Information Notice */}
             <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-xs text-amber-900 mb-4 flex items-start gap-2">
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-relaxed">
-                <b>How P2P Loans Work:</b> A standard member clicks "Request Loan" to post a request to the group chat and loan board. An authorized 3rd-party lender processes the external payment manually, then marks the loan as <b>"Funded"</b> to credit the member's Buyoll wallet. A 1% platform fee log applies. All loan agreements, interest, and repayments are conducted manually outside the Buyoll platform.
+                <b>How Group Loans Work (1% Platform Fee):</b> Active group members request loan support inside this group. Moderator-authorized lenders contact the borrower and fund atomically from their lender wallet. <b>1% platform fee</b> is recorded for Buyoll and <b>99% net</b> is credited to the borrower’s non-withdrawable balance locked strictly to this group.
               </div>
             </div>
 
             {/* DEDICATED THIRD-PARTY LENDER DASHBOARD SECTION */}
-            {(currentUser?.role === 'lender' || isAssignedGroupLender) && (
+            {(currentUser?.role === 'lender' || isAssignedGroupLender || (currentUser && authorizedLenders.some(al => al.userId === currentUser.id))) && (
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
                     <HandCoins className="w-4 h-4 text-[#FF6A00]" />
                     <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                      Third-Party Lender Group Desk & 3% Fee Audit Log
+                      Group Lender Desk &amp; 1% Fee Summary
                     </h4>
                   </div>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    {loans.filter(l => l.status === 'open' || l.status === 'fee_pending').length} Pending Requests
+                    {loans.filter(l => l.status !== 'funded' && l.status !== 'cancelled').length} Open Requests
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 mb-3">
-                  Review open loan requests from standard members below. Disburse the external payment, then click <b>Mark as 'Funded'</b> to deposit credit directly to the member's wallet for Group installment continuity.
+                  Authorized lenders can mark borrowers contacted and disburse funds atomically (99% net to borrower’s group-locked balance, 1% platform fee).
                 </p>
 
-                {/* 3% Fee Summary Log */}
+                {/* 1% Fee Summary Log */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs bg-white p-3 rounded-lg border border-slate-200">
                   <div>
                     <span className="text-[10px] text-slate-400 font-semibold block uppercase">Total Group Requests</span>
@@ -1884,9 +2237,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </b>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">1% Platform Fee Log</span>
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">1% Platform Fee</span>
                     <b className="text-[#FF6A00] font-mono text-sm">
-                      KSh {loans.reduce((acc, l) => acc + (l.platformFeeAmount || Math.max(1, Math.round(l.amount * 0.01))), 0).toLocaleString()}
+                      KSh {loans.reduce((acc, l) => acc + (l.platformFeeAmount || Math.round(l.amount * 0.01)), 0).toLocaleString()}
                     </b>
                   </div>
                   <div>
@@ -1913,9 +2266,16 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             ) : (
               <div className="space-y-3">
                 {loans.map((loan) => {
-                  const fee = loan.platformFeeAmount || Math.max(1, Math.round(loan.amount * 0.01));
+                  const fee = loan.platformFeeAmount ?? Math.round(loan.amount * 0.01);
+                  const netAmt = loan.netDisbursedAmount ?? (loan.amount - fee);
                   const isFunded = loan.status === 'funded';
+                  const isContacted = loan.status === 'contacted';
                   const isMyRequest = currentUser && loan.requesterId === currentUser.id;
+                  const canActAsLender = Boolean(
+                    currentUser &&
+                      (currentUser.role === 'admin' ||
+                        authorizedLenders.some((al) => al.userId === currentUser.id))
+                  );
 
                   return (
                     <div
@@ -1923,25 +2283,29 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                       className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                         isFunded
                           ? 'border-emerald-200 bg-emerald-50/40'
+                          : isContacted
+                          ? 'border-blue-200 bg-blue-50/30'
                           : 'border-slate-200 bg-white shadow-xs'
                       }`}
                     >
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center flex-wrap gap-2 mb-1">
                           <span className="text-xs font-bold text-slate-900">
-                            {loan.requesterName} (Member #{loan.slotNumber})
+                            {loan.requesterName} ({loan.borrowerCode || `Slot #${loan.slotNumber}`})
                           </span>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                               isFunded
                                 ? 'bg-emerald-100 text-emerald-800'
+                                : isContacted
+                                ? 'bg-blue-100 text-blue-800'
                                 : 'bg-amber-100 text-amber-800'
                             }`}
                           >
-                            {isFunded ? 'Funded' : 'Pending Loan Request'}
+                            {isFunded ? 'Funded' : isContacted ? 'Contacted' : 'Open Request'}
                           </span>
                           {isMyRequest && (
-                            <span className="text-[10px] bg-slate-900 text-white font-bold px-1.5 py-0.2 rounded">
+                            <span className="text-[10px] bg-slate-900 text-white font-bold px-1.5 py-0.5 rounded">
                               Your Request
                             </span>
                           )}
@@ -1950,38 +2314,49 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                         <div className="text-sm font-black text-slate-900">
                           KSh {loan.amount.toLocaleString()}
                           <span className="text-xs font-normal text-slate-500 ml-2">
-                            1% Platform Fee Log: <b className="text-[#FF6A00]">KSh {fee.toLocaleString()}</b> (Net Disbursed: KSh {loan.amount.toLocaleString()})
+                            1% Fee: <b className="text-[#FF6A00]">KSh {fee.toLocaleString()}</b> · 99% Net Group-Locked: <b>KSh {netAmt.toLocaleString()}</b>
                           </span>
                         </div>
 
                         <p className="text-xs text-slate-600 mt-0.5">
                           Purpose: {loan.purpose}
+                          {loan.requesterPhone && (
+                            <span className="ml-2 font-mono text-slate-700">· Tel: {loan.requesterPhone}</span>
+                          )}
                         </p>
 
                         {isFunded && (
                           <div className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Funded by <b>{loan.fundedByUserName || '3rd-Party Lender'}</b> · 1% platform fee recorded · Credited to member wallet</span>
+                            <span>
+                              Funded by <b>{loan.fundedByUserName || 'Authorized Lender'}</b> · KSh {netAmt.toLocaleString()} credited to Group #{loan.groupId} locked wallet
+                            </span>
                           </div>
                         )}
                       </div>
 
-                      {/* Action for 3rd-Party Lenders */}
-                      <div>
-                        {!isFunded && (
+                      {/* Actions for Authorized Group Lenders */}
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        {!isFunded && canActAsLender && !isContacted && (
                           <button
+                            type="button"
+                            disabled={markingContactedLoanId === loan.id}
+                            onClick={() => handleMarkLoanContacted(loan.id)}
+                            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
+                          >
+                            {markingContactedLoanId === loan.id ? 'Updating...' : 'Mark Contacted'}
+                          </button>
+                        )}
+                        {!isFunded && canActAsLender && (
+                          <button
+                            type="button"
                             onClick={() => {
-                              if (!currentUser) {
-                                onNotify('info', 'Please sign in to fund member loans.');
-                                onOpenAuth();
-                                return;
-                              }
                               setSelectedLoanToFund(loan);
                               setLenderAgreedTerms(false);
                             }}
-                            className="px-3.5 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs"
+                            className="px-3.5 py-2 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs cursor-pointer"
                           >
-                            Mark as 'Funded' (External Payment Processed)
+                            Fund Loan (99% Net)
                           </button>
                         )}
                       </div>
@@ -2025,36 +2400,45 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               </div>
 
               <form onSubmit={handlePostPayment} className="space-y-3">
-                {/* Instant Wallet Payment Option (from Peer Loan or Store Credit) */}
-                {currentUser && (currentUser.credit || 0) > 0 && (
+                {/* Instant Wallet Payment Option (Group-Locked Loan Credit + Store Credit) */}
+                {currentUser && ((currentUser.credit || 0) + (currentUser.restrictedLoanByGroup?.[group.id] || 0)) > 0 && (() => {
+                  const groupLocked = Number(currentUser.restrictedLoanByGroup?.[group.id] || 0);
+                  const totalGroupSpendable = (currentUser.credit || 0) + groupLocked;
+                  return (
                   <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl mb-3">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
                         <Wallet className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>Wallet Credit Available</span>
+                        <span>Available for This Group</span>
                       </span>
                       <span className="text-xs font-black text-emerald-800 tabular-nums">
-                        KSh {(currentUser.credit || 0).toLocaleString()}
+                        KSh {totalGroupSpendable.toLocaleString()}
                       </span>
                     </div>
+                    {groupLocked > 0 && (
+                      <div className="text-[11px] font-semibold text-emerald-900 mb-1">
+                        Includes KSh {groupLocked.toLocaleString()} restricted loan balance locked to this group.
+                      </div>
+                    )}
                     <p className="text-[11px] text-emerald-800 leading-snug mb-2.5">
-                      You have funds deposited from peer loans or previous returns. Apply them directly to pay for this slot!
+                      Apply your group-locked loan funds or wallet credit directly to your installment!
                     </p>
                     <button
                       type="button"
                       disabled={payingFromWallet}
                       onClick={handlePayFromWallet}
-                      className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                      className="w-full py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>
                         {payingFromWallet
                           ? 'Applying Payment...'
-                          : `Pay KSh ${Math.min(paymentAmount || group.dailyAmount, currentUser.credit || 0).toLocaleString()} from Wallet`}
+                          : `Pay KSh ${Math.min(paymentAmount || group.dailyAmount, totalGroupSpendable).toLocaleString()} from Wallet`}
                       </span>
                     </button>
                   </div>
-                )}
+                  );
+                })()}
 
                 <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-1">
                   <div className="flex items-center justify-between font-bold">
@@ -2131,13 +2515,11 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               </p>
               {group.availableCount > 0 ? (
                 <button
-                  onClick={() => {
-                    const firstOpen = group.slots.find(s => s.status === 'replacement_eligible' || s.status === 'open');
-                    if (firstOpen) handleDirectJoin(firstOpen);
-                  }}
-                  className="w-full py-2.5 bg-[#FF6A00] text-white text-xs font-bold rounded-lg"
+                  onClick={() => handlePrimaryJoinGroup()}
+                  disabled={joiningDirect}
+                  className="w-full py-2.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  Join Next Available Slot
+                  {joiningDirect ? 'Processing...' : 'Join This Group'}
                 </button>
               ) : (
                 <p className="text-xs text-amber-700 font-semibold">Group is currently full.</p>
@@ -2619,14 +3001,16 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 {loanRequestAmount > 0 && (
                   <div className="mt-1.5 p-2.5 bg-emerald-50/70 border border-emerald-200/60 rounded-lg text-xs space-y-1">
                     <div className="flex justify-between text-slate-600">
-                      <span>Lender Upfront Facilitation Fee (3%):</span>
+                      <span>Platform Fee (1% deducted on funding):</span>
                       <span className="font-bold text-[#FF6A00]">
-                        KSh {Math.max(1, Math.round(loanRequestAmount * 0.03)).toLocaleString()}
+                        KSh {Math.round(loanRequestAmount * 0.01).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between font-bold text-[#ff6600]">
-                      <span>Direct Credited to Your Wallet:</span>
-                      <span>KSh {loanRequestAmount.toLocaleString()} (Non-withdrawable)</span>
+                      <span>Net Credited to Group-Locked Balance (99%):</span>
+                      <span>
+                        KSh {(loanRequestAmount - Math.round(loanRequestAmount * 0.01)).toLocaleString()} (Locked to this group)
+                      </span>
                     </div>
                   </div>
                 )}
@@ -2713,7 +3097,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
               {/* Regulatory & Peer Terms Notice */}
               <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] leading-relaxed space-y-1 text-amber-950">
                 <div>⚖️ <b>Notice:</b> Interest rates, repayment schedule, and loan agreements are negotiated and settled manually outside the Buyoll platform.</div>
-                <div>Lender pays an upfront <b>3% platform facilitation fee</b> to Platform Till: <b>196853</b> or Paybill: <b>522533</b> (Acc: <b>4363</b>). Loan proceeds credited to your wallet are locked for Group contributions and product purchases only.</div>
+                <div>Upon atomic lender funding, a <b>1% platform fee</b> is recorded for Buyoll and <b>99% net</b> is credited to your non-withdrawable balance strictly locked for contributions in this group.</div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -2738,18 +3122,19 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: FUND PEER LOAN (3rd-Party Lender Action with Mandatory 3% Platform Fee Workflow) */}
+      {/* MODAL 2: FUND GROUP LOAN (Atomic 1% Fee Workflow) */}
       {selectedLoanToFund && (() => {
         const principal = selectedLoanToFund.approvedAmount || selectedLoanToFund.amount;
-        const fee3Pct = Math.max(1, Math.round(principal * 0.03));
-        const isFeeVerified = selectedLoanToFund.platformFeeStatus === 'approved' || selectedLoanToFund.status === 'fee_verified';
+        const fee1Pct = selectedLoanToFund.platformFeeAmount ?? Math.round(principal * 0.01);
+        const net99Pct = selectedLoanToFund.netDisbursedAmount ?? (principal - fee1Pct);
+        const lenderWalletBal = Number(currentUser?.roleWallets?.lender?.credit ?? currentUser?.credit ?? 0);
 
         return (
           <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative my-auto">
               <button
                 onClick={() => setSelectedLoanToFund(null)}
-                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2759,90 +3144,45 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <HandCoins className="w-4 h-4" />
                 </div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Fund Member's Wallet (3rd-Party Lender Desk)
+                  Fund Borrower Loan (Atomic 1% Fee)
                 </h3>
               </div>
               <p className="text-xs text-slate-500 mb-4">
-                Funding <b>{selectedLoanToFund.requesterName}</b> (Member #{selectedLoanToFund.slotNumber}) for {group.productTitle}.
+                Funding <b>{selectedLoanToFund.requesterName}</b> ({selectedLoanToFund.borrowerCode || `Slot #${selectedLoanToFund.slotNumber}`}) for {group.productTitle}.
               </p>
 
               {/* Financial Calculation Breakdown */}
               <div className="p-4 bg-slate-50 rounded-xl space-y-2 text-xs mb-4 border border-slate-200">
                 <div className="flex justify-between">
-                  <span className="text-slate-600">Proposed Loan Principal:</span>
+                  <span className="text-slate-600">Loan Principal Debited from You:</span>
                   <span className="font-bold text-slate-900">
                     KSh {principal.toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-600">3% Mandatory Platform Commission:</span>
+                  <span className="text-slate-600">1% Platform Fee (Buyoll):</span>
                   <span className="font-bold text-[#FF6A00]">
-                    KSh {fee3Pct.toLocaleString()}
+                    KSh {fee1Pct.toLocaleString()}
                   </span>
                 </div>
                 <div className="pt-2 border-t border-slate-200 flex justify-between text-xs font-semibold text-slate-700">
-                  <span>Net Credited to Member Wallet:</span>
-                  <span className="font-bold text-[#ff6600]">
-                    KSh {principal.toLocaleString()} (Non-Withdrawable)
+                  <span>99% Net Credited to Borrower:</span>
+                  <span className="font-bold text-emerald-700">
+                    KSh {net99Pct.toLocaleString()} (Group-Locked)
                   </span>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-500 pt-1">
+                  <span>Your Lender Wallet Balance:</span>
+                  <b className={lenderWalletBal >= principal ? 'text-emerald-700' : 'text-rose-600'}>
+                    KSh {lenderWalletBal.toLocaleString()}
+                  </b>
                 </div>
               </div>
 
-              {/* STEP 1: Pay 3% Platform Fee (Mandatory before console unlocks) */}
-              <div className={`p-4 rounded-xl border mb-4 text-xs space-y-2.5 ${
-                isFeeVerified ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50/80 border-amber-300'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                    {isFeeVerified ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <Lock className="w-4 h-4 text-amber-600" />
-                    )}
-                    <span>Step 1: 3% Platform Fee Payment ({isFeeVerified ? 'Verified & Approved' : 'Action Required'})</span>
-                  </span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    isFeeVerified ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
-                  }`}>
-                    {isFeeVerified ? 'Fee Approved' : 'Console Locked'}
-                  </span>
-                </div>
-
-                {!isFeeVerified ? (
-                  <>
-                    <p className="text-[11px] text-amber-900 leading-snug">
-                      Pay <b>KSh {fee3Pct.toLocaleString()}</b> (3%) to <b>Platform Till: 196853</b> or <b>Paybill: 522533</b> (Account: <b>4363</b>). Enter your M-Pesa transaction code below to unlock the disbursement console.
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={loanFeePaymentCode}
-                        onChange={(e) => setLoanFeePaymentCode(e.target.value.toUpperCase())}
-                        placeholder="M-Pesa Reference (e.g. QJK4X8L2PA)"
-                        className="flex-1 px-3 py-1.5 text-xs border border-amber-300 rounded-lg bg-white uppercase font-mono focus:ring-1 focus:ring-[#ff6600]"
-                      />
-                      <button
-                        type="button"
-                        disabled={submittingLoanFee || !loanFeePaymentCode.trim()}
-                        onClick={() => handleSubmitLoanFee(selectedLoanToFund.id, principal)}
-                        className="px-3.5 py-1.5 bg-[#FF6A00] hover:bg-[#e85f00] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 shrink-0"
-                      >
-                        {submittingLoanFee ? 'Verifying...' : 'Submit 3% Fee'}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-[11px] text-emerald-800 leading-snug">
-                    ✓ 3% platform commission of KSh {fee3Pct.toLocaleString()} is verified (Ref: {selectedLoanToFund.platformFeePaymentCode || 'FEE_PAID'}). The loan console is now unlocked for disbursement.
-                  </p>
-                )}
-              </div>
-
-              {/* STEP 2: Disburse Loan Proceeds to Member Wallet */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 mb-4">
-                <span className="font-bold text-slate-900 block">Step 2: External Agreement & Wallet Credit</span>
+                <span className="font-bold text-slate-900 block">External Repayment &amp; Group-Lock Terms</span>
                 <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Loan terms and repayments are conducted manually outside Buyoll. The principal KSh {principal.toLocaleString()} will be credited directly to {selectedLoanToFund.requesterName}’s wallet as locked loan proceeds (non-withdrawable, strictly for shopping & Group contributions).
+                  KSh {net99Pct.toLocaleString()} is credited immediately inside a transaction to {selectedLoanToFund.requesterName}’s restricted balance locked exclusively to this group (non-withdrawable). Repayments are arranged manually outside Buyoll.
                 </p>
                 <label className="flex items-start gap-2 pt-1 cursor-pointer">
                   <input
@@ -2852,7 +3192,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     className="mt-0.5 rounded text-[#ff6600] focus:ring-[#ff6600]"
                   />
                   <span className="text-[11px] font-semibold text-slate-800">
-                    I confirm external loan agreement is settled and agree to disburse non-withdrawable funds.
+                    I confirm external repayment agreement and authorize atomic funding.
                   </span>
                 </label>
               </div>
@@ -2861,18 +3201,18 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedLoanToFund(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  disabled={submittingFund || !lenderAgreedTerms || !isFeeVerified}
+                  disabled={submittingFund || !lenderAgreedTerms}
                   onClick={handleConfirmFundLoan}
-                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
                   <HandCoins className="w-3.5 h-3.5" />
-                  <span>{submittingFund ? 'Disbursing Funds...' : `Disburse KSh ${principal.toLocaleString()} to Member Wallet`}</span>
+                  <span>{submittingFund ? 'Disbursing Funds...' : `Fund KSh ${principal.toLocaleString()} (Net KSh ${net99Pct.toLocaleString()})`}</span>
                 </button>
               </div>
             </div>
@@ -3116,21 +3456,36 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </span>
                 </div>
 
-                {!myApprovedInvite?.issuedCode && (
+                {!myApprovedInvite?.issuedCode && effectiveJoinPolicy === 'INVITE_ONLY' && (
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
                     <label className="block text-xs font-bold text-slate-800">
-                      Friend Referral / Member Invite Code <span className="text-rose-500">*</span>
+                      Invite / Friend Referral Code <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
                       value={manualInviteCodeInput}
                       onChange={(e) => setManualInviteCodeInput(e.target.value.toUpperCase())}
-                      placeholder="Ask a friend for their Buyoll referral code"
+                      placeholder="Enter your approved invite or friend referral code"
                       className="w-full px-3 py-2 text-xs font-mono uppercase bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                     />
                     <p className="text-[11px] text-slate-500">
-                      Joining a group requires a valid friend referral code or approved invite code (not your own code).
+                      This group requires an approved invite code or friend referral code.
                     </p>
+                  </div>
+                )}
+
+                {!myApprovedInvite?.issuedCode && effectiveJoinPolicy !== 'INVITE_ONLY' && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Friend Referral Code (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualInviteCodeInput}
+                      onChange={(e) => setManualInviteCodeInput(e.target.value.toUpperCase())}
+                      placeholder="Optional friend Buyoll code"
+                      className="w-full px-3 py-2 text-xs font-mono uppercase bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                    />
                   </div>
                 )}
 
@@ -3143,8 +3498,8 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   </button>
                   <button
                     onClick={() => {
-                      if (!myApprovedInvite?.issuedCode && !manualInviteCodeInput.trim()) {
-                        onNotify('error', 'Please enter a friend referral invite code to proceed.');
+                      if (effectiveJoinPolicy === 'INVITE_ONLY' && !myApprovedInvite?.issuedCode && !manualInviteCodeInput.trim()) {
+                        onNotify('error', 'Please enter an invite or friend referral code to proceed.');
                         return;
                       }
                       setSlotPickerStep(2);
@@ -3534,7 +3889,59 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             </div>
 
             <div className="overflow-y-auto py-4 space-y-3 flex-1 pr-1">
-              {(!group.inviteRequests || group.inviteRequests.length === 0) ? (
+              {/* Approval Policy Join Requests */}
+              {numericJoinRequests.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Membership Join Requests ({numericJoinRequests.filter(r => r.status === 'PENDING').length} pending)
+                  </div>
+                  {numericJoinRequests.map((jr) => (
+                    <div
+                      key={jr.id}
+                      className="p-3.5 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-slate-900">{jr.userName}</span>
+                          {jr.userPhone && <span className="text-[11px] font-mono text-slate-500">({jr.userPhone})</span>}
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            jr.status === 'APPROVED'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : jr.status === 'REJECTED' || jr.status === 'CANCELLED'
+                              ? 'bg-slate-200 text-slate-700'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {jr.status}
+                          </span>
+                        </div>
+                        {jr.note && <p className="text-[11px] text-slate-600 italic">"{jr.note}"</p>}
+                      </div>
+                      {jr.status === 'PENDING' && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleReviewNumericJoinRequest(jr.id, 'approve')}
+                            disabled={reviewingJoinReqId === jr.id}
+                            className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg text-xs disabled:opacity-50"
+                          >
+                            {reviewingJoinReqId === jr.id ? 'Processing...' : 'Approve Member'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReviewNumericJoinRequest(jr.id, 'reject')}
+                            disabled={reviewingJoinReqId === jr.id}
+                            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-lg text-xs disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {(!group.inviteRequests || group.inviteRequests.length === 0) && numericJoinRequests.length === 0 ? (
                 <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                   <Shield className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <p className="text-xs font-bold text-slate-700">No Entry Requests Yet</p>
@@ -3542,8 +3949,8 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     When prospective buyers request to join this Group, their applications will appear here for your review and approval.
                   </p>
                 </div>
-              ) : (
-                group.inviteRequests.map((req) => (
+              ) : (group.inviteRequests || []).length > 0 ? (
+                (group.inviteRequests || []).map((req) => (
                   <div
                     key={req.id}
                     className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
@@ -3620,7 +4027,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                     </div>
                   </div>
                 ))
-              )}
+              ) : null}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex justify-end shrink-0">
@@ -4061,6 +4468,44 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                   <span>{submittingDormantWarning ? 'Issuing Warning...' : 'Dispatch Warning'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. LEAVE GROUP CONFIRMATION MODAL (No window.confirm) */}
+      {showConfirmLeaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-sm text-slate-900">Leave This Group?</h3>
+              <button
+                type="button"
+                onClick={() => setShowConfirmLeaveModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 mt-3 leading-relaxed">
+              Leaving <b>{group.name}</b> will vacate your current slot so another member can join. If you have an active funded loan or arrears in this group, please settle it before leaving.
+            </p>
+            <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowConfirmLeaveModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+              >
+                Stay in Group
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLeaveGroup}
+                disabled={leavingGroup}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg disabled:opacity-50 cursor-pointer"
+              >
+                {leavingGroup ? 'Leaving...' : 'Confirm Leave Group'}
+              </button>
             </div>
           </div>
         </div>

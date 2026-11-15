@@ -770,8 +770,9 @@ export async function getDatabase(): Promise<DatabaseSchema> {
   if (dbCache) return dbCache;
 
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const raw = await fs.readFile(DB_FILE, 'utf-8');
+    const dbFile = getActiveDbFile();
+    await fs.mkdir(path.dirname(dbFile), { recursive: true });
+    const raw = await fs.readFile(dbFile, 'utf-8');
     dbCache = JSON.parse(raw);
     if (!dbCache!.peerLoans) dbCache!.peerLoans = [];
     if (!dbCache!.helpChat) dbCache!.helpChat = [];

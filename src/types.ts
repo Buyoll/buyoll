@@ -66,7 +66,7 @@ export interface User {
   suspendReason?: string;
   isMuted?: boolean;
   merchantSubscriptionStatus?: 'inactive' | 'pending' | 'pending_verification' | 'active';
-  merchantSubscriptionPlan?: 'starter' | 'pro' | 'enterprise';
+  merchantSubscriptionPlan?: 'starter' | 'pro' | 'enterprise' | 'tier_250' | 'tier_500' | 'tier_1500' | 'tier_3500' | 'tier_7500';
   merchantSubscriptionTxCode?: string;
   merchantSubscriptionExpiresAt?: number;
   referralCode?: string;
@@ -92,6 +92,7 @@ export interface User {
   username?: string;
   avatarUpdatedAt?: number;
   restrictedLoanBalance?: number;
+  restrictedLoanByGroup?: Record<number, number>;
   failedLoginCount?: number;
   lockedUntil?: number;
   tokenVersion?: number;
@@ -263,6 +264,18 @@ export interface DeliveredRound {
   totalPaid: number;
 }
 
+export type GroupJoinPolicy = 'OPEN' | 'APPROVAL' | 'INVITE_ONLY';
+
+export interface GroupProductEntry {
+  productId: number;
+  addedBy: number;
+  addedAt: number;
+  isFeatured?: boolean;
+  featured?: boolean;
+  sortOrder?: number;
+  order?: number;
+}
+
 export interface ChamaGroup {
   id: number;
   productId: number;
@@ -316,15 +329,9 @@ export interface ChamaGroup {
   lenderJoinedAt?: number | null;
   // Invite-only and Entry requests
   isInviteOnly?: boolean;
-  joinPolicy?: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY';
+  joinPolicy?: GroupJoinPolicy;
   maxMembers?: number;
-  productsInGroup?: Array<{
-    productId: number;
-    addedBy: number;
-    addedAt: number;
-    isFeatured?: boolean;
-    sortOrder?: number;
-  }>;
+  productsInGroup?: GroupProductEntry[];
   inviteRequests?: GroupInviteRequest[];
   // Chama activity feed
   activities?: ChamaActivityItem[];
@@ -515,7 +522,7 @@ export interface PeerLoanRequest {
   purpose: string;
   repaymentPeriod?: string;
   repaymentDays?: number;
-  status: 'open' | 'fee_pending' | 'fee_verified' | 'funded' | 'cancelled';
+  status: 'open' | 'contacted' | 'fee_pending' | 'fee_verified' | 'funded' | 'cancelled';
   createdAt: number;
   fundedByUserId?: number;
   fundedByUserName?: string;
@@ -535,6 +542,7 @@ export interface PeerLoanRequest {
   netDisbursedAmount?: number;
   contactedAt?: number | null;
   contactedBy?: number | null;
+  contactedByName?: string | null;
   lenderIdempotencyKey?: string;
 }
 
@@ -584,7 +592,7 @@ export interface Announcement {
   id: string | number;
   title: string;
   body: string;
-  imageUrl?: string;
+  imageUrl?: string | null;
   category?: string;
   type?: AnnouncementType;
   audience?: AnnouncementAudience;
@@ -651,6 +659,7 @@ export interface UserNotification {
   title: string;
   message: string;
   type: 'broadcast' | 'order' | 'group' | 'warning' | 'chat' | 'payment' | 'verification' | 'system';
+  groupId?: number;
   link?: string;
   read: boolean;
   timestamp: number;
@@ -755,6 +764,8 @@ export interface GroupJoinRequest {
   userId: number;
   userName: string;
   userPhone?: string;
+  userAvatar?: string;
+  desiredSlot?: number;
   note?: string;
   referralCode?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -762,6 +773,21 @@ export interface GroupJoinRequest {
   reviewedAt?: number | null;
   reason?: string;
   createdAt: number;
+}
+
+export interface GroupCallerMembership {
+  isMember: boolean;
+  isModerator: boolean;
+  joinPolicy: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY';
+  maxMembers: number;
+  occupiedCount: number;
+  isFull: boolean;
+  joinRequestStatus: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  pendingRequestId: string | null;
+  memberCode: string | null;
+  slotNumber: number | null;
+  canJoin: boolean;
+  pendingJoinRequestsCount: number;
 }
 
 export interface GroupLenderAuthorization {

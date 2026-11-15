@@ -476,7 +476,11 @@ export default function App() {
             groupId={Number(viewArg)}
             currentUser={currentUser}
             onNavigate={handleNavigate}
-            onOpenAuth={() => handleOpenAuth('member')}
+            onOpenAuth={() => {
+              setPendingTargetView('group');
+              setPendingTargetArg(Number(viewArg));
+              handleOpenAuth('member');
+            }}
             onNotify={handleNotify}
           />
         )}
@@ -741,7 +745,13 @@ export default function App() {
           onSuccess={(user, targetRoute) => {
             onProfileUpdate(user);
             setIsAuthOpen(false);
-            if (targetRoute) {
+            if (pendingTargetView) {
+              const nextView = pendingTargetView;
+              const nextArg = pendingTargetArg;
+              setPendingTargetView(null);
+              setPendingTargetArg(null);
+              handleNavigate(nextView, nextArg);
+            } else if (targetRoute) {
               handleNavigate(targetRoute);
             }
           }}

@@ -94,6 +94,8 @@ import { subscriptionsRouter, getComputedSubscriptionTiers } from './subscriptio
 import { announcementsRouter } from './announcements_api.js';
 import { profileAndGroupsRouter } from './profile_and_groups_api.js';
 import { authRouter } from './auth_api.js';
+import { groupMembershipRouter } from './group_membership_api.js';
+import { groupLoansRouter } from './group_loans_api.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
 import { handleEventsSse } from './events.js';
 import { SUPPORT_EMAIL } from './config.js';
@@ -109,6 +111,8 @@ apiRouter.get('/events', async (req: Request, res: Response) => {
   handleEventsSse(req, res, user?.id ?? null);
 });
 apiRouter.use(authRouter);
+apiRouter.use(groupMembershipRouter);
+apiRouter.use(groupLoansRouter);
 apiRouter.use(announcementsRouter);
 apiRouter.use(subscriptionsRouter);
 apiRouter.use(profileAndGroupsRouter);

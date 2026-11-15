@@ -4,7 +4,7 @@
       "id": 1,
       "name": "Buyoll Primary Administrator",
       "phone": "0700000000",
-      "email": "cityandcountyre@gmail.com",
+      "email": "buyoll@customerservive.com",
       "role": "admin",
       "credit": 0,
       "coins": 200,
@@ -24,7 +24,12 @@
           "points": 500
         }
       },
-      "password": "8f2bb5ad1a1d5c3376efbd35f17e06a2:c0aa5ef23b441c7095008353f8defa1763fee6dcfa64cfb80dc51d0a129b346183e3c819e42fac903f6fd4e141360ca53eb61826691f8337eaf01f2abe17f990"
+      "password": "8f2bb5ad1a1d5c3376efbd35f17e06a2:c0aa5ef23b441c7095008353f8defa1763fee6dcfa64cfb80dc51d0a129b346183e3c819e42fac903f6fd4e141360ca53eb61826691f8337eaf01f2abe17f990",
+      "username": "cityandcountyre",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 2,
@@ -55,7 +60,12 @@
           "points": 250
         }
       },
-      "activeSubscription": null
+      "activeSubscription": null,
+      "username": "direct",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 3,
@@ -79,7 +89,12 @@
           "coins": 50,
           "points": 120
         }
-      }
+      },
+      "username": "samuelmwangi",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 4,
@@ -103,7 +118,12 @@
           "coins": 40,
           "points": 80
         }
-      }
+      },
+      "username": "faithchebet",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 30,
@@ -128,7 +148,12 @@
           "coins": 200,
           "points": 450
         }
-      }
+      },
+      "username": "grace.lender",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 11,
@@ -154,7 +179,12 @@
         }
       },
       "lastActive": 1793805194245,
-      "createdAt": 1793805194245
+      "createdAt": 1793805194245,
+      "username": "newstore",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 12,
@@ -187,7 +217,12 @@
       "createdAt": 1793805215674,
       "merchantSubscriptionPlan": "tier_1500",
       "merchantSubscriptionExpiresAt": 1796660690920,
-      "verifiedAt": 1794068690920
+      "verifiedAt": 1794068690920,
+      "username": "amani.merchant",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 13,
@@ -214,7 +249,12 @@
         }
       },
       "lastActive": 1793805219548,
-      "createdAt": 1793805219548
+      "createdAt": 1793805219548,
+      "username": "apex.lender",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 14,
@@ -241,7 +281,12 @@
         }
       },
       "lastActive": 1793805223668,
-      "createdAt": 1793805223668
+      "createdAt": 1793805223668,
+      "username": "admin2",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 15,
@@ -271,7 +316,12 @@
         }
       },
       "lastActive": 1794160394628,
-      "createdAt": 1794160394628
+      "createdAt": 1794160394628,
+      "username": "merchant_824364",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 16,
@@ -301,7 +351,12 @@
         }
       },
       "lastActive": 1794160410569,
-      "createdAt": 1794160410569
+      "createdAt": 1794160410569,
+      "username": "merchant_458582",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 17,
@@ -334,7 +389,12 @@
       "createdAt": 1794160462617,
       "merchantSubscriptionPlan": "tier_500",
       "merchantSubscriptionExpiresAt": 1796752462694,
-      "verifiedAt": 1794160462694
+      "verifiedAt": 1794160462694,
+      "username": "merchant_673122",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     },
     {
       "id": 18,
@@ -367,7 +427,12 @@
       "createdAt": 1794160493499,
       "merchantSubscriptionPlan": "tier_500",
       "merchantSubscriptionExpiresAt": 1796752493569,
-      "verifiedAt": 1794160493569
+      "verifiedAt": 1794160493569,
+      "username": "merchant_717119",
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
     }
   ],
   "products": [
@@ -425,7 +490,8 @@
         }
       ],
       "createdAt": 1792421094021,
-      "updatedAt": 1792421094021
+      "updatedAt": 1792421094021,
+      "status": "PUBLISHED"
     },
     {
       "id": 2,
@@ -481,7 +547,8 @@
         }
       ],
       "createdAt": 1792507494021,
-      "updatedAt": 1792853117377
+      "updatedAt": 1792853117377,
+      "status": "PUBLISHED"
     },
     {
       "id": 3,
@@ -537,7 +604,8 @@
         }
       ],
       "createdAt": 1792593894021,
-      "updatedAt": 1792593894021
+      "updatedAt": 1792593894021,
+      "status": "PUBLISHED"
     },
     {
       "id": 4,
@@ -593,7 +661,8 @@
         }
       ],
       "createdAt": 1792680294021,
-      "updatedAt": 1792680294021
+      "updatedAt": 1792680294021,
+      "status": "PUBLISHED"
     }
   ],
   "groups": [
@@ -623,7 +692,8 @@
           "inviteCode": "JPVNMM",
           "paidAmount": 0,
           "targetAmount": 14500,
-          "joinedAt": 1792853110513
+          "joinedAt": 1792853110513,
+          "memberCode": "BYL-3001"
         },
         {
           "slotNumber": 2,
@@ -683,7 +753,18 @@
           "timestamp": 1792853110513
         }
       ],
-      "createdAt": 1792853110513
+      "createdAt": 1792853110513,
+      "joinPolicy": "OPEN",
+      "maxMembers": 6,
+      "productsInGroup": [
+        {
+          "productId": 2,
+          "addedBy": 2,
+          "addedAt": 1792853110513,
+          "isFeatured": true,
+          "sortOrder": 0
+        }
+      ]
     },
     {
       "id": 101,
@@ -713,7 +794,8 @@
           "paidAmount": 6800,
           "targetAmount": 68000,
           "lastPaymentDate": 1792766694021,
-          "joinedAt": 1792680294021
+          "joinedAt": 1792680294021,
+          "memberCode": "BYL-2011"
         },
         {
           "slotNumber": 2,
@@ -726,7 +808,8 @@
           "targetAmount": 68000,
           "lastPaymentDate": 1792766694021,
           "joinedAt": 1792853160087,
-          "isDefaulter": false
+          "isDefaulter": false,
+          "memberCode": "BYL-2012"
         },
         {
           "slotNumber": 3,
@@ -853,7 +936,18 @@
           "timestamp": 1792940891190
         }
       ],
-      "createdAt": 1792680294021
+      "createdAt": 1792680294021,
+      "joinPolicy": "OPEN",
+      "maxMembers": 10,
+      "productsInGroup": [
+        {
+          "productId": 1,
+          "addedBy": 2,
+          "addedAt": 1792680294021,
+          "isFeatured": true,
+          "sortOrder": 0
+        }
+      ]
     }
   ],
   "defaultRecords": [
@@ -1605,7 +1699,7 @@
     }
   ],
   "nextIds": {
-    "user": 19,
+    "user": 31,
     "product": 20,
     "group": 201,
     "defaultRecord": 2,
@@ -1615,7 +1709,8 @@
     "audit": 66,
     "peerLoan": 1,
     "coinLedger": 1,
-    "moderation": 1
+    "moderation": 1,
+    "announcement": 4
   },
   "peerLoans": [],
   "helpChat": [],
@@ -1685,7 +1780,13 @@
       "body": "Kenya’s first social fintech marketplace combining rotating savings groups (Chamas), Lipa Mdogomdogo, and verified merchant deals.",
       "category": "Platform Update",
       "createdAt": 1793458542812,
-      "authorName": "Buyoll Platform Team"
+      "authorName": "Buyoll Platform Team",
+      "type": "ANNOUNCEMENT",
+      "audience": "ALL",
+      "status": "PUBLISHED",
+      "pinned": false,
+      "publishedAt": 1793458542812,
+      "version": 1
     },
     {
       "id": 2,
@@ -1693,7 +1794,13 @@
       "body": "Save towards any appliance or smart electronics with single-member Lipa Mdogomdogo plans over 1 to 6 months. Zero interest, direct merchant fulfillment.",
       "category": "Savings Plans",
       "createdAt": 1793544942812,
-      "authorName": "Buyoll Savings Desk"
+      "authorName": "Buyoll Savings Desk",
+      "type": "ANNOUNCEMENT",
+      "audience": "ALL",
+      "status": "PUBLISHED",
+      "pinned": false,
+      "publishedAt": 1793544942812,
+      "version": 1
     },
     {
       "id": 3,
@@ -1701,7 +1808,13 @@
       "body": "Verified merchants can list inventory with 10-speed Chama groups. 3rd-party lenders can fund member wallets with guaranteed 3% platform commission.",
       "category": "Merchant & Lending",
       "createdAt": 1793616942812,
-      "authorName": "Buyoll Operations"
+      "authorName": "Buyoll Operations",
+      "type": "ANNOUNCEMENT",
+      "audience": "ALL",
+      "status": "PUBLISHED",
+      "pinned": false,
+      "publishedAt": 1793616942812,
+      "version": 1
     }
   ],
   "mpesaStatements": [
@@ -2030,7 +2143,10 @@
       "status": "active",
       "createdAt": 1794160493561,
       "startDate": 1794160493569,
-      "expiresAt": 1796752493569
+      "expiresAt": 1796752493569,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1796752493569
     },
     {
       "id": "sub_req_1794160493526_knht",
@@ -2041,7 +2157,9 @@
       "paymentMethod": "mpesa_till_paybill",
       "paymentCode": "QG717119AB",
       "status": "declined",
-      "createdAt": 1794160493526
+      "createdAt": 1794160493526,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true
     },
     {
       "id": "sub_req_1794160462686_72oy",
@@ -2054,7 +2172,10 @@
       "status": "active",
       "createdAt": 1794160462686,
       "startDate": 1794160462694,
-      "expiresAt": 1796752462694
+      "expiresAt": 1796752462694,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1796752462694
     },
     {
       "id": "sub_req_1794160462644_6t18",
@@ -2065,7 +2186,9 @@
       "paymentMethod": "mpesa_till_paybill",
       "paymentCode": "QG673122AB",
       "status": "declined",
-      "createdAt": 1794160462644
+      "createdAt": 1794160462644,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true
     },
     {
       "id": "sub_wallet_1794068690945_tier_500",
@@ -2075,7 +2198,9 @@
       "amount": 500,
       "paymentMethod": "wallet_credit",
       "status": "declined",
-      "createdAt": 1794068690945
+      "createdAt": 1794068690945,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true
     },
     {
       "id": "sub_manual_1794068690910_1tcn",
@@ -2088,7 +2213,10 @@
       "status": "active",
       "createdAt": 1794068690910,
       "startDate": 1794068690920,
-      "expiresAt": 1796660690920
+      "expiresAt": 1796660690920,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1796660690920
     },
     {
       "id": "sub_manual_1794068634654",
@@ -2101,7 +2229,10 @@
       "status": "active",
       "createdAt": 1794068634654,
       "startDate": 1794068634663,
-      "expiresAt": 1796660634663
+      "expiresAt": 1796660634663,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1796660634663
     },
     {
       "id": "sub_wallet_1793805255546_tier_250",
@@ -2113,7 +2244,10 @@
       "status": "active",
       "createdAt": 1793805255546,
       "startDate": 1793805262531,
-      "expiresAt": 1796397262531
+      "expiresAt": 1796397262531,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1796397262531
     },
     {
       "id": "sub_active_2",
@@ -2125,7 +2259,10 @@
       "status": "active",
       "startDate": 1792767342812,
       "expiresAt": 1795359342812,
-      "createdAt": 1792767342812
+      "createdAt": 1792767342812,
+      "billingInterval": "MONTHLY",
+      "autoRenew": true,
+      "currentPeriodEnd": 1795359342812
     }
   ],
   "chatStrikes": [],
@@ -2342,7 +2479,7 @@
       "ctaLabel": "Explore Circles",
       "ctaUrl": "/chamas",
       "status": "published",
-      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedBy": "buyoll@customerservive.com",
       "updatedAt": 1793881148877,
       "version": 4
     },
@@ -2355,7 +2492,7 @@
       "ctaLabel": "How It Works",
       "ctaUrl": "/chamas",
       "status": "published",
-      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedBy": "buyoll@customerservive.com",
       "updatedAt": 1793837785157,
       "version": 1
     },
@@ -2368,7 +2505,7 @@
       "ctaLabel": "Browse Deals",
       "ctaUrl": "/announcements",
       "status": "published",
-      "updatedBy": "cityandcountyre@gmail.com",
+      "updatedBy": "buyoll@customerservive.com",
       "updatedAt": 1793859385157,
       "version": 1
     }
@@ -2452,5 +2589,44 @@
       "adminId": 1,
       "reviewedAt": 1794160462678
     }
-  ]
+  ],
+  "migrationsApplied": [
+    {
+      "id": "001_announcements_notices_and_dismissals",
+      "name": "Extend announcements with lifecycle, audience, pin, schedule, dismissals, and revisions",
+      "appliedAt": 1794739236093
+    },
+    {
+      "id": "002_yearly_billing_avatars_product_status",
+      "name": "Sync product status enum, avatar timestamps, and yearly subscription interval metadata",
+      "appliedAt": 1794739236093
+    },
+    {
+      "id": "003_auth_usernames_sessions_resets",
+      "name": "Backfill unique lowercase usernames, login lockout counters, tokenVersion, refreshTokens, and passwordResets",
+      "appliedAt": 1794739236093
+    },
+    {
+      "id": "004_group_join_policies_and_members",
+      "name": "Add joinPolicy, maxMembers, memberCode, groupJoinRequests, and group product assignments",
+      "appliedAt": 1794739236093
+    },
+    {
+      "id": "005_group_lenders_and_restricted_loans",
+      "name": "Initialize groupLenders, platformFees ledger, restrictedLoanBalance, and borrower codes",
+      "appliedAt": 1794739236094
+    },
+    {
+      "id": "006_support_email_sync",
+      "name": "Sync seed administrator and default support email references to SUPPORT_EMAIL",
+      "appliedAt": 1794739236094
+    }
+  ],
+  "announcementDismissals": [],
+  "announcementItemRevisions": [],
+  "refreshTokens": [],
+  "passwordResets": [],
+  "groupJoinRequests": [],
+  "groupLenders": [],
+  "platformFees": []
 }

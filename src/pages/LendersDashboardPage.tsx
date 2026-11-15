@@ -71,34 +71,27 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
     }
   }
 
-  // Claim lender seat in a group (enforcing 1 lender per group limit: 1st come, 1st served)
-  async function handleEnterGroupAsLender(groupId: number) {
+  const [markingContactedId, setMarkingContactedId] = useState<number | null>(null);
+  const [selectedLoanToFund, setSelectedLoanToFund] = useState<any | null>(null);
+  const [submittingFund, setSubmittingFund] = useState(false);
+
+  async function handleMarkContacted(loan: any) {
     if (!currentUser) {
-      onNotify('info', 'Please sign in to enter as a 3rd-party lender.');
+      onNotify('info', 'Please sign in first.');
       onOpenAuth();
       return;
     }
-
-    setClaimingGroupId(groupId);
+    setMarkingContactedId(loan.id);
     try {
-      const res = await api.claimGroupLender(groupId);
-      onNotify('success', res.message || 'You have entered this Group as the dedicated lender!');
-      // Navigate straight to the group page
-      onNavigate('group', groupId);
+      const res = await api.markLoanContacted(loan.groupId, loan.id);
+      onNotify('success', res.message);
+      loadLendersData();
     } catch (err: any) {
-      onNotify('error', err.message || 'Could not claim lender seat.');
-      // Still navigate if already claimed by this user
-      if (err.message && err.message.includes('already')) {
-        onNavigate('group', groupId);
-      }
+      onNotify('error', err.message || 'Could not mark loan contacted.');
     } finally {
-      setClaimingGroupId(null);
+      setMarkingContactedId(null);
     }
   }
-
-  // PROMPT 5: Atomic loan funding with balance validation & 97%/3% split
-  const [selectedLoanToFund, setSelectedLoanToFund] = useState<any | null>(null);
-  const [submittingFund, setSubmittingFund] = useState(false);
 
   async function handleConfirmFund(loan: any) {
     if (!currentUser) {
@@ -107,7 +100,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
       return;
     }
 
-    const currentBalance = currentUser.credit || 0;
+    const currentBalance = Number(currentUser.roleWallets?.lender?.credit ?? currentUser.credit ?? 0);
     if (currentBalance < loan.amount) {
       onNotify('error', `Insufficient wallet balance. You have KSh ${currentBalance.toLocaleString()} but need KSh ${loan.amount.toLocaleString()} to fund this loan. Please deposit funds first.`);
       return;
@@ -116,7 +109,10 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
     setSubmittingFund(true);
     try {
       const res = await api.fundLoan(loan.id, loan.groupId);
-      onNotify('success', res.message || 'Loan funded atomically! 97% credited to borrower, 3% platform fee settled.');
+      if (res.lenderBalance !== undefined) {
+        currentUser.credit = res.lenderBalance;
+      }
+      onNotify('success', res.message || 'Loan funded atomically! 99% net credited to borrower group-locked balance, 1% platform fee recorded.');
       setSelectedLoanToFund(null);
       loadLendersData();
     } catch (err: any) {
@@ -128,9 +124,9 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
 
   // Filter alerts
   const filteredAlerts = alerts.filter(a => {
-    if (filterTab === 'open') return a.status === 'open';
+    if (filterTab === 'open') return a.status === 'open' || a.status === 'contacted';
     if (filterTab === 'funded') return a.status === 'funded';
-    if (filterTab === 'my-claimed') return currentUser && a.groupLenderId === currentUser.id;
+    if (filterTab === 'my-claimed') return Boolean(a.isAuthorizedForGroup || (currentUser && a.groupLenderId === currentUser.id));
     return true;
   });
 
@@ -148,20 +144,18 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               Lenders Hub & Group Financing Requests
             </h1>
             <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-              Review individual Group financing alerts, enter groups directly, and fund member wallets. 
-              Each Group accepts strictly <b>1 lender at a time (first-come, first-served)</b>. 
-              Lenders pay a mandatory <b>3% platform commission</b> (Platform Till: <b>196853</b>, Paybill: <b>522533</b>, Acc: <b>4363</b>) before loan disbursement console unlocks. Disbursed funds are non-withdrawable. Loan contracts and manual repayments are handled externally.
+              Review financing requests from groups where a Group Moderator has authorized you. Upon atomic funding from your lender wallet, a <b>1% platform fee</b> is recorded for Buyoll and <b>99% net</b> is credited directly to the borrower’s non-withdrawable balance locked strictly to that group. Loan contracts and repayments are handled externally.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row md:flex-col gap-3 shrink-0">
             <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-xl p-3.5 text-center sm:text-left">
               <div className="text-xs text-emerald-200 uppercase font-semibold">Active Group Alerts</div>
-              <div className="text-2xl font-black text-white">{alerts.filter(a => a.status === 'open').length} Open</div>
+              <div className="text-2xl font-black text-white">{alerts.filter(a => a.status === 'open' || a.status === 'contacted').length} Open</div>
             </div>
             <button
               onClick={loadLendersData}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-white text-emerald-950 font-bold text-xs rounded-xl hover:bg-emerald-50 transition-colors shadow-sm"
+              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-white text-emerald-950 font-bold text-xs rounded-xl hover:bg-emerald-50 transition-colors shadow-sm cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Desk</span>
@@ -170,16 +164,16 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
         </div>
       </div>
 
-      {/* Rules & Policy Accordion / Notice */}
+      {/* Rules & Policy Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 text-xs">
         <div className="p-4 bg-white border border-slate-200 rounded-xl flex items-start gap-3 shadow-xs">
           <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center shrink-0 font-bold">
             1
           </div>
           <div>
-            <span className="font-bold text-slate-900 block mb-0.5">1 Lender Per Group Rule</span>
+            <span className="font-bold text-slate-900 block mb-0.5">Group-Scoped Authorization</span>
             <span className="text-slate-500 leading-normal">
-              A group only accepts 1 lender at a time. The first lender to accept serves that group exclusively.
+              Group Moderators or Admins authorize lenders per group before borrowers’ contact details and funding unlock.
             </span>
           </div>
         </div>
@@ -189,9 +183,9 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             2
           </div>
           <div>
-            <span className="font-bold text-slate-900 block mb-0.5">3% Mandatory Platform Fee</span>
+            <span className="font-bold text-slate-900 block mb-0.5">1% Platform Fee (Atomic)</span>
             <span className="text-slate-500 leading-normal">
-              Lender pays 3% fee to Platform Till: 196853 / Paybill: 522533 (Acc: 4363). Console unlocks upon admin approval.
+              1% fee is recorded atomically on disbursement; 99% net is credited directly to the borrower’s group wallet.
             </span>
           </div>
         </div>
@@ -201,9 +195,9 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
             3
           </div>
           <div>
-            <span className="font-bold text-slate-900 block mb-0.5">Non-Withdrawable Proceeds</span>
+            <span className="font-bold text-slate-900 block mb-0.5">Group-Locked Proceeds</span>
             <span className="text-slate-500 leading-normal">
-              Disbursed principal is deposited into member wallet as non-withdrawable funds for shopping/group only.
+              Disbursed loan funds are non-withdrawable and locked exclusively to the funded group’s installments.
             </span>
           </div>
         </div>
@@ -300,7 +294,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
               <h4 className="text-sm font-bold text-slate-900 mb-1">No funded groups yet</h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
-                Explore open loan requests in the next tab to fund members, claim a group lender desk, and earn 3% commission on installments.
+                Ask a Group Moderator to authorize you, then review open loan requests in that group to fund members safely inside an atomic transaction (1% platform fee).
               </p>
               <button
                 onClick={() => setFilterTab('open')}
@@ -413,9 +407,10 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-12">
           {filteredAlerts.map((alert) => {
             const isFunded = alert.status === 'funded';
-            const fee = alert.platformFeeAmount || Math.max(1, Math.round(alert.amount * 0.03));
-            const hasLender = Boolean(alert.groupLenderId);
-            const isMyClaimed = currentUser && alert.groupLenderId === currentUser.id;
+            const isContacted = alert.status === 'contacted';
+            const fee = alert.platformFeeAmount ?? Math.round(alert.amount * 0.01);
+            const netAmt = alert.netDisbursedAmount ?? (alert.amount - fee);
+            const isAuthorized = Boolean(alert.isAuthorizedForGroup || currentUser?.role === 'admin');
 
             return (
               <div
@@ -423,6 +418,8 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                 className={`bg-white border rounded-2xl p-5 flex flex-col justify-between transition-all hover:shadow-md ${
                   isFunded
                     ? 'border-emerald-200 bg-emerald-50/20'
+                    : isContacted
+                    ? 'border-blue-200 bg-blue-50/20'
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
@@ -436,10 +433,12 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                         isFunded
                           ? 'bg-emerald-100 text-emerald-800'
+                          : isContacted
+                          ? 'bg-blue-100 text-blue-800'
                           : 'bg-amber-100 text-amber-900'
                       }`}
                     >
-                      {isFunded ? 'Funded' : 'Awaiting Lender'}
+                      {isFunded ? 'Funded' : isContacted ? 'Contacted' : 'Awaiting Lender'}
                     </span>
                   </div>
 
@@ -452,8 +451,8 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                   </div>
 
                   {/* Loan Amount Callout */}
-                  <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl mb-3">
-                    <div className="flex items-baseline justify-between mb-1">
+                  <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl mb-3 space-y-1">
+                    <div className="flex items-baseline justify-between">
                       <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                         Requested Loan
                       </span>
@@ -462,8 +461,12 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
-                      <span>3% Platform Commission:</span>
+                      <span>1% Platform Fee:</span>
                       <span className="font-bold text-[#FF6A00]">KSh {fee.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold">
+                      <span>99% Net Group-Locked:</span>
+                      <span>KSh {netAmt.toLocaleString()}</span>
                     </div>
                   </div>
 
@@ -471,52 +474,65 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                   <div className="text-xs text-slate-700 mb-3 space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Borrower:</span>
-                      <span className="font-semibold text-slate-900">{alert.requesterName} (Slot #{alert.slotNumber})</span>
+                      <span className="font-semibold text-slate-900">
+                        {alert.requesterName} ({alert.borrowerCode || `Slot #${alert.slotNumber}`})
+                      </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Direct Phone:</span>
-                      <a href={`tel:${alert.requesterPhone || '0722000000'}`} className="font-mono font-bold text-[#ff6600] hover:underline">
-                        {alert.requesterPhone || '0722000000'}
-                      </a>
-                    </div>
+                    {alert.requesterPhone && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Direct Phone:</span>
+                        <a href={`tel:${alert.requesterPhone}`} className="font-mono font-bold text-[#ff6600] hover:underline">
+                          {alert.requesterPhone}
+                        </a>
+                      </div>
+                    )}
                     <div>
                       <span className="text-slate-400">Purpose: </span>
                       <span className="italic text-slate-600">{alert.purpose}</span>
                     </div>
                   </div>
 
-                  {/* 1-Lender Per Group Indicator */}
+                  {/* Group Authorization Status */}
                   <div className="p-2.5 rounded-lg border text-xs mb-4 flex items-center justify-between gap-2 bg-slate-50 border-slate-200">
-                    <span className="text-[11px] text-slate-600 font-medium">Group Lender:</span>
-                    {hasLender ? (
+                    <span className="text-[11px] text-slate-600 font-medium">Group Access:</span>
+                    {isAuthorized ? (
                       <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{isMyClaimed ? 'Served by You' : alert.groupLenderName || 'Assigned'}</span>
+                        <span>Authorized for Group</span>
                       </span>
                     ) : (
                       <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                        Vacant · 1st Come 1st Served
+                        Moderator Authorization Needed
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Direct Actions: Fund Loan or Open Group */}
+                {/* Direct Actions */}
                 <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
-                  {!isFunded && (
+                  {!isFunded && isAuthorized && !isContacted && (
+                    <button
+                      onClick={() => handleMarkContacted(alert)}
+                      disabled={markingContactedId === alert.id}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {markingContactedId === alert.id ? 'Updating...' : 'Mark Contacted'}
+                    </button>
+                  )}
+                  {!isFunded && isAuthorized && (
                     <button
                       onClick={() => setSelectedLoanToFund(alert)}
-                      className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                      className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <HandCoins className="w-3.5 h-3.5" />
-                      <span>Fund This Loan (KSh {alert.amount.toLocaleString()})</span>
+                      <span>Fund Loan (KSh {alert.amount.toLocaleString()})</span>
                     </button>
                   )}
                   <button
                     onClick={() => onNavigate('group', alert.groupId)}
-                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <span>Deep Link into Group #{alert.groupId}</span>
+                    <span>Open Group #{alert.groupId}</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -526,13 +542,17 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
         </div>
       )}
 
-      {/* PROMPT 5: FUND THIS LOAN ATOMIC MODAL */}
-      {selectedLoanToFund && (
+      {/* ATOMIC LOAN FUNDING MODAL (1% PLATFORM FEE / 99% GROUP-LOCKED) */}
+      {selectedLoanToFund && (() => {
+        const fee1Pct = selectedLoanToFund.platformFeeAmount ?? Math.round(selectedLoanToFund.amount * 0.01);
+        const net99Pct = selectedLoanToFund.netDisbursedAmount ?? (selectedLoanToFund.amount - fee1Pct);
+        const lenderBal = Number(currentUser?.roleWallets?.lender?.credit ?? currentUser?.credit ?? 0);
+        return (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
             <button
               onClick={() => setSelectedLoanToFund(null)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -546,40 +566,42 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               </h3>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Atomic transaction will disburse 97% to borrower's wallet and 3% platform commission to Buyoll admin.
+              Atomic transaction credits 99% net to borrower’s group-locked wallet balance and records the 1% platform fee.
             </p>
 
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 mb-4">
               <div className="flex justify-between">
                 <span className="text-slate-500">Borrower:</span>
-                <b className="text-slate-900">{selectedLoanToFund.requesterName} (Slot #{selectedLoanToFund.slotNumber})</b>
+                <b className="text-slate-900">{selectedLoanToFund.requesterName} ({selectedLoanToFund.borrowerCode || `Slot #${selectedLoanToFund.slotNumber}`})</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Borrower Phone:</span>
-                <b className="text-slate-900 font-mono">{selectedLoanToFund.requesterPhone || '0722000000'}</b>
-              </div>
+              {selectedLoanToFund.requesterPhone && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Borrower Phone:</span>
+                  <b className="text-slate-900 font-mono">{selectedLoanToFund.requesterPhone}</b>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Group:</span>
                 <span className="text-slate-700">{selectedLoanToFund.groupName}</span>
               </div>
               <div className="h-px bg-slate-200" />
               <div className="flex justify-between">
-                <span className="text-slate-500">Loan Principal:</span>
+                <span className="text-slate-500">Loan Principal Debited:</span>
                 <b className="text-slate-900 font-mono">KSh {selectedLoanToFund.amount.toLocaleString()}</b>
               </div>
               <div className="flex justify-between text-emerald-700">
-                <span>97% Disbursed to Borrower:</span>
-                <b className="font-mono">KSh {Math.round(selectedLoanToFund.amount * 0.97).toLocaleString()}</b>
+                <span>99% Net Disbursed (Group-Locked):</span>
+                <b className="font-mono">KSh {net99Pct.toLocaleString()}</b>
               </div>
               <div className="flex justify-between text-[#FF6A00]">
-                <span>3% Platform Commission:</span>
-                <b className="font-mono">KSh {Math.round(selectedLoanToFund.amount * 0.03).toLocaleString()}</b>
+                <span>1% Platform Fee (Buyoll):</span>
+                <b className="font-mono">KSh {fee1Pct.toLocaleString()}</b>
               </div>
               <div className="h-px bg-slate-200" />
               <div className="flex justify-between">
                 <span className="text-slate-500">Your Wallet Balance:</span>
-                <b className={`font-mono ${(currentUser?.credit || 0) >= selectedLoanToFund.amount ? 'text-emerald-700' : 'text-red-600'}`}>
-                  KSh {(currentUser?.credit || 0).toLocaleString()}
+                <b className={`font-mono ${lenderBal >= selectedLoanToFund.amount ? 'text-emerald-700' : 'text-red-600'}`}>
+                  KSh {lenderBal.toLocaleString()}
                 </b>
               </div>
             </div>
@@ -615,15 +637,16 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               </button>
               <button
                 onClick={() => handleConfirmFund(selectedLoanToFund)}
-                disabled={submittingFund || (currentUser?.credit || 0) < selectedLoanToFund.amount}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+                disabled={submittingFund || lenderBal < selectedLoanToFund.amount}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 {submittingFund ? 'Disbursing Funds...' : 'Confirm Atomic Funding'}
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* SECTION: REMOVED MEMBERS & REFUND POOL */}
       <section className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xs">

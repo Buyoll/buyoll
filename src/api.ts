@@ -25,6 +25,9 @@ import {
   MerchantSubscriptionRecord,
   BillingPeriod,
   PaymentReceivingDetails,
+  GroupJoinRequest,
+  GroupCallerMembership,
+  GroupLenderAuthorization,
 } from './types.ts';
 import { SUPPORT_EMAIL } from './config/support.ts';
 
@@ -1318,9 +1321,9 @@ export const api = {
     }
   },
 
-  async getGroup(id: number): Promise<{ group: ChamaGroup }> {
+  async getGroup(id: number): Promise<{ group: ChamaGroup; membership?: GroupCallerMembership }> {
     try {
-      return await fetchApi<{ group: ChamaGroup }>(`/groups/${id}`);
+      return await fetchApi<{ group: ChamaGroup; membership?: GroupCallerMembership }>(`/groups/${id}`);
     } catch {
       const db = getClientDb();
       const group = db.groups.find(g => g.id === Number(id));
@@ -1398,11 +1401,29 @@ export const api = {
     }
   },
 
-  async joinGroup(id: number, inviteCode?: string, slotNumber?: number): Promise<{ group: ChamaGroup; assignedSlot: number; isModerator?: boolean; message: string }> {
+  async joinGroup(
+    id: number,
+    inviteCode?: string,
+    slotNumber?: number,
+    note?: string
+  ): Promise<{
+    group: ChamaGroup;
+    assignedSlot?: number;
+    memberCode?: string;
+    pending?: boolean;
+    joinRequest?: GroupJoinRequest;
+    membership?: GroupCallerMembership;
+    isModerator?: boolean;
+    message: string;
+  }> {
     try {
-      return await fetchApi<{ group: ChamaGroup; assignedSlot: number; isModerator?: boolean; message: string }>(`/groups/${id}/join`, {
+      return await fetchApi<any>(`/groups/${id}/join`, {
         method: 'POST',
-        body: JSON.stringify({ inviteCode, slotNumber }),
+        body: JSON.stringify({
+          ...(inviteCode ? { inviteCode } : {}),
+          ...(slotNumber ? { slotNumber } : {}),
+          ...(note ? { note } : {}),
+        }),
       });
     } catch (err: any) {
       if (err?.status || (err?.message && !err.message.includes('Static Mode'))) {
@@ -1411,9 +1432,12 @@ export const api = {
       const db = getClientDb();
       const user = getStoredUser();
       if (!user) throw new Error('You must be signed in to join a Group');
-      if (!inviteCode || !inviteCode.trim()) throw new Error('A friend referral invite code is required to join any group.');
       const group = db.groups.find(g => g.id === Number(id));
       if (!group) throw new Error('Group not found');
+      const policy = group.joinPolicy || (group.isInviteOnly ? 'INVITE_ONLY' : 'OPEN');
+      if (policy === 'INVITE_ONLY' && (!inviteCode || !inviteCode.trim())) {
+        throw new Error('An approved invite code is required to join this group.');
+      }
 
       let targetSlot: GroupSlot | undefined;
       if (slotNumber) {
@@ -1427,6 +1451,7 @@ export const api = {
       targetSlot.userId = user.id;
       targetSlot.userName = user.name;
       targetSlot.userPhone = user.phone;
+      targetSlot.memberCode = `BYL-${String(1000 + group.id * 10 + targetSlot.slotNumber)}`;
       targetSlot.status = 'active';
       targetSlot.joinedAt = Date.now();
       targetSlot.isDefaulter = false;
@@ -1448,9 +1473,63 @@ export const api = {
       return {
         group,
         assignedSlot: targetSlot.slotNumber,
+        memberCode: targetSlot.memberCode,
+        pending: false,
         message: `Welcome! You are Member #${targetSlot.slotNumber}. Your allocation rotation is day ${targetSlot.slotNumber * group.cycleDays}.`,
       };
     }
+  },
+
+  async cancelGroupJoinRequest(groupId: number): Promise<{ success: boolean; message: string }> {
+    return await fetchApi<{ success: boolean; message: string }>(`/groups/${groupId}/join-request`, {
+      method: 'DELETE',
+    });
+  },
+
+  async leaveGroup(groupId: number): Promise<{ success: boolean; group: ChamaGroup; message: string }> {
+    return await fetchApi<{ success: boolean; group: ChamaGroup; message: string }>(`/groups/${groupId}/leave`, {
+      method: 'POST',
+    });
+  },
+
+  async getNumericGroupJoinRequests(groupId: number): Promise<{ requests: GroupJoinRequest[] }> {
+    return await fetchApi<{ requests: GroupJoinRequest[] }>(`/groups/${groupId}/join-requests`);
+  },
+
+  async approveNumericJoinRequest(
+    groupId: number,
+    requestId: string
+  ): Promise<{ success: boolean; group: ChamaGroup; joinRequest: GroupJoinRequest }> {
+    return await fetchApi<any>(`/groups/${groupId}/join-requests/${encodeURIComponent(requestId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectNumericJoinRequest(
+    groupId: number,
+    requestId: string,
+    reason?: string
+  ): Promise<{ success: boolean; joinRequest: GroupJoinRequest }> {
+    return await fetchApi<any>(`/groups/${groupId}/join-requests/${encodeURIComponent(requestId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async removeGroupMember(groupId: number, userId: number): Promise<{ success: boolean; group: ChamaGroup }> {
+    return await fetchApi<any>(`/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async updateGroupJoinPolicy(
+    groupId: number,
+    joinPolicy: 'OPEN' | 'APPROVAL' | 'INVITE_ONLY'
+  ): Promise<{ success: boolean; group: ChamaGroup }> {
+    return await fetchApi<any>(`/groups/${groupId}/join-policy`, {
+      method: 'PATCH',
+      body: JSON.stringify({ joinPolicy }),
+    });
   },
 
   async setGroupPayoutOption(
@@ -1902,14 +1981,53 @@ export const api = {
   },
 
   // Peer-to-Peer Loans
-  async getGroupLoans(groupId: number): Promise<{ loans: PeerLoanRequest[] }> {
+  async getGroupLoans(groupId: number): Promise<{ loans: PeerLoanRequest[]; lenders?: GroupLenderAuthorization[]; feeRate?: number }> {
     try {
       return await fetchApi<any>(`/groups/${groupId}/loans`);
     } catch {
       const db = getClientDb();
       const loans = (db.peerLoans || []).filter(l => l.groupId === Number(groupId));
-      return { loans };
+      return { loans, lenders: [], feeRate: 0.01 };
     }
+  },
+
+  async getGroupLenders(groupId: number): Promise<{ lenders: GroupLenderAuthorization[]; feeRate: number }> {
+    return await fetchApi<{ lenders: GroupLenderAuthorization[]; feeRate: number }>(`/groups/${groupId}/lenders`);
+  },
+
+  async authorizeGroupLender(
+    groupId: number,
+    data: { userId?: number; identifier?: string }
+  ): Promise<{ lender: GroupLenderAuthorization; lenders: GroupLenderAuthorization[]; group: ChamaGroup; message: string }> {
+    return await fetchApi<any>(`/groups/${groupId}/lenders`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async revokeGroupLender(
+    groupId: number,
+    userId: number
+  ): Promise<{ lenders: GroupLenderAuthorization[]; group: ChamaGroup; message: string }> {
+    return await fetchApi<any>(`/groups/${groupId}/lenders/${userId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async markLoanContacted(
+    groupId: number,
+    loanId: number
+  ): Promise<{ loan: PeerLoanRequest; message: string }> {
+    return await fetchApi<any>(`/groups/${groupId}/loans/${loanId}/contacted`, {
+      method: 'POST',
+    });
+  },
+
+  async withdrawFromWallet(amount?: number): Promise<any> {
+    return await fetchApi<any>('/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(amount ? { amount } : {}),
+    });
   },
 
   async completeGroupRound(groupId: number): Promise<{ group: ChamaGroup; message: string }> {
@@ -1952,64 +2070,12 @@ export const api = {
 
   async requestPeerLoan(
     groupId: number,
-    data: { amount: number; purpose?: string; repaymentPeriod?: string; repaymentDays?: number }
+    data: { amount: number; purpose?: string; repaymentPeriod?: string; repaymentDays?: number; productId?: number }
   ): Promise<{ loan: PeerLoanRequest; message: string }> {
-    try {
-      return await fetchApi<any>(`/groups/${groupId}/loans/request`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch {
-      const db = getClientDb();
-      const user = getStoredUser();
-      if (!user) throw new Error('Authentication required');
-
-      const grp = db.groups.find(g => g.id === Number(groupId));
-      if (!grp) throw new Error('Group not found');
-
-      const slot = grp.slots.find(s => s.userId === user.id && s.status === 'active');
-      if (!slot) throw new Error('Active slot not found in this group');
-
-      const fee = Math.max(1, Math.round(data.amount * 0.03));
-      const period = data.repaymentPeriod || 'Within 7 Days';
-      const newLoan: PeerLoanRequest = {
-        id: db.nextIds.peerLoan++,
-        groupId: grp.id,
-        groupName: grp.name,
-        slotNumber: slot.slotNumber,
-        requesterId: user.id,
-        requesterName: user.name,
-        requesterPhone: user.phone,
-        productTitle: grp.productTitle,
-        productImage: grp.productImage,
-        amount: data.amount,
-        approvedAmount: data.amount,
-        purpose: data.purpose || `To pay for an arrears (clear missed Group days)`,
-        repaymentPeriod: period,
-        repaymentDays: data.repaymentDays || 7,
-        status: 'open',
-        createdAt: Date.now(),
-        platformFeePercent: 3,
-        platformFeeAmount: fee,
-        platformFeeStatus: 'pending',
-        externalAgreementAcknowledged: true,
-      };
-
-      db.peerLoans = db.peerLoans || [];
-      db.peerLoans.unshift(newLoan);
-
-      grp.chat.push({
-        id: `chat_${Date.now()}`,
-        senderId: user.id,
-        senderName: user.name,
-        kind: 'system',
-        text: `📢 PEER LOAN REQUEST: ${user.name} (Member #${slot.slotNumber}) requested KSh ${data.amount.toLocaleString()} from Lenders. Reason: "${newLoan.purpose}" · Repayment: ${period}. 3rd-party lenders: review and fund member wallet. 3% platform commission (KSh ${fee}) applies.`,
-        timestamp: Date.now(),
-      });
-
-      saveClientDb(db);
-      return { loan: newLoan, message: 'Peer loan request posted to Group chat and loan board.' };
-    }
+    return await fetchApi<any>(`/groups/${groupId}/loans`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async exportGroupMembersCsv(groupId: number): Promise<string> {
@@ -2104,83 +2170,10 @@ export const api = {
     }
   },
 
-  async fundPeerLoan(groupId: number, loanId: number): Promise<{ loan: PeerLoanRequest; message: string }> {
-    try {
-      return await fetchApi<any>(`/groups/${groupId}/loans/${loanId}/fund`, {
-        method: 'POST',
-      });
-    } catch {
-      const db = getClientDb();
-      const lender = getStoredUser();
-      if (!lender) throw new Error('Authentication required');
-
-      const loan = (db.peerLoans || []).find(l => l.id === Number(loanId));
-      if (!loan) throw new Error('Loan request not found');
-
-      const grp = db.groups.find(g => g.id === Number(groupId));
-      const requester = db.users.find(u => u.id === loan.requesterId);
-      if (!requester) throw new Error('Member not found');
-
-      const disburseAmount = loan.approvedAmount || loan.amount;
-
-      if ((lender.credit || 0) < disburseAmount) {
-        throw new Error(`Insufficient wallet balance. You have KSh ${(lender.credit || 0).toLocaleString()} but need KSh ${disburseAmount.toLocaleString()} to fund this loan. Please deposit funds first.`);
-      }
-
-      // 1. Debit lender wallet
-      lender.credit = (lender.credit || 0) - disburseAmount;
-      setStoredUser(lender);
-
-      // 2. Credit member borrower wallet
-      requester.credit = (requester.credit || 0) + disburseAmount;
-
-      // Add debit to lender ledger
-      db.storeCreditLedger.unshift({
-        id: db.nextIds.ledger++,
-        userId: lender.id,
-        amount: -disburseAmount,
-        balanceAfter: lender.credit,
-        type: 'admin_adjustment',
-        referenceId: `P2P_LOAN_DISBURSE_${loan.id}`,
-        note: `Loan disbursement to member ${requester.name} (Debited KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}.`,
-        createdAt: Date.now(),
-      });
-
-      // Add credit to member borrower ledger
-      db.storeCreditLedger.unshift({
-        id: db.nextIds.ledger++,
-        userId: requester.id,
-        amount: disburseAmount,
-        balanceAfter: requester.credit,
-        type: 'admin_adjustment',
-        referenceId: `P2P_LOAN_${loan.id}`,
-        note: `P2P Loan received from 3rd-party lender ${lender.name} (KSh ${disburseAmount.toLocaleString()}) for Group #${groupId} Slot #${loan.slotNumber}. Usable for shopping & Group contributions.`,
-        createdAt: Date.now(),
-      });
-
-      loan.status = 'funded';
-      loan.fundedByUserId = lender.id;
-      loan.fundedByUserName = lender.name;
-      loan.fundedAt = Date.now();
-      loan.platformFeeStatus = 'paid';
-
-      if (grp) {
-        grp.chat.push({
-          id: `chat_${Date.now()}`,
-          senderId: lender.id,
-          senderName: lender.name,
-          kind: 'system',
-          text: `✅ PEER LOAN FUNDED: 3rd-party lender ${lender.name} released KSh ${disburseAmount.toLocaleString()} directly into ${requester.name}’s wallet! 3% platform commission verified. ${requester.name} can now pay for Slot #${loan.slotNumber}. (Terms & repayments handled manually outside the platform).`,
-          timestamp: Date.now(),
-        });
-      }
-
-      saveClientDb(db);
-      return {
-        loan,
-        message: `Loan funded successfully! KSh ${disburseAmount.toLocaleString()} transferred to ${requester.name}’s wallet.`,
-      };
-    }
+  async fundPeerLoan(groupId: number, loanId: number): Promise<{ loan: PeerLoanRequest; lenderBalance?: number; feeAmount?: number; netCredited?: number; message: string }> {
+    return await fetchApi<any>(`/groups/${groupId}/loans/${loanId}/fund`, {
+      method: 'POST',
+    });
   },
 
   async getHelpChat(): Promise<{ messages: HelpChatMessage[] }> {
@@ -2374,75 +2367,16 @@ export const api = {
   async paySlotFromWallet(groupId: number, data: { slotNumber: number; amount: number }): Promise<{
     group: ChamaGroup;
     walletBalance: number;
+    restrictedLoanBalance?: number;
+    restrictedLoanByGroup?: Record<number, number>;
     paidAmount: number;
     progressPercent: number;
     message: string;
   }> {
-    try {
-      return await fetchApi<any>(`/groups/${groupId}/pay-from-wallet`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch {
-      const db = getClientDb();
-      const user = getStoredUser();
-      if (!user) throw new Error('Authentication required');
-
-      const grp = db.groups.find(g => g.id === Number(groupId));
-      if (!grp) throw new Error('Group not found');
-
-      const slot = grp.slots.find(s => s.slotNumber === Number(data.slotNumber) && s.userId === user.id && s.status === 'active');
-      if (!slot) throw new Error('Active slot not found');
-
-      const dbUser = db.users.find(u => u.id === user.id) || user;
-      if ((dbUser.credit || 0) < data.amount) {
-        throw new Error(`Insufficient wallet credit. You have KSh ${(dbUser.credit || 0).toLocaleString()}.`);
-      }
-
-      dbUser.credit -= data.amount;
-      slot.paidAmount = (slot.paidAmount || 0) + data.amount;
-      slot.lastPaymentDate = Date.now();
-
-      const refCode = `WAL_${generateCode(6)}`;
-      db.payments.unshift({
-        id: db.nextIds.payment++,
-        type: 'group_installment',
-        userId: user.id,
-        userName: user.name,
-        code: refCode,
-        amount: data.amount,
-        groupId: grp.id,
-        groupName: grp.name,
-        slotNumber: slot.slotNumber,
-        productId: grp.productId,
-        status: 'approved',
-        createdAt: Date.now(),
-        approvedAt: Date.now(),
-      });
-
-      db.storeCreditLedger.unshift({
-        id: db.nextIds.ledger++,
-        userId: user.id,
-        amount: -data.amount,
-        balanceAfter: dbUser.credit,
-        type: 'purchase_deduction',
-        referenceId: refCode,
-        note: `Paid Group Slot #${slot.slotNumber} installment for "${grp.productTitle}" from wallet balance`,
-        createdAt: Date.now(),
-      });
-
-      setStoredUser(dbUser);
-      saveClientDb(db);
-
-      const progressPercent = Math.min(100, Math.round(((slot.paidAmount || 0) / grp.productPrice) * 100));
-      return {
-        group: grp,
-        walletBalance: dbUser.credit,
-        paidAmount: slot.paidAmount,
-        progressPercent,
-        message: `Payment of KSh ${data.amount.toLocaleString()} applied from your wallet! Dynamic progress is now ${progressPercent}%.`,
-      };
-    }
+    return await fetchApi<any>(`/groups/${groupId}/pay-from-wallet`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async getMemberStatement(userId: number): Promise<{ statement: MemberStatement }> {

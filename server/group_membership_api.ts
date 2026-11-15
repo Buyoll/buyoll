@@ -587,7 +587,7 @@ groupMembershipRouter.post('/groups/:id/leave', async (req: Request, res: Respon
       (l) =>
         l.groupId === group.id &&
         l.requesterId === authUser.id &&
-        (l.status === 'funded' || l.status === 'fee_pending' || l.status === 'fee_verified')
+        ['funded', 'fee_pending', 'fee_verified'].includes(String(l.status || '').toLowerCase())
     );
     if (hasUnsettledLoan) {
       return {
@@ -854,7 +854,10 @@ groupMembershipRouter.delete(
       }
 
       const hasUnsettledLoan = (db.peerLoans || []).some(
-        (l) => l.groupId === groupId && l.requesterId === targetUserId && l.status === 'funded'
+        (l) =>
+          l.groupId === groupId &&
+          l.requesterId === targetUserId &&
+          String(l.status || '').toLowerCase() === 'funded'
       );
       if (hasUnsettledLoan) {
         return {

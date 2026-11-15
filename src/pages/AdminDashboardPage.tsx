@@ -805,14 +805,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
           <button
             onClick={async () => {
-              if (window.confirm('Are you sure you want to log out of the Buyoll Admin Console?')) {
-                try {
-                  await api.logout();
-                } catch {}
-                localStorage.removeItem('buyoll_auth_user');
-                onNavigate('admin-portal');
-                onNotify('info', 'Logged out of administrator session.');
-              }
+              try {
+                await api.logout();
+              } catch {}
+              localStorage.removeItem('buyoll_auth_user');
+              onNavigate('admin-portal');
+              onNotify('info', 'Logged out of administrator session.');
             }}
             className="flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
           >
@@ -3037,12 +3035,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    if (window.confirm('Log out of administrator session?')) {
-                      try { await api.logout(); } catch {}
-                      localStorage.removeItem('buyoll_auth_user');
-                      onNavigate('admin-portal');
-                      onNotify('info', 'Logged out.');
-                    }
+                    try { await api.logout(); } catch {}
+                    localStorage.removeItem('buyoll_auth_user');
+                    onNavigate('admin-portal');
+                    onNotify('info', 'Logged out.');
                   }}
                   className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                 >

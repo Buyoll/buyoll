@@ -292,12 +292,13 @@ function buildGroupProductEntries(group: ChamaGroup): GroupProductEntry[] {
   if (group.productId && !existing.some((e) => e.productId === group.productId)) {
     existing.unshift({
       productId: group.productId,
+      addedBy: group.vendorId || group.adminId || 0,
       featured: true,
       order: 0,
       addedAt: group.createdAt || Date.now(),
     });
   }
-  return existing.sort((a, b) => a.order - b.order);
+  return existing.sort((a, b) => (a.order ?? a.sortOrder ?? 0) - (b.order ?? b.sortOrder ?? 0));
 }
 
 function resolveGroupProductItems(
@@ -408,7 +409,7 @@ profileAndGroupsRouter.post('/groups/:groupId/products', async (req: Request, re
         addedAt: Date.now(),
       };
       entries.push(newEntry);
-      group.productsInGroup = entries.sort((a, b) => a.order - b.order);
+      group.productsInGroup = entries.sort((a, b) => (a.order ?? a.sortOrder ?? 0) - (b.order ?? b.sortOrder ?? 0));
 
       logAudit(
         db,
@@ -483,7 +484,7 @@ profileAndGroupsRouter.patch('/groups/:groupId/products/:productId', async (req:
       if (parsed.data.featured !== undefined) entry.featured = parsed.data.featured;
       if (parsed.data.order !== undefined) entry.order = parsed.data.order;
 
-      group.productsInGroup = entries.sort((a, b) => a.order - b.order);
+      group.productsInGroup = entries.sort((a, b) => (a.order ?? a.sortOrder ?? 0) - (b.order ?? b.sortOrder ?? 0));
 
       logAudit(
         db,

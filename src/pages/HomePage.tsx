@@ -242,6 +242,12 @@ export const HomePage: React.FC<HomePageProps> = ({
     setJoinError(null);
   }
 
+  const selectedJoinGroup = (openGroupsByProduct[joinModalProduct?.id || 0] || []).find(
+    (g) => g.id === selectedJoinGroupId
+  );
+  const selectedGroupPolicy =
+    selectedJoinGroup?.joinPolicy || (selectedJoinGroup?.isInviteOnly ? 'INVITE_ONLY' : 'OPEN');
+
   async function handleConfirmJoinModal(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUser) {
@@ -258,20 +264,20 @@ export const HomePage: React.FC<HomePageProps> = ({
       return;
     }
     const cleanCode = joinReferralCode.trim().toUpperCase();
-    if (!cleanCode) {
-      setJoinError('A friend referral invite code is required to join a group.');
+    if (selectedGroupPolicy === 'INVITE_ONLY' && !cleanCode) {
+      setJoinError('An invite or friend referral code is required for this invite-only group.');
       return;
     }
     setJoiningGroup(true);
     setJoinError(null);
     try {
-      const res = await api.joinGroup(selectedJoinGroupId, cleanCode);
+      const res = await api.joinGroup(selectedJoinGroupId, cleanCode || undefined);
       setJoinModalProduct(null);
       setJoinReferralCode('');
       await loadHomeData();
       onNavigate?.('group', res.group.id);
     } catch (err: any) {
-      setJoinError(err.message || 'Could not join group with this referral code.');
+      setJoinError(err.message || 'Could not join group.');
     } finally {
       setJoiningGroup(false);
     }
@@ -521,7 +527,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                           onClick={() => {
                             if (!card.ctaUrl) return;
                             if (card.ctaUrl.startsWith('http')) {
-                              window.open(card.ctaUrl, '_blank', 'noopener,noreferrer');
+                              window.location.assign(card.ctaUrl);
                             } else if (card.ctaUrl === '/groups' || card.ctaUrl === '/chamas' || card.ctaUrl.startsWith('/group') || card.ctaUrl.startsWith('/chama')) {
                               onNavigate?.('my-chamas');
                             } else if (card.ctaUrl === '/merchant') {
@@ -1219,14 +1225,24 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    2. Enter Friend Referral Invite Code <span className="text-rose-500">*</span>
+                    {selectedGroupPolicy === 'INVITE_ONLY' ? (
+                      <>
+                        2. Enter Invite / Friend Referral Code <span className="text-rose-500">*</span>
+                      </>
+                    ) : (
+                      '2. Friend Referral Code (Optional)'
+                    )}
                   </label>
                   <input
                     type="text"
-                    required
+                    required={selectedGroupPolicy === 'INVITE_ONLY'}
                     value={joinReferralCode}
                     onChange={(e) => setJoinReferralCode(e.target.value.toUpperCase())}
-                    placeholder="Ask a friend for their Buyoll referral code"
+                    placeholder={
+                      selectedGroupPolicy === 'INVITE_ONLY'
+                        ? 'Enter invite or friend referral code'
+                        : 'Optional referral code (leave blank for instant join)'
+                    }
                     className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                   />
                   {currentUser?.referralCode && (
