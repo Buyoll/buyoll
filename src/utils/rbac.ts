@@ -6,7 +6,7 @@ export const VALID_ROLES: UserRole[] = ['member', 'merchant', 'lender', 'admin']
 export function normalizeRole(role?: string | null): UserRole {
   if (!role) return 'member';
   const lower = role.toLowerCase().trim();
-  if (lower === 'buyer' || lower === 'member') return 'member';
+  if (lower === 'member') return 'member';
   if (lower === 'merchant' || lower === 'vendor') return 'merchant';
   if (lower === 'lender') return 'lender';
   if (lower === 'admin') return 'admin';

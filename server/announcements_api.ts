@@ -112,7 +112,7 @@ function matchesAudience(ann: Announcement, user: User | null, requestedAudience
   const activeRole = user.activeRole || user.role;
   if (activeRole === 'admin') return true;
   if (activeRole === 'merchant') return audience === 'ALL' || audience === 'MERCHANTS';
-  if (activeRole === 'member' || activeRole === 'buyer') return audience === 'ALL' || audience === 'MEMBERS';
+  if (activeRole === 'member') return audience === 'ALL' || audience === 'MEMBERS';
   return audience === 'ALL';
 }
 
@@ -323,7 +323,7 @@ announcementsRouter.post('/admin/announcements', async (req: Request, res: Respo
         const uRole = u.activeRole || u.role;
         const ok =
           item.audience === 'ALL' ||
-          (item.audience === 'MEMBERS' && (uRole === 'member' || uRole === 'buyer')) ||
+          (item.audience === 'MEMBERS' && uRole === 'member') ||
           (item.audience === 'MERCHANTS' && uRole === 'merchant');
         if (!ok) continue;
         db.userNotifications.unshift({

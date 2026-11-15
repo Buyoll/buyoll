@@ -200,7 +200,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
     setSubmittingDeposit(true);
     try {
-      const activeRole = currentUser.activeRole || (currentUser.role === 'buyer' ? 'member' : currentUser.role) || 'member';
+      const activeRole = currentUser.activeRole || currentUser.role || 'member';
       const res = await api.depositToWallet({
         amount: depositAmount,
         mpesaCode: trimmedCode,

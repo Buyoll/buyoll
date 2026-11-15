@@ -3,76 +3,98 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { getDatabase, logAudit, runDatabaseTransaction, saveDatabase } from './db.js';
 import {
+  ALL_ROLE_COOKIES,
   clearAuthCookies,
+  clearRoleSessionCookie,
+  computePasswordHmac,
+  createAccessToken,
+  createDbSession,
+  evaluatePasswordStrength,
+  getClientIp,
   hashOpaqueToken,
+  hashPasskey,
   hashPassword,
-  issueAuthTokensForUser,
+  isPasswordReusedGlobally,
   isValidUsername,
+  issueAuthTokensForUser,
+  normalizeUsername,
   normalizeUsernameSeed,
-  resolveAuthenticatedUser,
+  resolveAuthenticatedSession,
+  ROLE_COOKIE_NAMES,
   sanitizeUser,
+  sendSecurityEmail,
   setAuthCookies,
+  setRoleSessionCookie,
+  verifyAccessToken,
+  verifyPasskey,
   verifyPassword,
+  verifySessionCookieValue,
 } from './auth_utils.js';
 import { sendApiError, sendZodError } from './errors.js';
-import { SUPPORT_EMAIL } from './config.js';
-import { User } from '../src/types.js';
+import {
+  ADMIN_LOCKOUT_MS,
+  ADMIN_MAX_FAILED_ATTEMPTS,
+  FORGOT_USERNAME_MODE,
+  OTP_MAX_ATTEMPTS,
+  OTP_TTL_MS,
+  RECENT_REAUTH_WINDOW_MS,
+  SESSION_IDLE_TIMEOUT_MS,
+  SUPPORT_EMAIL,
+} from './config.js';
+import { ensureWallet, findPlatformAdminUser, normalizeRoleValue } from './wallet_service.js';
+import { OtpChallengeRecord, User, UserRole } from '../src/types.js';
 
 export const authRouter = Router();
 
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
-const RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-const WEAK_PASSWORDS = new Set([
-  'password',
-  'password1',
-  '12345678',
-  '123456789',
-  'qwerty123',
-  'qwertyui',
-  '11111111',
-  '00000000',
-  'buyoll123',
-]);
+const NON_ADMIN_SOFT_PROMPT_THRESHOLD = 3;
+const NON_ADMIN_MAX_ATTEMPTS = 5;
+const LOCKOUT_MS = 15 * 60 * 1000;
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 interface FailedAttemptBucket {
   count: number;
   lockedUntil?: number;
+  lastAttemptAt: number;
 }
 const loginAttemptsByKey = new Map<string, FailedAttemptBucket>();
 
-function isKeyLocked(key: string): { locked: boolean; waitMinutes: number } {
+function getBucketStatus(key: string): { locked: boolean; waitMinutes: number; count: number } {
   const rec = loginAttemptsByKey.get(key);
-  if (!rec) return { locked: false, waitMinutes: 0 };
+  if (!rec) return { locked: false, waitMinutes: 0, count: 0 };
   const now = Date.now();
   if (rec.lockedUntil && rec.lockedUntil > now) {
-    return { locked: true, waitMinutes: Math.max(1, Math.ceil((rec.lockedUntil - now) / 60000)) };
+    return {
+      locked: true,
+      waitMinutes: Math.max(1, Math.ceil((rec.lockedUntil - now) / 60000)),
+      count: rec.count,
+    };
   }
   if (rec.lockedUntil && rec.lockedUntil <= now) {
     loginAttemptsByKey.delete(key);
+    return { locked: false, waitMinutes: 0, count: 0 };
   }
-  return { locked: false, waitMinutes: 0 };
+  return { locked: false, waitMinutes: 0, count: rec.count };
 }
 
-function recordFailedKeyAttempt(key: string): boolean {
+function recordBucketFailure(key: string, maxAttempts: number, lockoutMs: number): { count: number; justLocked: boolean } {
   const now = Date.now();
-  const existing = loginAttemptsByKey.get(key) || { count: 0 };
+  const existing = loginAttemptsByKey.get(key) || { count: 0, lastAttemptAt: now };
   if (existing.lockedUntil && existing.lockedUntil <= now) {
     existing.count = 0;
     existing.lockedUntil = undefined;
   }
   existing.count += 1;
+  existing.lastAttemptAt = now;
   let justLocked = false;
-  if (existing.count >= MAX_FAILED_ATTEMPTS) {
-    existing.lockedUntil = now + LOCKOUT_MS;
+  if (existing.count >= maxAttempts) {
+    existing.lockedUntil = now + lockoutMs;
     justLocked = true;
   }
   loginAttemptsByKey.set(key, existing);
-  return justLocked;
+  return { count: existing.count, justLocked };
 }
 
-function clearKeyAttempts(key: string): void {
+function clearBucket(key: string): void {
   loginAttemptsByKey.delete(key);
 }
 
@@ -83,6 +105,12 @@ function generateCode(length = 4): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+function generateNumericOtp(digits = 6): string {
+  const min = Math.pow(10, digits - 1);
+  const max = Math.pow(10, digits) - 1;
+  return String(crypto.randomInt(min, max + 1));
 }
 
 function extractRefreshToken(req: Request): string | null {
@@ -102,21 +130,11 @@ function extractRefreshToken(req: Request): string | null {
   return null;
 }
 
-function validatePasswordStrength(password: string): string | null {
-  if (password.length < 8) {
-    return 'Password must be at least 8 characters long.';
-  }
-  if (WEAK_PASSWORDS.has(password.toLowerCase())) {
-    return 'Please choose a stronger, less common password.';
-  }
-  return null;
-}
-
 function syncUserRoleAndWallet(user: User): void {
-  const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+  const activeRole = normalizeRoleValue(user.activeRole || user.role);
   user.activeRole = activeRole;
   user.role = activeRole;
-  if (!user.roles || !Array.isArray(user.roles)) {
+  if (!user.roles || !Array.isArray(user.roles) || user.roles.length === 0) {
     user.roles = [activeRole];
   }
   if (!user.platformId) {
@@ -142,69 +160,153 @@ function syncUserRoleAndWallet(user: User): void {
 
 const registerSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters.').max(80, 'Name must be 80 characters or fewer.'),
-  username: z.string().trim().optional(),
+  username: z.string().optional(),
   email: z.string().trim().email('Please provide a valid email address.').max(120),
   password: z.string().min(8, 'Password must be at least 8 characters long.').max(128),
   phone: z.string().trim().max(30).optional(),
-  role: z.enum(['member', 'buyer', 'merchant', 'lender', 'admin']).optional(),
+  role: z.enum(['member', 'merchant', 'lender', 'admin']).optional(),
   shopName: z.string().trim().max(100).optional(),
   shopDescription: z.string().trim().max(500).optional(),
   lenderType: z.string().trim().max(80).optional(),
-  adminPasskey: z.string().trim().optional(),
   referredBy: z.string().trim().max(60).optional(),
   rememberMe: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
   identifier: z.string().trim().optional(),
+  username: z.string().trim().optional(),
   phone: z.string().trim().optional(),
   password: z.string().optional(),
+  passkey: z.string().optional(),
+  adminPasskey: z.string().optional(),
   role: z.string().trim().optional(),
   rememberMe: z.boolean().optional(),
 });
 
-const forgotSchema = z.object({
-  identifier: z.string().trim().min(2, 'Please enter your email address or username.'),
-});
-
-const resetSchema = z.object({
-  token: z.string().trim().min(16, 'Invalid or malformed reset token.'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters long.').max(128),
-});
-
-const changePasswordSchema = z.object({
-  currentPassword: z.string().optional(),
-  newPassword: z.string().min(8, 'New password must be at least 8 characters long.').max(128),
-});
-
-// GET /api/auth/check-username?username=...
-authRouter.get('/auth/check-username', async (req: Request, res: Response) => {
-  const raw = String(req.query.username || '').trim().toLowerCase();
+// ======================================================================
+// USERNAME AVAILABILITY (Normalized uniqueness check)
+// ======================================================================
+async function handleUsernameAvailable(req: Request, res: Response) {
+  const raw = String(req.query.u || req.query.username || '').trim();
   const valid = isValidUsername(raw);
   if (!valid) {
-    return res.json({ valid: false, available: false, message: 'Use 3–30 characters: letters, numbers, . or _' });
+    return res.json({
+      valid: false,
+      available: false,
+      normalized: normalizeUsername(raw),
+      message: 'Use 3–30 characters: letters, numbers, dots (.), underscores (_), or hyphens (-).',
+    });
   }
+  const norm = normalizeUsername(raw);
   const db = await getDatabase();
-  const taken = (db.users || []).some((u) => u.username && u.username.toLowerCase() === raw);
-  return res.json({ valid: true, available: !taken });
-});
+  const taken = (db.users || []).some(
+    (u) => (u.usernameNormalized && u.usernameNormalized === norm) || (u.username && normalizeUsername(u.username) === norm)
+  );
+  return res.json({
+    valid: true,
+    available: !taken,
+    normalized: norm,
+    message: taken ? 'That username is not available. Please choose a different one.' : 'Username is available.',
+  });
+}
 
-// GET /api/auth/me
+authRouter.get('/auth/username-available', handleUsernameAvailable);
+authRouter.get('/auth/check-username', handleUsernameAvailable);
+
+// ======================================================================
+// SESSION CHECK (/auth/me & /auth/keepalive)
+// ======================================================================
 authRouter.get('/auth/me', async (req: Request, res: Response) => {
-  const user = await resolveAuthenticatedUser(req);
-  if (!user) {
-    return sendApiError(res, 401, 'UNAUTHORIZED', 'Not authenticated');
+  const requestedRole = req.query.role
+    ? normalizeRoleValue(String(req.query.role))
+    : req.headers['x-buyoll-role']
+    ? normalizeRoleValue(String(req.headers['x-buyoll-role']))
+    : undefined;
+
+  const resDb = await getDatabase();
+  const auth = await resolveAuthenticatedSession(req, resDb, {
+    touchActivity: true,
+    requestedRole,
+  });
+
+  if (!auth.user || !auth.session) {
+    if (auth.errorCode === 'SESSION_IDLE_EXPIRED') {
+      await saveDatabase(resDb);
+      if (requestedRole) clearRoleSessionCookie(res, requestedRole);
+      return sendApiError(
+        res,
+        401,
+        'SESSION_IDLE_EXPIRED',
+        auth.errorMessage || 'Your session expired after 20 minutes of inactivity. Please log in again.'
+      );
+    }
+    return sendApiError(res, 401, auth.errorCode || 'UNAUTHORIZED', 'Not authenticated');
   }
-  const prevRef = user.referralCode;
-  syncUserRoleAndWallet(user);
-  if (user.referralCode !== prevRef) {
-    const db = await getDatabase();
-    await saveDatabase(db);
-  }
-  return res.json({ user: sanitizeUser(user) });
+
+  syncUserRoleAndWallet(auth.user);
+  ensureWallet(resDb, auth.user, auth.session.role);
+  await saveDatabase(resDb);
+
+  const now = Date.now();
+  return res.json({
+    user: sanitizeUser(auth.user),
+    session: {
+      id: auth.session.id,
+      role: auth.session.role,
+      createdAt: auth.session.createdAt,
+      lastActivityAt: auth.session.lastActivityAt,
+      expiresAt: auth.session.expiresAt,
+      idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+      idleExpiresAt: auth.session.lastActivityAt + SESSION_IDLE_TIMEOUT_MS,
+      serverNow: now,
+    },
+  });
 });
 
-// POST /api/auth/register
+authRouter.post('/auth/keepalive', async (req: Request, res: Response) => {
+  const requestedRole = req.body?.role
+    ? normalizeRoleValue(String(req.body.role))
+    : req.headers['x-buyoll-role']
+    ? normalizeRoleValue(String(req.headers['x-buyoll-role']))
+    : undefined;
+
+  const result = await runDatabaseTransaction(async (db) => {
+    const auth = await resolveAuthenticatedSession(req, db, {
+      touchActivity: true,
+      requestedRole,
+    });
+    if (!auth.user || !auth.session) {
+      return {
+        status: 401,
+        code: auth.errorCode || 'UNAUTHORIZED',
+        message: auth.errorMessage || 'Session expired or not authenticated.',
+      };
+    }
+    return { status: 200, session: auth.session };
+  });
+
+  if (result.status !== 200) {
+    if (requestedRole && result.code === 'SESSION_IDLE_EXPIRED') {
+      clearRoleSessionCookie(res, requestedRole);
+    }
+    return sendApiError(res, result.status, result.code!, result.message!);
+  }
+
+  const s = result.session!;
+  return res.json({
+    ok: true,
+    sessionId: s.id,
+    role: s.role,
+    lastActivityAt: s.lastActivityAt,
+    idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+    idleExpiresAt: s.lastActivityAt + SESSION_IDLE_TIMEOUT_MS,
+    serverNow: Date.now(),
+  });
+});
+
+// ======================================================================
+// REGISTRATION (Non-Admin Only — Admin Self-Registration Removed)
+// ======================================================================
 authRouter.post('/auth/register', async (req: Request, res: Response) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -212,15 +314,17 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
   }
 
   const input = parsed.data;
-  const strengthErr = validatePasswordStrength(input.password);
-  if (strengthErr) {
-    return sendApiError(res, 422, 'WEAK_PASSWORD', strengthErr, { password: strengthErr });
+  if (input.role === 'admin') {
+    return sendApiError(
+      res,
+      403,
+      'ADMIN_REGISTRATION_CLOSED',
+      'Administrator registration is disabled. Sign in with the platform administrator credentials.'
+    );
   }
 
-  const cleanRole =
-    input.role === 'merchant' || input.role === 'lender' || input.role === 'admin'
-      ? input.role
-      : 'member';
+  const cleanRole: UserRole =
+    input.role === 'merchant' || input.role === 'lender' ? input.role : 'member';
   const cleanEmail = input.email.toLowerCase();
   const cleanPhone = input.phone ? input.phone.trim() : '';
 
@@ -231,50 +335,44 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
   }
 
   if (input.username !== undefined) {
-    const cleanUn = input.username.toLowerCase();
-    if (!isValidUsername(cleanUn)) {
+    if (!isValidUsername(input.username)) {
       return sendApiError(
         res,
         422,
         'INVALID_USERNAME',
-        'Username must be 3–30 characters (letters, numbers, dots, or underscores).',
-        { username: 'Use 3–30 letters, numbers, "." or "_".' }
+        'Username must be 3–30 characters (letters, numbers, dots, underscores, or hyphens).',
+        { username: 'Use 3–30 letters, numbers, ".", "_", or "-".' }
       );
     }
   }
 
+  // Evaluate password strength WITHOUT trimming password
+  const pwEval = evaluatePasswordStrength(input.password, {
+    username: input.username,
+    name: input.name,
+    email: cleanEmail,
+    phone: cleanPhone,
+  });
+  if (!pwEval.valid) {
+    return sendApiError(res, 422, 'WEAK_PASSWORD', pwEval.error!, { password: pwEval.error! });
+  }
+
+  const passwordHash = await hashPassword(input.password);
+  const passwordHmac = computePasswordHmac(input.password);
+
   const result = await runDatabaseTransaction(async (db) => {
-    // Admin single-account & passkey guard
-    if (cleanRole === 'admin') {
-      const existingAdmins = (db.users || []).filter(
-        (u) => u.role === 'admin' || (u.roles && u.roles.includes('admin'))
-      );
-      if (existingAdmins.length > 0) {
-        return {
-          error: {
-            status: 403,
-            code: 'ADMIN_REGISTRATION_CLOSED',
-            message:
-              'Administrator registration is permanently closed. The system administrator account has already been registered.',
-          },
-        };
-      }
-      const envKey = (process.env.ADMIN_SETUP_KEY || process.env.VITE_ADMIN_SETUP_KEY || 'BUYOLL_ADMIN_2026').trim();
-      const providedKey = String(input.adminPasskey || '').trim();
-      if (!providedKey || (providedKey !== envKey && providedKey !== 'BUYOLL_ADMIN_2026')) {
-        return {
-          error: {
-            status: 403,
-            code: 'INVALID_ADMIN_KEY',
-            message: 'Invalid Administrator Setup Key.',
-            fields: { adminPasskey: 'Invalid Administrator Setup Key.' },
-          },
-        };
-      }
+    if (isPasswordReusedGlobally(db, input.password)) {
+      return {
+        error: {
+          status: 422,
+          code: 'PASSWORD_NOT_ALLOWED',
+          message: 'Please choose a unique password that is not already in use.',
+          fields: { password: 'Please choose a different password.' },
+        },
+      };
     }
 
-    // Email uniqueness
-    if (db.users.some((u) => u.email && u.email.toLowerCase() === cleanEmail)) {
+    if (db.users.some((u) => !u.isDisabled && u.email && u.email.toLowerCase() === cleanEmail)) {
       return {
         error: {
           status: 409,
@@ -285,8 +383,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       };
     }
 
-    // Phone uniqueness (if supplied)
-    if (cleanPhone && db.users.some((u) => u.phone && u.phone.trim() === cleanPhone)) {
+    if (cleanPhone && db.users.some((u) => !u.isDisabled && u.phone && u.phone.trim() === cleanPhone)) {
       return {
         error: {
           status: 409,
@@ -303,49 +400,52 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
     }
     const newId = db.nextIds.user++;
 
-    // Username uniqueness or clean deterministic generation if omitted by legacy callers
     let finalUsername: string;
+    let finalNorm: string;
     if (input.username !== undefined) {
-      finalUsername = input.username.toLowerCase();
-      if (db.users.some((u) => u.username && u.username.toLowerCase() === finalUsername)) {
+      finalUsername = input.username.normalize('NFKC').trim().toLowerCase();
+      finalNorm = normalizeUsername(finalUsername);
+      const conflict = db.users.some(
+        (u) =>
+          (u.usernameNormalized && u.usernameNormalized === finalNorm) ||
+          (u.username && normalizeUsername(u.username) === finalNorm)
+      );
+      if (conflict) {
         db.nextIds.user--;
         return {
           error: {
             status: 409,
             code: 'USERNAME_TAKEN',
-            message: 'This username is already taken. Please choose another.',
-            fields: { username: 'This username is already taken.' },
+            message: 'That username is not available. Please choose a different one.',
+            fields: { username: 'That username is not available. Please choose a different one.' },
           },
         };
       }
     } else {
       const seed = normalizeUsernameSeed(cleanEmail.split('@')[0] || input.name, newId);
-      const taken = new Set(db.users.map((u) => (u.username || '').toLowerCase()).filter(Boolean));
-      finalUsername = taken.has(seed) ? `${seed.slice(0, 22)}_${newId}` : seed;
+      const takenNorms = new Set(
+        db.users.map((u) => u.usernameNormalized || normalizeUsername(u.username || '')).filter(Boolean)
+      );
+      finalUsername = takenNorms.has(normalizeUsername(seed)) ? `${seed.slice(0, 22)}_${newId}` : seed;
+      finalNorm = normalizeUsername(finalUsername);
     }
 
-    const autoPhone =
-      cleanPhone || '07' + Math.floor(10000000 + Math.random() * 90000000).toString();
-    const prefix =
-      cleanRole === 'merchant'
-        ? 'BYL-V'
-        : cleanRole === 'lender'
-        ? 'BYL-L'
-        : cleanRole === 'admin'
-        ? 'BYL-A'
-        : 'BYL-M';
+    const autoPhone = cleanPhone || '07' + crypto.randomInt(10000000, 99999999).toString();
+    const prefix = cleanRole === 'merchant' ? 'BYL-V' : cleanRole === 'lender' ? 'BYL-L' : 'BYL-M';
     const platformId = `${prefix}-${(10000 + newId).toString()}`;
-    const startingCoins =
-      cleanRole === 'member' ? 100 : cleanRole === 'merchant' ? 200 : cleanRole === 'lender' ? 300 : 500;
+    const startingCoins = cleanRole === 'member' ? 100 : cleanRole === 'merchant' ? 200 : 300;
     const startingPoints = cleanRole === 'member' ? 25 : 50;
+    const now = Date.now();
 
     const newUser: User = {
       id: newId,
       name: input.name,
       username: finalUsername,
+      usernameNormalized: finalNorm,
       email: cleanEmail,
       phone: autoPhone,
-      password: hashPassword(input.password),
+      password: passwordHash,
+      passwordHmac,
       role: cleanRole,
       roles: [cleanRole],
       activeRole: cleanRole,
@@ -355,7 +455,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       shopName: cleanRole === 'merchant' ? input.shopName || input.name : undefined,
       shopDescription: cleanRole === 'merchant' ? input.shopDescription || 'Verified seller on Buyoll' : undefined,
       lenderType: cleanRole === 'lender' ? input.lenderType : undefined,
-      verified: cleanRole === 'admin',
+      verified: false,
       merchantSubscriptionStatus: cleanRole === 'merchant' ? 'inactive' : undefined,
       credit: 0,
       nonWithdrawableBalance: 0,
@@ -364,6 +464,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       points: startingPoints,
       failedLoginCount: 0,
       tokenVersion: 1,
+      emailVerifiedAt: now,
       roleWallets: {
         [cleanRole]: {
           credit: 0,
@@ -372,12 +473,13 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
           points: startingPoints,
         },
       },
-      lastActive: Date.now(),
-      createdAt: Date.now(),
+      lastActive: now,
+      createdAt: now,
     };
 
     db.users.push(newUser);
-    const tokens = issueAuthTokensForUser(db, newUser, input.rememberMe ?? true);
+    ensureWallet(db, newUser, cleanRole);
+    const tokens = issueAuthTokensForUser(db, newUser, input.rememberMe ?? true, req, cleanRole);
     logAudit(
       db,
       newUser.id,
@@ -401,83 +503,138 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
 
   const { user, tokens } = result as {
     user: User;
-    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number };
+    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number; session: any };
   };
-  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt);
+  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt, cleanRole, tokens.session.id);
   const displayRole = cleanRole.charAt(0).toUpperCase() + cleanRole.slice(1);
   return res.status(201).json({
     user: sanitizeUser(user),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
+    session: {
+      id: tokens.session.id,
+      role: cleanRole,
+      idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+      lastActivityAt: tokens.session.lastActivityAt,
+    },
     notice: `Account created successfully as ${displayRole}! Welcome to Buyoll.`,
   });
 });
 
-// POST /api/auth/login
-authRouter.post('/auth/login', async (req: Request, res: Response) => {
+// ======================================================================
+// LOGIN (Admin requires username + password + passkey; 3-fail lockout + alert;
+//        Non-admin uses normalized username lookup, 3-fail recovery prompt)
+// ======================================================================
+async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return sendZodError(res, parsed.error, 422);
   }
 
-  const { identifier, phone, password, role, rememberMe } = parsed.data;
-  const lookup = (identifier || phone || '').trim().toLowerCase();
-  if (!lookup) {
-    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your username, email, or phone number.', {
-      identifier: 'Username, email, or phone number is required.',
+  const rawIdentifier = parsed.data.identifier || parsed.data.username || parsed.data.phone || '';
+  const cleanLookup = rawIdentifier.trim();
+  const password = parsed.data.password; // NEVER trim password!
+  const passkey = parsed.data.passkey ?? parsed.data.adminPasskey; // NEVER trim passkey!
+  const requestedRoleRaw = forcedAdmin ? 'admin' : parsed.data.role;
+  const reqRole = requestedRoleRaw ? normalizeRoleValue(requestedRoleRaw) : undefined;
+  const isAdminLogin = reqRole === 'admin';
+  const clientIp = getClientIp(req);
+
+  if (!cleanLookup) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your username.', {
+      identifier: 'Username is required.',
+    });
+  }
+  if (!password) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Password is required.', {
+      password: 'Password is required.',
+    });
+  }
+  if (isAdminLogin && !passkey) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Security passkey is required for administrator sign-in.', {
+      passkey: 'Security passkey is required.',
     });
   }
 
-  const outcome = await runDatabaseTransaction(async (db) => {
-    const user = db.users.find(
-      (u) =>
-        (u.username && u.username.toLowerCase() === lookup) ||
-        (u.email && u.email.toLowerCase() === lookup) ||
-        (u.phone && u.phone.toLowerCase() === lookup) ||
-        (u.name && u.name.toLowerCase() === lookup) ||
-        (u.shopName && u.shopName.toLowerCase() === lookup) ||
-        (lookup === 'samuel' && (u.name.toLowerCase().includes('samuel') || u.id === 3)) ||
-        (lookup === 'buyoll direct' &&
-          (u.name.toLowerCase().includes('buyoll direct') ||
-            u.shopName?.toLowerCase().includes('buyoll') ||
-            u.id === 2)) ||
-        (lookup === 'grace' && (u.name.toLowerCase().includes('grace') || u.id === 30)) ||
-        (lookup === 'buyoll system' &&
-          (u.name.toLowerCase().includes('system') || u.role === 'admin' || u.id === 1))
-    );
+  const lookupNorm = normalizeUsername(cleanLookup);
+  const lookupLower = cleanLookup.toLowerCase();
+  const attemptBucketKey = `${isAdminLogin ? 'admin' : 'user'}:${lookupNorm || lookupLower}:${clientIp}`;
 
-    if (!user) {
-      const bucketLock = isKeyLocked(lookup);
-      if (bucketLock.locked) {
-        return {
-          status: 429,
-          code: 'ACCOUNT_LOCKED',
-          message: `Too many failed login attempts. Please try again in ${bucketLock.waitMinutes} minute(s).`,
-        };
+  const bucketStatus = getBucketStatus(attemptBucketKey);
+  if (bucketStatus.locked) {
+    return sendApiError(
+      res,
+      429,
+      'ACCOUNT_LOCKED',
+      `Too many failed login attempts. Try again in ${bucketStatus.waitMinutes} minute(s).`
+    );
+  }
+
+  const outcome = await runDatabaseTransaction(async (db) => {
+    const now = Date.now();
+    const user = (db.users || []).find((u) => {
+      if (isAdminLogin) {
+        return (
+          (u.usernameNormalized && u.usernameNormalized === lookupNorm) ||
+          (u.username && normalizeUsername(u.username) === lookupNorm)
+        );
       }
-      const justLocked = recordFailedKeyAttempt(lookup);
-      if (justLocked) {
-        logAudit(db, 0, 'System', 'AUTH_LOGIN_LOCKED', `Rate-limited login attempts for identifier "${lookup}".`);
+      return (
+        (u.usernameNormalized && u.usernameNormalized === lookupNorm) ||
+        (u.username && normalizeUsername(u.username) === lookupNorm) ||
+        (u.email && u.email.toLowerCase() === lookupLower) ||
+        (u.phone && u.phone.toLowerCase() === lookupLower)
+      );
+    });
+
+    if (!user || user.isDisabled) {
+      if (isAdminLogin) {
+        const failInfo = recordBucketFailure(attemptBucketKey, ADMIN_MAX_FAILED_ATTEMPTS, ADMIN_LOCKOUT_MS);
+        if (failInfo.justLocked) {
+          const activeAdmin = findPlatformAdminUser(db);
+          sendSecurityEmail(db, {
+            to: activeAdmin?.email || SUPPORT_EMAIL,
+            subject: 'Security Alert: Multiple Failed Admin Sign-In Attempts',
+            body: `Three consecutive failed administrator sign-in attempts were detected for username "${cleanLookup}" from IP ${clientIp}. Login has been locked for 15 minutes.`,
+            kind: 'security_alert',
+            userId: activeAdmin?.id,
+            meta: { ip: clientIp, attemptedUsername: cleanLookup },
+          });
+          logAudit(db, 0, 'System', 'AUTH_ADMIN_LOCKED', `Locked admin login attempts for "${cleanLookup}" from IP ${clientIp}.`);
+          return {
+            status: 429,
+            code: 'ACCOUNT_LOCKED',
+            message: 'Too many failed administrator login attempts. Account locked for 15 minutes.',
+          };
+        }
+        return { status: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials.' };
+      }
+
+      const failInfo = recordBucketFailure(attemptBucketKey, NON_ADMIN_MAX_ATTEMPTS, LOCKOUT_MS);
+      if (failInfo.justLocked) {
+        logAudit(db, 0, 'System', 'AUTH_LOGIN_LOCKED', `Rate-limited login attempts for "${lookupLower}" (${clientIp}).`);
         return {
           status: 429,
           code: 'ACCOUNT_LOCKED',
-          message: 'Too many failed login attempts. Please try again in 15 minutes.',
+          message: 'Too many failed login attempts. Please try again in 15 minutes or recover your account.',
+          fields: { showRecoveryPrompt: 'true' },
         };
       }
       return {
         status: 401,
         code: 'INVALID_CREDENTIALS',
-        message: 'Invalid username, email, or password.',
+        message: 'Invalid username or password.',
+        fields: failInfo.count >= NON_ADMIN_SOFT_PROMPT_THRESHOLD ? { showRecoveryPrompt: 'true' } : undefined,
       };
     }
 
-    const now = Date.now();
     if (user.lockedUntil && user.lockedUntil > now) {
       const waitMin = Math.max(1, Math.ceil((user.lockedUntil - now) / 60000));
       return {
         status: 429,
         code: 'ACCOUNT_LOCKED',
         message: `Account temporarily locked after failed login attempts. Please try again in ${waitMin} minute(s).`,
+        fields: !isAdminLogin ? { showRecoveryPrompt: 'true' } : undefined,
       };
     }
 
@@ -491,49 +648,96 @@ authRouter.post('/auth/login', async (req: Request, res: Response) => {
       };
     }
 
-    // Password check: if user already has a password hash, password MUST be supplied & match
-    if (user.password) {
-      const valid = Boolean(password && verifyPassword(password, user.password));
-      if (!valid) {
+    const userRoles = user.roles || [normalizeRoleValue(user.activeRole || user.role)];
+
+    // Verify Admin credentials strictly (username + argon2id password + argon2id passkey + active admin role)
+    if (isAdminLogin) {
+      const hasAdminRole = user.role === 'admin' || user.activeRole === 'admin' || userRoles.includes('admin');
+      const pwOk = user.password ? await verifyPassword(password, user.password) : false;
+      const pkOk = user.adminPasskeyHash ? await verifyPasskey(passkey!, user.adminPasskeyHash) : false;
+
+      if (!hasAdminRole || !pwOk || !pkOk) {
         user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-        if (user.failedLoginCount >= MAX_FAILED_ATTEMPTS) {
-          user.lockedUntil = now + LOCKOUT_MS;
+        recordBucketFailure(attemptBucketKey, ADMIN_MAX_FAILED_ATTEMPTS, ADMIN_LOCKOUT_MS);
+        if (user.failedLoginCount >= ADMIN_MAX_FAILED_ATTEMPTS) {
+          user.lockedUntil = now + ADMIN_LOCKOUT_MS;
+          sendSecurityEmail(db, {
+            to: user.email || SUPPORT_EMAIL,
+            subject: 'Security Alert: Administrator Account Locked',
+            body: `Your Buyoll administrator account (@${user.username}) was locked for 15 minutes after ${user.failedLoginCount} failed login attempts from IP ${clientIp}. If this was not you, reset your password and passkey immediately.`,
+            kind: 'security_alert',
+            userId: user.id,
+            meta: { ip: clientIp, failedAttempts: user.failedLoginCount },
+          });
           logAudit(
             db,
             user.id,
             user.name,
-            'AUTH_LOGIN_LOCKED',
-            `Account locked for 15 minutes after ${user.failedLoginCount} failed login attempts.`
+            'AUTH_ADMIN_LOCKED',
+            `Administrator account locked for 15 minutes after ${user.failedLoginCount} failed login attempts (${clientIp}).`
           );
           return {
             status: 429,
             code: 'ACCOUNT_LOCKED',
-            message: 'Too many failed login attempts. Your account has been locked for 15 minutes.',
+            message: 'Too many failed administrator login attempts. Account locked for 15 minutes.',
           };
         }
-        logAudit(db, user.id, user.name, 'AUTH_LOGIN_FAILED', `Failed password verification attempt #${user.failedLoginCount}.`);
+        logAudit(
+          db,
+          user.id,
+          user.name,
+          'AUTH_ADMIN_LOGIN_FAILED',
+          `Failed admin login attempt #${user.failedLoginCount} from ${clientIp}.`
+        );
+        return { status: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials.' };
+      }
+    } else {
+      // Non-admin password check
+      if (userRoles.includes('admin') && !userRoles.some((r) => r !== 'admin')) {
+        return {
+          status: 403,
+          code: 'ADMIN_PORTAL_REQUIRED',
+          message: 'Please sign in through the Administrator portal.',
+        };
+      }
+      const pwOk = user.password ? await verifyPassword(password, user.password) : false;
+      if (!pwOk) {
+        user.failedLoginCount = (user.failedLoginCount || 0) + 1;
+        recordBucketFailure(attemptBucketKey, NON_ADMIN_MAX_ATTEMPTS, LOCKOUT_MS);
+        if (user.failedLoginCount >= NON_ADMIN_MAX_ATTEMPTS) {
+          user.lockedUntil = now + LOCKOUT_MS;
+          logAudit(db, user.id, user.name, 'AUTH_LOGIN_LOCKED', `Account locked for 15 minutes after ${user.failedLoginCount} failed login attempts.`);
+          return {
+            status: 429,
+            code: 'ACCOUNT_LOCKED',
+            message: 'Too many failed login attempts. Your account has been locked for 15 minutes.',
+            fields: { showRecoveryPrompt: 'true' },
+          };
+        }
+        logAudit(db, user.id, user.name, 'AUTH_LOGIN_FAILED', `Failed login attempt #${user.failedLoginCount}.`);
         return {
           status: 401,
           code: 'INVALID_CREDENTIALS',
-          message: 'Invalid username, email, or password.',
+          message: 'Invalid username or password.',
+          fields:
+            user.failedLoginCount >= NON_ADMIN_SOFT_PROMPT_THRESHOLD
+              ? { showRecoveryPrompt: 'true', failedCount: String(user.failedLoginCount) }
+              : undefined,
         };
       }
-      // Transparently upgrade legacy plaintext password to scrypt hash
-      if (!user.password.includes(':')) {
-        user.password = hashPassword(password!);
+      // Transparently upgrade legacy non-argon2 password hashes on successful sign-in
+      if (user.password && !user.password.startsWith('$argon2')) {
+        user.password = await hashPassword(password);
+        user.passwordHmac = computePasswordHmac(password);
       }
-    } else if (password) {
-      user.password = hashPassword(password);
     }
 
-    const userRoles = user.roles || [user.activeRole || user.role || 'member'];
-    const reqRole = role === 'buyer' ? 'member' : role;
-    if (reqRole) {
-      if (userRoles.includes(reqRole as any)) {
-        user.activeRole = reqRole as any;
-        user.role = reqRole as any;
-      } else if (reqRole !== 'admin') {
-        const primaryRole = user.activeRole || user.role;
+    if (reqRole && !isAdminLogin) {
+      if (userRoles.includes(reqRole)) {
+        user.activeRole = reqRole;
+        user.role = reqRole;
+      } else {
+        const primaryRole = normalizeRoleValue(user.activeRole || user.role);
         const displayRole =
           primaryRole === 'member'
             ? 'Member'
@@ -545,52 +749,62 @@ authRouter.post('/auth/login', async (req: Request, res: Response) => {
         return {
           status: 403,
           code: 'ROLE_MISMATCH',
-          message: `This account is registered as a ${displayRole}. Please sign in as a ${displayRole} or log out first to register a ${reqRole} account.`,
-        };
-      } else {
-        return {
-          status: 403,
-          code: 'FORBIDDEN',
-          message: 'Administrator access denied for this account.',
+          message: `This account is registered as a ${displayRole}. Please sign in as a ${displayRole} or register a ${reqRole} account.`,
         };
       }
     }
 
+    const activeRole: UserRole = isAdminLogin ? 'admin' : normalizeRoleValue(reqRole || user.activeRole || user.role);
+    user.role = activeRole;
+    user.activeRole = activeRole;
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastActive = now;
     syncUserRoleAndWallet(user);
-    clearKeyAttempts(lookup);
+    ensureWallet(db, user, activeRole);
+    clearBucket(attemptBucketKey);
 
-    const tokens = issueAuthTokensForUser(db, user, rememberMe ?? true);
-    logAudit(db, user.id, user.name, 'AUTH_LOGIN_SUCCESS', `Signed in as ${user.activeRole} (@${user.username || user.id}).`);
+    const tokens = issueAuthTokensForUser(db, user, parsed.data.rememberMe ?? true, req, activeRole);
+    logAudit(db, user.id, user.name, 'AUTH_LOGIN_SUCCESS', `Signed in as ${activeRole} (@${user.username || user.id}).`);
 
-    return { status: 200, user, tokens };
+    return { status: 200, user, activeRole, tokens };
   });
 
   if (outcome.status !== 200) {
-    return sendApiError(res, outcome.status, outcome.code!, outcome.message!);
+    return sendApiError(res, outcome.status, outcome.code!, outcome.message!, (outcome as any).fields);
   }
 
-  const { user, tokens } = outcome as {
+  const { user, activeRole, tokens } = outcome as {
     status: 200;
     user: User;
-    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number };
+    activeRole: UserRole;
+    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number; session: any };
   };
-  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt);
+  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt, activeRole, tokens.session.id);
   return res.json({
     user: sanitizeUser(user),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
+    session: {
+      id: tokens.session.id,
+      role: activeRole,
+      lastActivityAt: tokens.session.lastActivityAt,
+      idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+    },
+    mustChangeCredentials: Boolean(user.mustChangeCredentials),
     notice: `Welcome back, ${user.name}!`,
   });
-});
+}
 
-// POST /api/auth/refresh — Rotate refresh token & detect reuse
+authRouter.post('/auth/login', (req: Request, res: Response) => handleLogin(req, res, false));
+authRouter.post('/admin/auth/login', (req: Request, res: Response) => handleLogin(req, res, true));
+
+// ======================================================================
+// TOKEN REFRESH & PER-ROLE LOGOUT
+// ======================================================================
 authRouter.post('/auth/refresh', async (req: Request, res: Response) => {
   const rawToken = extractRefreshToken(req);
   if (!rawToken) {
-    clearAuthCookies(res);
     return sendApiError(res, 401, 'NO_REFRESH_TOKEN', 'Refresh token missing.');
   }
 
@@ -605,22 +819,19 @@ authRouter.post('/auth/refresh', async (req: Request, res: Response) => {
     const now = Date.now();
     const user = db.users.find((u) => u.id === rec.userId);
 
-    // Token reuse detection: an already-rotated token was replayed -> revoke all sessions for user
     if (rec.revokedAt) {
       for (const r of records) {
-        if (r.userId === rec.userId && !r.revokedAt) {
-          r.revokedAt = now;
-        }
+        if (r.userId === rec.userId && !r.revokedAt) r.revokedAt = now;
       }
       if (user) {
         user.tokenVersion = (user.tokenVersion || 1) + 1;
-        logAudit(
-          db,
-          user.id,
-          user.name,
-          'AUTH_REFRESH_REUSE_DETECTED',
-          'Revoked all active sessions due to refresh token replay.'
-        );
+        for (const s of db.sessions || []) {
+          if (s.userId === user.id && !s.revokedAt) {
+            s.revokedAt = now;
+            s.revokeReason = 'REFRESH_REUSE_DETECTED';
+          }
+        }
+        logAudit(db, user.id, user.name, 'AUTH_REFRESH_REUSE_DETECTED', 'Revoked active sessions due to refresh token replay.');
       }
       return {
         status: 401,
@@ -631,78 +842,105 @@ authRouter.post('/auth/refresh', async (req: Request, res: Response) => {
 
     if (rec.expiresAt <= now) {
       rec.revokedAt = now;
-      return {
-        status: 401,
-        code: 'REFRESH_TOKEN_EXPIRED',
-        message: 'Your session has expired. Please log in again.',
-      };
+      return { status: 401, code: 'REFRESH_TOKEN_EXPIRED', message: 'Your session has expired. Please log in again.' };
     }
 
-    if (!user || user.isSuspended) {
+    if (!user || user.isDisabled || user.isSuspended) {
       rec.revokedAt = now;
-      return {
-        status: 401,
-        code: 'ACCOUNT_UNAVAILABLE',
-        message: 'Account unavailable or suspended.',
-      };
+      return { status: 401, code: 'ACCOUNT_UNAVAILABLE', message: 'Account unavailable or suspended.' };
     }
 
-    // Rotate refresh token
     rec.revokedAt = now;
     syncUserRoleAndWallet(user);
-    const tokens = issueAuthTokensForUser(db, user, rec.rememberMe);
-    return { status: 200, user, tokens };
+    const activeRole = normalizeRoleValue(user.activeRole || user.role);
+    const tokens = issueAuthTokensForUser(db, user, rec.rememberMe, req, activeRole);
+    return { status: 200, user, activeRole, tokens };
   });
 
   if (result.status !== 200) {
-    clearAuthCookies(res);
     return sendApiError(res, result.status, result.code!, result.message!);
   }
 
-  const { user, tokens } = result as {
-    status: 200;
-    user: User;
-    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number };
-  };
-  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt);
+  const { user, activeRole, tokens } = result as any;
+  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt, activeRole, tokens.session.id);
   return res.json({
     user: sanitizeUser(user),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
+    session: {
+      id: tokens.session.id,
+      role: activeRole,
+      lastActivityAt: tokens.session.lastActivityAt,
+      idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+    },
   });
 });
 
-// POST /api/auth/logout
+// Per-role isolated logout: clears ONLY the specified or resolved role cookie/session
 authRouter.post('/auth/logout', async (req: Request, res: Response) => {
-  const rawToken = extractRefreshToken(req);
-  if (rawToken) {
-    const tokenHash = hashOpaqueToken(rawToken);
-    await runDatabaseTransaction(async (db) => {
-      const rec = (db.refreshTokens || []).find((r) => r.tokenHash === tokenHash);
-      if (rec && !rec.revokedAt) {
-        rec.revokedAt = Date.now();
-      }
+  const roleParam = req.body?.role || req.query.role || req.headers['x-buyoll-role'];
+  const requestedRole = roleParam ? normalizeRoleValue(String(roleParam)) : undefined;
+  let clearedRole: UserRole | undefined = requestedRole;
+
+  await runDatabaseTransaction(async (db) => {
+    const now = Date.now();
+    const auth = await resolveAuthenticatedSession(req, db, {
+      touchActivity: false,
+      requestedRole,
     });
+    if (auth.session) {
+      auth.session.revokedAt = now;
+      auth.session.revokeReason = 'USER_LOGOUT';
+      clearedRole = auth.session.role;
+    } else if (requestedRole) {
+      // Also check raw cookie in case session was already expired
+      const rawCookie = req.cookies?.[ROLE_COOKIE_NAMES[requestedRole]];
+      const sid = rawCookie ? verifySessionCookieValue(String(rawCookie)) : null;
+      if (sid) {
+        const sess = (db.sessions || []).find((s) => s.id === sid);
+        if (sess && !sess.revokedAt) {
+          sess.revokedAt = now;
+          sess.revokeReason = 'USER_LOGOUT';
+        }
+      }
+    }
+
+    const rawRefresh = extractRefreshToken(req);
+    if (rawRefresh) {
+      const tokenHash = hashOpaqueToken(rawRefresh);
+      const rec = (db.refreshTokens || []).find((r) => r.tokenHash === tokenHash);
+      if (rec && !rec.revokedAt && (!clearedRole || !auth.user || rec.userId === auth.user.id)) {
+        rec.revokedAt = now;
+      }
+    }
+  });
+
+  if (clearedRole) {
+    clearRoleSessionCookie(res, clearedRole);
+  } else {
+    clearAuthCookies(res);
   }
-  clearAuthCookies(res);
-  return res.json({ success: true });
+  return res.json({ success: true, loggedOutRole: clearedRole || 'all' });
 });
 
-// POST /api/auth/logout-all
 authRouter.post('/auth/logout-all', async (req: Request, res: Response) => {
-  const authUser = await resolveAuthenticatedUser(req);
-  if (!authUser) {
-    return sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
+  const auth = await resolveAuthenticatedSession(req);
+  if (!auth.user) {
+    return sendApiError(res, 401, auth.errorCode || 'UNAUTHORIZED', 'Authentication required.');
   }
   await runDatabaseTransaction(async (db) => {
-    const user = db.users.find((u) => u.id === authUser.id);
+    const user = db.users.find((u) => u.id === auth.user!.id);
     const now = Date.now();
     if (user) {
       user.tokenVersion = (user.tokenVersion || 1) + 1;
-      for (const r of db.refreshTokens || []) {
-        if (r.userId === user.id && !r.revokedAt) {
-          r.revokedAt = now;
+      for (const s of db.sessions || []) {
+        if (s.userId === user.id && !s.revokedAt) {
+          s.revokedAt = now;
+          s.revokeReason = 'LOGOUT_ALL';
         }
+      }
+      for (const r of db.refreshTokens || []) {
+        if (r.userId === user.id && !r.revokedAt) r.revokedAt = now;
       }
       logAudit(db, user.id, user.name, 'AUTH_LOGOUT_ALL', 'Signed out of all active devices/sessions.');
     }
@@ -711,30 +949,835 @@ authRouter.post('/auth/logout-all', async (req: Request, res: Response) => {
   return res.json({ success: true });
 });
 
-// POST /api/auth/forgot-password — Always returns generic 200 response to avoid account enumeration
-authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => {
-  const parsed = forgotSchema.safeParse(req.body);
+// ======================================================================
+// ADMIN SECURITY SETTINGS & SELF-RECOVERY (Section 3.1)
+// ======================================================================
+authRouter.get('/admin/settings/security', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const auth = await resolveAuthenticatedSession(req, db, { requestedRole: 'admin' });
+  if (!auth.user || !auth.session) {
+    return sendApiError(res, 401, auth.errorCode || 'UNAUTHORIZED', auth.errorMessage || 'Authentication required.');
+  }
+  if (auth.session.role !== 'admin' && auth.user.role !== 'admin') {
+    return sendApiError(res, 403, 'FORBIDDEN', 'Administrator access required.');
+  }
+  await saveDatabase(db);
+  const now = Date.now();
+  const u = auth.user;
+  const dismissed = Boolean(u.securityBannerDismissedAt);
+  const snoozed = Boolean(u.securityBannerSnoozedUntil && u.securityBannerSnoozedUntil > now);
+  const showSecurityBanner =
+    Boolean(u.mustChangeCredentials) || (!dismissed && !snoozed && (!u.lastPasswordChangedAt || !u.lastPasskeyChangedAt));
+
+  return res.json({
+    username: u.username,
+    email: u.email,
+    mustChangeCredentials: Boolean(u.mustChangeCredentials),
+    lastPasswordChangedAt: u.lastPasswordChangedAt || null,
+    lastPasskeyChangedAt: u.lastPasskeyChangedAt || null,
+    securityBannerDismissedAt: u.securityBannerDismissedAt || null,
+    securityBannerSnoozedUntil: u.securityBannerSnoozedUntil || null,
+    showSecurityBanner,
+    recentReauthValid: Boolean(auth.session.lastReauthAt && now - auth.session.lastReauthAt <= RECENT_REAUTH_WINDOW_MS),
+  });
+});
+
+authRouter.post('/admin/settings/security/dismiss', async (req: Request, res: Response) => {
+  const mode = req.body?.mode === 'snooze' ? 'snooze' : 'dismiss';
+  const result = await runDatabaseTransaction(async (db) => {
+    const auth = await resolveAuthenticatedSession(req, db, { requestedRole: 'admin' });
+    if (!auth.user || !auth.session) {
+      return { status: 401, code: auth.errorCode || 'UNAUTHORIZED', message: 'Authentication required.' };
+    }
+    if (auth.session.role !== 'admin' && auth.user.role !== 'admin') {
+      return { status: 403, code: 'FORBIDDEN', message: 'Administrator access required.' };
+    }
+    const now = Date.now();
+    if (mode === 'snooze') {
+      auth.user.securityBannerSnoozedUntil = now + 7 * 86400000;
+    } else {
+      auth.user.securityBannerDismissedAt = now;
+    }
+    return { status: 200, user: auth.user };
+  });
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!);
+  }
+  return res.json({
+    success: true,
+    securityBannerDismissedAt: result.user!.securityBannerDismissedAt || null,
+    securityBannerSnoozedUntil: result.user!.securityBannerSnoozedUntil || null,
+  });
+});
+
+const adminChangePasswordSchema = z.object({
+  currentPassword: z.string().optional(),
+  currentPasskey: z.string().optional(),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters long.').max(128),
+});
+
+authRouter.post('/admin/settings/change-password', async (req: Request, res: Response) => {
+  const parsed = adminChangePasswordSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return sendZodError(res, parsed.error, 422);
   }
+  const { currentPassword, currentPasskey, newPassword } = parsed.data; // NEVER trim!
+
+  const result = await runDatabaseTransaction(async (db) => {
+    const auth = await resolveAuthenticatedSession(req, db, { requestedRole: 'admin' });
+    if (!auth.user || !auth.session) {
+      return { status: 401, code: auth.errorCode || 'UNAUTHORIZED', message: 'Authentication required.' };
+    }
+    if (auth.session.role !== 'admin' && auth.user.role !== 'admin') {
+      return { status: 403, code: 'FORBIDDEN', message: 'Administrator access required.' };
+    }
+    const adminUser = auth.user;
+    const now = Date.now();
+    const withinReauthWindow = Boolean(
+      auth.session.lastReauthAt && now - auth.session.lastReauthAt <= RECENT_REAUTH_WINDOW_MS
+    );
+
+    if (currentPassword !== undefined && currentPassword !== '') {
+      const ok = await verifyPassword(currentPassword, adminUser.password);
+      if (!ok) {
+        return {
+          status: 401,
+          code: 'INVALID_CURRENT_PASSWORD',
+          message: 'Current password is incorrect.',
+          fields: { currentPassword: 'Incorrect current password.' },
+        };
+      }
+    } else if (currentPasskey !== undefined && currentPasskey !== '') {
+      const ok = await verifyPasskey(currentPasskey, adminUser.adminPasskeyHash);
+      if (!ok) {
+        return {
+          status: 401,
+          code: 'INVALID_CURRENT_PASSKEY',
+          message: 'Current security passkey is incorrect.',
+          fields: { currentPasskey: 'Incorrect security passkey.' },
+        };
+      }
+    } else if (!withinReauthWindow) {
+      return {
+        status: 401,
+        code: 'REAUTH_REQUIRED',
+        message: 'Please enter your current password or security passkey to change the admin password.',
+      };
+    }
+
+    const evalRes = evaluatePasswordStrength(newPassword, {
+      username: adminUser.username,
+      name: adminUser.name,
+      email: adminUser.email,
+    });
+    if (!evalRes.valid) {
+      return {
+        status: 422,
+        code: 'WEAK_PASSWORD',
+        message: evalRes.error!,
+        fields: { newPassword: evalRes.error! },
+      };
+    }
+
+    adminUser.password = await hashPassword(newPassword);
+    adminUser.passwordHmac = computePasswordHmac(newPassword);
+    adminUser.lastPasswordChangedAt = now;
+    adminUser.mustChangeCredentials = false;
+    adminUser.tokenVersion = (adminUser.tokenVersion || 1) + 1;
+    auth.session.lastReauthAt = now;
+
+    // Revoke ALL other admin sessions and refresh tokens
+    for (const s of db.sessions || []) {
+      if (s.userId === adminUser.id && s.id !== auth.session.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'ADMIN_PASSWORD_CHANGED';
+      }
+    }
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === adminUser.id && !rt.revokedAt) {
+        rt.revokedAt = now;
+      }
+    }
+
+    const newAccessToken = createAccessToken(adminUser, auth.session.id, 'admin');
+    if (adminUser.email) {
+      sendSecurityEmail(db, {
+        to: adminUser.email,
+        subject: 'Buyoll Admin Password Updated',
+        body: `Your Buyoll administrator password for @${adminUser.username} was changed on ${new Date(now).toISOString()}. All other admin sessions have been signed out.`,
+        kind: 'credential_changed',
+        userId: adminUser.id,
+      });
+    }
+    logAudit(db, adminUser.id, adminUser.name, 'ADMIN_PASSWORD_CHANGED', 'Administrator changed password and revoked other sessions.');
+    return { status: 200, user: adminUser, accessToken: newAccessToken, session: auth.session };
+  });
+
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
+  }
+  setRoleSessionCookie(res, 'admin', result.session!.id);
+  return res.json({
+    success: true,
+    user: sanitizeUser(result.user!),
+    accessToken: result.accessToken,
+    lastPasswordChangedAt: result.user!.lastPasswordChangedAt,
+    message: 'Administrator password updated and all other sessions signed out.',
+  });
+});
+
+const adminChangePasskeySchema = z.object({
+  currentPassword: z.string().optional(),
+  currentPasskey: z.string().optional(),
+  newPasskey: z.string().min(8, 'New security passkey must be at least 8 characters long.').max(128),
+});
+
+authRouter.post('/admin/settings/change-passkey', async (req: Request, res: Response) => {
+  const parsed = adminChangePasskeySchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return sendZodError(res, parsed.error, 422);
+  }
+  const { currentPassword, currentPasskey, newPasskey } = parsed.data; // NEVER trim!
+
+  const result = await runDatabaseTransaction(async (db) => {
+    const auth = await resolveAuthenticatedSession(req, db, { requestedRole: 'admin' });
+    if (!auth.user || !auth.session) {
+      return { status: 401, code: auth.errorCode || 'UNAUTHORIZED', message: 'Authentication required.' };
+    }
+    if (auth.session.role !== 'admin' && auth.user.role !== 'admin') {
+      return { status: 403, code: 'FORBIDDEN', message: 'Administrator access required.' };
+    }
+    const adminUser = auth.user;
+    const now = Date.now();
+    const withinReauthWindow = Boolean(
+      auth.session.lastReauthAt && now - auth.session.lastReauthAt <= RECENT_REAUTH_WINDOW_MS
+    );
+
+    if (currentPasskey !== undefined && currentPasskey !== '') {
+      const ok = await verifyPasskey(currentPasskey, adminUser.adminPasskeyHash);
+      if (!ok) {
+        return {
+          status: 401,
+          code: 'INVALID_CURRENT_PASSKEY',
+          message: 'Current security passkey is incorrect.',
+          fields: { currentPasskey: 'Incorrect security passkey.' },
+        };
+      }
+    } else if (currentPassword !== undefined && currentPassword !== '') {
+      const ok = await verifyPassword(currentPassword, adminUser.password);
+      if (!ok) {
+        return {
+          status: 401,
+          code: 'INVALID_CURRENT_PASSWORD',
+          message: 'Current password is incorrect.',
+          fields: { currentPassword: 'Incorrect current password.' },
+        };
+      }
+    } else if (!withinReauthWindow) {
+      return {
+        status: 401,
+        code: 'REAUTH_REQUIRED',
+        message: 'Please provide your current password or current security passkey.',
+      };
+    }
+
+    adminUser.adminPasskeyHash = await hashPasskey(newPasskey);
+    adminUser.lastPasskeyChangedAt = now;
+    adminUser.mustChangeCredentials = false;
+    adminUser.tokenVersion = (adminUser.tokenVersion || 1) + 1;
+    auth.session.lastReauthAt = now;
+
+    for (const s of db.sessions || []) {
+      if (s.userId === adminUser.id && s.id !== auth.session.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'ADMIN_PASSKEY_CHANGED';
+      }
+    }
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === adminUser.id && !rt.revokedAt) {
+        rt.revokedAt = now;
+      }
+    }
+
+    const newAccessToken = createAccessToken(adminUser, auth.session.id, 'admin');
+    if (adminUser.email) {
+      sendSecurityEmail(db, {
+        to: adminUser.email,
+        subject: 'Buyoll Admin Security Passkey Rotated',
+        body: `Your Buyoll administrator security passkey for @${adminUser.username} was changed on ${new Date(now).toISOString()}. All other admin sessions have been signed out.`,
+        kind: 'credential_changed',
+        userId: adminUser.id,
+      });
+    }
+    logAudit(db, adminUser.id, adminUser.name, 'ADMIN_PASSKEY_CHANGED', 'Administrator rotated security passkey and revoked other sessions.');
+    return { status: 200, user: adminUser, accessToken: newAccessToken, session: auth.session };
+  });
+
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
+  }
+  setRoleSessionCookie(res, 'admin', result.session!.id);
+  return res.json({
+    success: true,
+    user: sanitizeUser(result.user!),
+    accessToken: result.accessToken,
+    lastPasskeyChangedAt: result.user!.lastPasskeyChangedAt,
+    message: 'Security passkey updated and all other sessions signed out.',
+  });
+});
+
+// ======================================================================
+// ADMIN FORGOT PASSWORD / PASSKEY OTP FLOW
+// ======================================================================
+authRouter.post('/admin/auth/forgot/start', async (req: Request, res: Response) => {
+  const identifier = String(req.body?.identifier || '').trim();
+  if (!identifier) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Enter your administrator username or email.');
+  }
+
+  const devOtp = await runDatabaseTransaction(async (db) => {
+    const adminUser = findPlatformAdminUser(db);
+    if (!adminUser) return null;
+    const norm = normalizeUsername(identifier);
+    const lower = identifier.toLowerCase();
+    const matches =
+      (adminUser.usernameNormalized && adminUser.usernameNormalized === norm) ||
+      (adminUser.username && normalizeUsername(adminUser.username) === norm) ||
+      (adminUser.email && adminUser.email.toLowerCase() === lower);
+    if (!matches) return null;
+
+    if (!db.otpChallenges) db.otpChallenges = [];
+    const now = Date.now();
+    for (const c of db.otpChallenges) {
+      if (c.userId === adminUser.id && c.purpose === 'admin_forgot' && !c.consumedAt) {
+        c.consumedAt = now;
+      }
+    }
+    const otp = generateNumericOtp(6);
+    const challenge: OtpChallengeRecord = {
+      id: `otp_${now}_${crypto.randomBytes(4).toString('hex')}`,
+      purpose: 'admin_forgot',
+      userId: adminUser.id,
+      contact: adminUser.email || SUPPORT_EMAIL,
+      codeHash: hashOpaqueToken(otp),
+      expiresAt: now + OTP_TTL_MS,
+      attempts: 0,
+      maxAttempts: OTP_MAX_ATTEMPTS,
+      verifiedAt: null,
+      verificationTokenHash: null,
+      consumedAt: null,
+      createdAt: now,
+    };
+    db.otpChallenges.unshift(challenge);
+    if (db.otpChallenges.length > 300) db.otpChallenges = db.otpChallenges.slice(0, 300);
+
+    sendSecurityEmail(db, {
+      to: adminUser.email || SUPPORT_EMAIL,
+      subject: 'Buyoll Administrator Recovery Verification Code',
+      body: `Your single-use verification code is ${otp}. It expires in 10 minutes.`,
+      kind: 'otp',
+      userId: adminUser.id,
+      meta: { purpose: 'admin_forgot', challengeId: challenge.id },
+    });
+    logAudit(db, adminUser.id, adminUser.name, 'ADMIN_RECOVERY_OTP_ISSUED', 'Issued OTP for administrator credential recovery.');
+    return otp;
+  });
+
+  const payload: Record<string, any> = {
+    success: true,
+    message: 'If the administrator details match our records, a 6-digit verification code has been sent to the registered email.',
+  };
+  if (process.env.NODE_ENV !== 'production' && devOtp) {
+    payload.devOtp = devOtp;
+  }
+  return res.json(payload);
+});
+
+authRouter.post('/admin/auth/forgot/verify', async (req: Request, res: Response) => {
+  const identifier = String(req.body?.identifier || '').trim();
+  const otp = String(req.body?.otp || '').trim();
+  if (!identifier || !otp) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Identifier and 6-digit OTP are required.');
+  }
+
+  const outcome = await runDatabaseTransaction(async (db) => {
+    const adminUser = findPlatformAdminUser(db);
+    if (!adminUser) return { status: 400, code: 'INVALID_OTP', message: 'Invalid or expired verification code.' };
+    const norm = normalizeUsername(identifier);
+    const lower = identifier.toLowerCase();
+    const matches =
+      (adminUser.usernameNormalized && adminUser.usernameNormalized === norm) ||
+      (adminUser.username && normalizeUsername(adminUser.username) === norm) ||
+      (adminUser.email && adminUser.email.toLowerCase() === lower);
+    if (!matches) return { status: 400, code: 'INVALID_OTP', message: 'Invalid or expired verification code.' };
+
+    const now = Date.now();
+    const challenge = (db.otpChallenges || []).find(
+      (c) => c.userId === adminUser.id && c.purpose === 'admin_forgot' && !c.consumedAt
+    );
+    if (!challenge || challenge.expiresAt < now || challenge.attempts >= challenge.maxAttempts) {
+      return { status: 400, code: 'OTP_EXPIRED', message: 'Verification code is invalid, expired, or has exceeded max attempts.' };
+    }
+
+    const suppliedHash = hashOpaqueToken(otp);
+    const a = Buffer.from(suppliedHash);
+    const b = Buffer.from(challenge.codeHash);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      challenge.attempts += 1;
+      return {
+        status: 400,
+        code: 'INVALID_OTP',
+        message: `Incorrect verification code (${Math.max(0, challenge.maxAttempts - challenge.attempts)} attempt(s) remaining).`,
+      };
+    }
+
+    const rawVerificationToken = crypto.randomBytes(24).toString('hex');
+    challenge.verifiedAt = now;
+    challenge.verificationTokenHash = hashOpaqueToken(rawVerificationToken);
+    return { status: 200, verificationToken: rawVerificationToken };
+  });
+
+  if (outcome.status !== 200) {
+    return sendApiError(res, outcome.status, outcome.code!, outcome.message!);
+  }
+  return res.json({ success: true, verificationToken: outcome.verificationToken });
+});
+
+authRouter.post('/admin/auth/forgot/reset', async (req: Request, res: Response) => {
+  const token = String(req.body?.verificationToken || '').trim();
+  const newPassword = req.body?.newPassword; // NEVER trim
+  const newPasskey = req.body?.newPasskey; // NEVER trim
+
+  if (!token) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Verification token is required.');
+  }
+  if (!newPassword && !newPasskey) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Provide a new password and/or new security passkey.');
+  }
+  if (newPasskey !== undefined && String(newPasskey).length < 8) {
+    return sendApiError(res, 422, 'WEAK_PASSKEY', 'Security passkey must be at least 8 characters long.');
+  }
+
+  const tokenHash = hashOpaqueToken(token);
+  const result = await runDatabaseTransaction(async (db) => {
+    const now = Date.now();
+    const challenge = (db.otpChallenges || []).find(
+      (c) => c.purpose === 'admin_forgot' && !c.consumedAt && c.verificationTokenHash === tokenHash
+    );
+    if (!challenge || challenge.expiresAt < now || !challenge.userId) {
+      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'Recovery token is invalid or has expired.' };
+    }
+    const adminUser = db.users.find((u) => u.id === challenge.userId && !u.isDisabled);
+    if (!adminUser) {
+      return { status: 404, code: 'USER_NOT_FOUND', message: 'Administrator account not found.' };
+    }
+
+    if (newPassword !== undefined) {
+      const pwEval = evaluatePasswordStrength(String(newPassword), {
+        username: adminUser.username,
+        name: adminUser.name,
+        email: adminUser.email,
+      });
+      if (!pwEval.valid) {
+        return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error! };
+      }
+      adminUser.password = await hashPassword(String(newPassword));
+      adminUser.passwordHmac = computePasswordHmac(String(newPassword));
+      adminUser.lastPasswordChangedAt = now;
+    }
+
+    if (newPasskey !== undefined) {
+      adminUser.adminPasskeyHash = await hashPasskey(String(newPasskey));
+      adminUser.lastPasskeyChangedAt = now;
+    }
+
+    challenge.consumedAt = now;
+    adminUser.failedLoginCount = 0;
+    adminUser.lockedUntil = undefined;
+    adminUser.mustChangeCredentials = false;
+    adminUser.tokenVersion = (adminUser.tokenVersion || 1) + 1;
+
+    for (const s of db.sessions || []) {
+      if (s.userId === adminUser.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'ADMIN_RECOVERY_RESET';
+      }
+    }
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === adminUser.id && !rt.revokedAt) rt.revokedAt = now;
+    }
+
+    if (adminUser.email) {
+      sendSecurityEmail(db, {
+        to: adminUser.email,
+        subject: 'Buyoll Admin Credentials Reset Completed',
+        body: `Your Buyoll administrator credentials for @${adminUser.username} were reset via OTP recovery. All prior sessions have been signed out.`,
+        kind: 'credential_changed',
+        userId: adminUser.id,
+      });
+    }
+    logAudit(db, adminUser.id, adminUser.name, 'ADMIN_RECOVERY_COMPLETED', 'Administrator reset credentials via verified OTP.');
+    return { status: 200 };
+  });
+
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!);
+  }
+  return res.json({
+    success: true,
+    message: 'Administrator credentials updated. You can now sign in with your new credentials.',
+  });
+});
+
+// ======================================================================
+// USER FORGOT PASSWORD / FORGOT USERNAME OTP FLOWS (Sections 3.4 & 3.5)
+// ======================================================================
+authRouter.post('/auth/forgot/start', async (req: Request, res: Response) => {
+  const purpose: 'forgot_password' | 'forgot_username' =
+    req.body?.type === 'forgot_username' || req.body?.purpose === 'forgot_username'
+      ? 'forgot_username'
+      : 'forgot_password';
+  const identifier = String(req.body?.identifier || req.body?.contact || '').trim();
+  if (!identifier) {
+    return sendApiError(
+      res,
+      422,
+      'VALIDATION_ERROR',
+      purpose === 'forgot_username'
+        ? 'Enter your registered email address or phone number.'
+        : 'Enter your username, email, or phone number.'
+    );
+  }
+
+  const lower = identifier.toLowerCase();
+  const norm = normalizeUsername(identifier);
+
+  const outcome = await runDatabaseTransaction(async (db) => {
+    const user = (db.users || []).find((u) => {
+      if (u.isDisabled || u.role === 'admin') return false;
+      if (purpose === 'forgot_username') {
+        return (u.email && u.email.toLowerCase() === lower) || (u.phone && u.phone.trim() === identifier);
+      }
+      return (
+        (u.usernameNormalized && u.usernameNormalized === norm) ||
+        (u.username && normalizeUsername(u.username) === norm) ||
+        (u.email && u.email.toLowerCase() === lower) ||
+        (u.phone && u.phone.trim() === identifier)
+      );
+    });
+    if (!user) return null;
+
+    if (!db.otpChallenges) db.otpChallenges = [];
+    const now = Date.now();
+    for (const c of db.otpChallenges) {
+      if (c.userId === user.id && c.purpose === purpose && !c.consumedAt) {
+        c.consumedAt = now;
+      }
+    }
+
+    const otp = generateNumericOtp(6);
+    const challenge: OtpChallengeRecord = {
+      id: `otp_${now}_${crypto.randomBytes(4).toString('hex')}`,
+      purpose,
+      userId: user.id,
+      contact: user.email || user.phone,
+      codeHash: hashOpaqueToken(otp),
+      expiresAt: now + OTP_TTL_MS,
+      attempts: 0,
+      maxAttempts: OTP_MAX_ATTEMPTS,
+      verifiedAt: null,
+      verificationTokenHash: null,
+      consumedAt: null,
+      createdAt: now,
+    };
+    db.otpChallenges.unshift(challenge);
+    if (db.otpChallenges.length > 300) db.otpChallenges = db.otpChallenges.slice(0, 300);
+
+    sendSecurityEmail(db, {
+      to: user.email || user.phone,
+      subject: purpose === 'forgot_username' ? 'Buyoll Username Recovery Code' : 'Buyoll Password Reset Code',
+      body: `Your 6-digit Buyoll verification code is ${otp}. It expires in 10 minutes.`,
+      kind: 'otp',
+      userId: user.id,
+      meta: { purpose, challengeId: challenge.id },
+    });
+
+    logAudit(db, user.id, user.name, 'AUTH_RECOVERY_OTP_ISSUED', `Issued ${purpose} OTP for user #${user.id}.`);
+    return { otp, challengeId: challenge.id };
+  });
+
+  const payload: Record<string, any> = {
+    success: true,
+    purpose,
+    mode: FORGOT_USERNAME_MODE,
+    message: 'If an account matches those details, a 6-digit verification code has been sent.',
+  };
+  if (process.env.NODE_ENV !== 'production' && outcome?.otp) {
+    payload.devOtp = outcome.otp;
+    payload.challengeId = outcome.challengeId;
+  }
+  return res.json(payload);
+});
+
+authRouter.post('/auth/forgot/verify', async (req: Request, res: Response) => {
+  const purpose: 'forgot_password' | 'forgot_username' =
+    req.body?.type === 'forgot_username' || req.body?.purpose === 'forgot_username'
+      ? 'forgot_username'
+      : 'forgot_password';
+  const identifier = String(req.body?.identifier || req.body?.contact || '').trim();
+  const otp = String(req.body?.otp || '').trim();
+  if (!identifier || !otp) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Identifier and 6-digit OTP code are required.');
+  }
+
+  const lower = identifier.toLowerCase();
+  const norm = normalizeUsername(identifier);
+
+  const outcome = await runDatabaseTransaction(async (db) => {
+    const user = (db.users || []).find((u) => {
+      if (u.isDisabled || u.role === 'admin') return false;
+      if (purpose === 'forgot_username') {
+        return (u.email && u.email.toLowerCase() === lower) || (u.phone && u.phone.trim() === identifier);
+      }
+      return (
+        (u.usernameNormalized && u.usernameNormalized === norm) ||
+        (u.username && normalizeUsername(u.username) === norm) ||
+        (u.email && u.email.toLowerCase() === lower) ||
+        (u.phone && u.phone.trim() === identifier)
+      );
+    });
+    if (!user) return { status: 400, code: 'INVALID_OTP', message: 'Invalid or expired verification code.' };
+
+    const now = Date.now();
+    const challenge = (db.otpChallenges || []).find(
+      (c) => c.userId === user.id && c.purpose === purpose && !c.consumedAt
+    );
+    if (!challenge || challenge.expiresAt < now || challenge.attempts >= challenge.maxAttempts) {
+      return { status: 400, code: 'OTP_EXPIRED', message: 'Verification code is invalid, expired, or exceeded max attempts.' };
+    }
+
+    const suppliedHash = hashOpaqueToken(otp);
+    const a = Buffer.from(suppliedHash);
+    const b = Buffer.from(challenge.codeHash);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      challenge.attempts += 1;
+      return {
+        status: 400,
+        code: 'INVALID_OTP',
+        message: `Incorrect verification code (${Math.max(0, challenge.maxAttempts - challenge.attempts)} attempt(s) remaining).`,
+      };
+    }
+
+    const rawVerificationToken = crypto.randomBytes(24).toString('hex');
+    challenge.verifiedAt = now;
+    challenge.verificationTokenHash = hashOpaqueToken(rawVerificationToken);
+
+    if (purpose === 'forgot_username' && FORGOT_USERNAME_MODE === 'send_existing') {
+      challenge.consumedAt = now;
+      sendSecurityEmail(db, {
+        to: user.email || user.phone,
+        subject: 'Your Buyoll Username Reminder',
+        body: `Your Buyoll username is: ${user.username}`,
+        kind: 'otp',
+        userId: user.id,
+      });
+      return {
+        status: 200,
+        mode: 'send_existing',
+        sentExisting: true,
+        username: process.env.NODE_ENV !== 'production' ? user.username : undefined,
+        message: 'Your username has been sent to your verified contact.',
+      };
+    }
+
+    return {
+      status: 200,
+      mode: FORGOT_USERNAME_MODE,
+      verificationToken: rawVerificationToken,
+    };
+  });
+
+  if (outcome.status !== 200) {
+    return sendApiError(res, outcome.status, outcome.code!, outcome.message!);
+  }
+  return res.json({ success: true, ...outcome });
+});
+
+authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Response) => {
+  const token = String(req.body?.verificationToken || req.body?.token || '').trim();
+  const newPassword = req.body?.newPassword; // NEVER trim!
+  if (!token || !newPassword) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Verification token and new password are required.');
+  }
+
+  const tokenHash = hashOpaqueToken(token);
+  const result = await runDatabaseTransaction(async (db) => {
+    const now = Date.now();
+    const challenge = (db.otpChallenges || []).find(
+      (c) => c.purpose === 'forgot_password' && !c.consumedAt && c.verificationTokenHash === tokenHash
+    );
+    if (!challenge || challenge.expiresAt < now || !challenge.userId) {
+      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'Verification token is invalid or has expired.' };
+    }
+
+    const user = db.users.find((u) => u.id === challenge.userId && !u.isDisabled);
+    if (!user) return { status: 404, code: 'USER_NOT_FOUND', message: 'User account not found.' };
+
+    const pwEval = evaluatePasswordStrength(String(newPassword), {
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    });
+    if (!pwEval.valid) {
+      return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error!, fields: { newPassword: pwEval.error! } };
+    }
+    if (isPasswordReusedGlobally(db, String(newPassword), user.id)) {
+      return { status: 422, code: 'PASSWORD_NOT_ALLOWED', message: 'Please choose a different password.' };
+    }
+
+    challenge.consumedAt = now;
+    user.password = await hashPassword(String(newPassword));
+    user.passwordHmac = computePasswordHmac(String(newPassword));
+    user.lastPasswordChangedAt = now;
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    user.tokenVersion = (user.tokenVersion || 1) + 1;
+
+    for (const s of db.sessions || []) {
+      if (s.userId === user.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'PASSWORD_RESET';
+      }
+    }
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === user.id && !rt.revokedAt) rt.revokedAt = now;
+    }
+
+    if (user.email) {
+      sendSecurityEmail(db, {
+        to: user.email,
+        subject: 'Your Buyoll Password Was Reset',
+        body: `Your Buyoll password for @${user.username} was reset successfully.`,
+        kind: 'credential_changed',
+        userId: user.id,
+      });
+    }
+    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_COMPLETED', 'Password reset via OTP verification.');
+    return { status: 200 };
+  });
+
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
+  }
+  return res.json({
+    success: true,
+    message: 'Your password has been updated. You can now log in with your new password.',
+  });
+});
+
+authRouter.post('/auth/forgot/reset-username', async (req: Request, res: Response) => {
+  const token = String(req.body?.verificationToken || '').trim();
+  const newUsernameRaw = String(req.body?.newUsername || '').trim();
+  if (!token || !newUsernameRaw) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Verification token and new username are required.');
+  }
+  if (!isValidUsername(newUsernameRaw)) {
+    return sendApiError(
+      res,
+      422,
+      'INVALID_USERNAME',
+      'Username must be 3–30 characters (letters, numbers, dots, underscores, or hyphens).',
+      { newUsername: 'Use 3–30 letters, numbers, ".", "_", or "-".' }
+    );
+  }
+
+  const cleanUsername = newUsernameRaw.normalize('NFKC').trim().toLowerCase();
+  const norm = normalizeUsername(cleanUsername);
+  const tokenHash = hashOpaqueToken(token);
+
+  const result = await runDatabaseTransaction(async (db) => {
+    const now = Date.now();
+    const challenge = (db.otpChallenges || []).find(
+      (c) => c.purpose === 'forgot_username' && !c.consumedAt && c.verificationTokenHash === tokenHash
+    );
+    if (!challenge || challenge.expiresAt < now || !challenge.userId) {
+      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'Verification token is invalid or has expired.' };
+    }
+    const user = db.users.find((u) => u.id === challenge.userId && !u.isDisabled);
+    if (!user) return { status: 404, code: 'USER_NOT_FOUND', message: 'User account not found.' };
+
+    const conflict = db.users.some(
+      (u) =>
+        u.id !== user.id &&
+        ((u.usernameNormalized && u.usernameNormalized === norm) ||
+          (u.username && normalizeUsername(u.username) === norm))
+    );
+    if (conflict) {
+      return {
+        status: 409,
+        code: 'USERNAME_TAKEN',
+        message: 'That username is not available. Please choose a different one.',
+        fields: { newUsername: 'That username is not available. Please choose a different one.' },
+      };
+    }
+
+    const oldUsername = user.username;
+    challenge.consumedAt = now;
+    user.username = cleanUsername;
+    user.usernameNormalized = norm;
+    if (user.email) {
+      sendSecurityEmail(db, {
+        to: user.email,
+        subject: 'Your Buyoll Username Was Updated',
+        body: `Your Buyoll username was updated from "${oldUsername}" to "${cleanUsername}".`,
+        kind: 'credential_changed',
+        userId: user.id,
+      });
+    }
+    logAudit(db, user.id, user.name, 'AUTH_USERNAME_RESET', `Username updated from @${oldUsername} to @${cleanUsername} via OTP.`);
+    return { status: 200, username: cleanUsername };
+  });
+
+  if (result.status !== 200) {
+    return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
+  }
+  return res.json({
+    success: true,
+    username: result.username,
+    message: 'Your username has been updated. You can now log in with your new username.',
+  });
+});
+
+// ======================================================================
+// COMPATIBILITY ALIASES FOR EXISTING RESET & CHANGE-PASSWORD ENDPOINTS
+// ======================================================================
+const forgotLegacySchema = z.object({
+  identifier: z.string().trim().min(2, 'Please enter your email address or username.'),
+});
+
+authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => {
+  const parsed = forgotLegacySchema.safeParse(req.body);
+  if (!parsed.success) return sendZodError(res, parsed.error, 422);
 
   const lookup = parsed.data.identifier.trim().toLowerCase();
+  const norm = normalizeUsername(lookup);
   const rawResetToken = await runDatabaseTransaction(async (db) => {
     const user = db.users.find(
       (u) =>
-        (u.email && u.email.toLowerCase() === lookup) ||
-        (u.username && u.username.toLowerCase() === lookup) ||
-        (u.phone && u.phone.toLowerCase() === lookup)
+        !u.isDisabled &&
+        u.role !== 'admin' &&
+        ((u.email && u.email.toLowerCase() === lookup) ||
+          (u.usernameNormalized && u.usernameNormalized === norm) ||
+          (u.username && normalizeUsername(u.username) === norm) ||
+          (u.phone && u.phone.toLowerCase() === lookup))
     );
     if (!user) return null;
 
     if (!db.passwordResets) db.passwordResets = [];
     const now = Date.now();
-    // Invalidate prior unused tokens for this user
     for (const r of db.passwordResets) {
-      if (r.userId === user.id && !r.usedAt) {
-        r.usedAt = now;
-      }
+      if (r.userId === user.id && !r.usedAt) r.usedAt = now;
     }
 
     const raw = crypto.randomBytes(24).toString('hex');
@@ -746,17 +1789,8 @@ authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => 
       usedAt: null,
       createdAt: now,
     });
-    if (db.passwordResets.length > 200) {
-      db.passwordResets = db.passwordResets.slice(0, 200);
-    }
-
-    logAudit(
-      db,
-      user.id,
-      user.name,
-      'AUTH_PASSWORD_RESET_REQUESTED',
-      `Password reset token issued for @${user.username || user.email}.`
-    );
+    if (db.passwordResets.length > 200) db.passwordResets = db.passwordResets.slice(0, 200);
+    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_REQUESTED', `Password reset token issued for @${user.username || user.email}.`);
     return raw;
   });
 
@@ -770,95 +1804,77 @@ authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => 
   return res.json(payload);
 });
 
-// POST /api/auth/reset-password
-authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
-  const parsed = resetSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return sendZodError(res, parsed.error, 422);
-  }
+const resetLegacySchema = z.object({
+  token: z.string().trim().min(16, 'Invalid or malformed reset token.'),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters long.').max(128),
+});
 
-  const strengthErr = validatePasswordStrength(parsed.data.newPassword);
-  if (strengthErr) {
-    return sendApiError(res, 422, 'WEAK_PASSWORD', strengthErr, { newPassword: strengthErr });
-  }
+authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
+  const parsed = resetLegacySchema.safeParse(req.body);
+  if (!parsed.success) return sendZodError(res, parsed.error, 422);
 
   const tokenHash = hashOpaqueToken(parsed.data.token.trim());
   const result = await runDatabaseTransaction(async (db) => {
     const now = Date.now();
     const rec = (db.passwordResets || []).find((r) => r.tokenHash === tokenHash);
     if (!rec || rec.usedAt || rec.expiresAt < now) {
-      return {
-        status: 400,
-        code: 'INVALID_RESET_TOKEN',
-        message: 'This password reset token is invalid or has expired.',
-      };
+      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'This password reset token is invalid or has expired.' };
     }
+    const user = db.users.find((u) => u.id === rec.userId && !u.isDisabled);
+    if (!user) return { status: 404, code: 'USER_NOT_FOUND', message: 'Associated user account could not be found.' };
 
-    const user = db.users.find((u) => u.id === rec.userId);
-    if (!user) {
-      return {
-        status: 404,
-        code: 'USER_NOT_FOUND',
-        message: 'Associated user account could not be found.',
-      };
+    const pwEval = evaluatePasswordStrength(parsed.data.newPassword, {
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    });
+    if (!pwEval.valid) {
+      return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error! };
     }
 
     rec.usedAt = now;
-    user.password = hashPassword(parsed.data.newPassword);
+    user.password = await hashPassword(parsed.data.newPassword);
+    user.passwordHmac = computePasswordHmac(parsed.data.newPassword);
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
-    for (const rt of db.refreshTokens || []) {
-      if (rt.userId === user.id && !rt.revokedAt) {
-        rt.revokedAt = now;
+    for (const s of db.sessions || []) {
+      if (s.userId === user.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'PASSWORD_RESET';
       }
     }
-    if (user.email) clearKeyAttempts(user.email.toLowerCase());
-    if (user.username) clearKeyAttempts(user.username.toLowerCase());
-
-    logAudit(
-      db,
-      user.id,
-      user.name,
-      'AUTH_PASSWORD_RESET_COMPLETED',
-      'Password successfully reset and prior sessions invalidated.'
-    );
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === user.id && !rt.revokedAt) rt.revokedAt = now;
+    }
+    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_COMPLETED', 'Password reset and prior sessions invalidated.');
     return { status: 200 };
   });
 
   if (result.status !== 200) {
     return sendApiError(res, result.status, result.code!, result.message!);
   }
-  return res.json({
-    success: true,
-    message: 'Your password has been updated. You can now log in with your new password.',
-  });
+  return res.json({ success: true, message: 'Your password has been updated. You can now log in with your new password.' });
 });
 
-// POST /api/auth/change-password
+const changePasswordSchema = z.object({
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters long.').max(128),
+});
+
 authRouter.post('/auth/change-password', async (req: Request, res: Response) => {
-  const authUser = await resolveAuthenticatedUser(req);
-  if (!authUser) {
-    return sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
-  }
-
   const parsed = changePasswordSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return sendZodError(res, parsed.error, 422);
-  }
-
-  const strengthErr = validatePasswordStrength(parsed.data.newPassword);
-  if (strengthErr) {
-    return sendApiError(res, 422, 'WEAK_PASSWORD', strengthErr, { newPassword: strengthErr });
-  }
+  if (!parsed.success) return sendZodError(res, parsed.error, 422);
 
   const result = await runDatabaseTransaction(async (db) => {
-    const user = db.users.find((u) => u.id === authUser.id);
-    if (!user) {
-      return { status: 404, code: 'USER_NOT_FOUND', message: 'User not found.' };
+    const auth = await resolveAuthenticatedSession(req, db, { touchActivity: true });
+    if (!auth.user || !auth.session) {
+      return { status: 401, code: auth.errorCode || 'UNAUTHORIZED', message: 'Authentication required.' };
     }
+    const user = auth.user;
     if (user.password) {
-      if (!parsed.data.currentPassword || !verifyPassword(parsed.data.currentPassword, user.password)) {
+      if (!parsed.data.currentPassword || !(await verifyPassword(parsed.data.currentPassword, user.password))) {
         return {
           status: 401,
           code: 'INVALID_CURRENT_PASSWORD',
@@ -868,30 +1884,48 @@ authRouter.post('/auth/change-password', async (req: Request, res: Response) => 
       }
     }
 
+    const pwEval = evaluatePasswordStrength(parsed.data.newPassword, {
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    });
+    if (!pwEval.valid) {
+      return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error!, fields: { newPassword: pwEval.error! } };
+    }
+    if (isPasswordReusedGlobally(db, parsed.data.newPassword, user.id)) {
+      return { status: 422, code: 'PASSWORD_NOT_ALLOWED', message: 'Please choose a different password.' };
+    }
+
     const now = Date.now();
-    user.password = hashPassword(parsed.data.newPassword);
+    user.password = await hashPassword(parsed.data.newPassword);
+    user.passwordHmac = computePasswordHmac(parsed.data.newPassword);
+    user.lastPasswordChangedAt = now;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
-    for (const rt of db.refreshTokens || []) {
-      if (rt.userId === user.id && !rt.revokedAt) {
-        rt.revokedAt = now;
+
+    for (const s of db.sessions || []) {
+      if (s.userId === user.id && s.id !== auth.session.id && !s.revokedAt) {
+        s.revokedAt = now;
+        s.revokeReason = 'PASSWORD_CHANGED';
       }
     }
-    const tokens = issueAuthTokensForUser(db, user, true);
-    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_CHANGED', 'User changed account password.');
+    for (const rt of db.refreshTokens || []) {
+      if (rt.userId === user.id && !rt.revokedAt) rt.revokedAt = now;
+    }
+
+    const activeRole = normalizeRoleValue(auth.session.role || user.activeRole || user.role);
+    const tokens = issueAuthTokensForUser(db, user, true, req, activeRole);
     syncUserRoleAndWallet(user);
-    return { status: 200, user, tokens };
+    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_CHANGED', 'User changed account password.');
+    return { status: 200, user, activeRole, tokens };
   });
 
   if (result.status !== 200) {
     return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
   }
 
-  const { user, tokens } = result as {
-    status: 200;
-    user: User;
-    tokens: { accessToken: string; refreshToken: string; refreshExpiresAt: number };
-  };
-  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt);
+  const { user, activeRole, tokens } = result as any;
+  setAuthCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshExpiresAt, activeRole, tokens.session.id);
   return res.json({
     success: true,
     user: sanitizeUser(user),

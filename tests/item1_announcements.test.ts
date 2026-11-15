@@ -7,10 +7,16 @@ import { PUBLIC_DIR } from '../server/config.js';
 
 describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () => {
   let harness: TestHarness;
+  let adminToken = '';
+  let merchantToken = '';
+  let memberToken = '';
   const uploadedFiles: string[] = [];
 
   before(async () => {
     harness = await startTestServer();
+    adminToken = (await harness.loginAdmin()).accessToken;
+    merchantToken = await harness.issueToken(2, 'merchant');
+    memberToken = await harness.issueToken(3, 'member');
   });
 
   after(async () => {
@@ -28,7 +34,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     // Member (id: 3)
     const memberCreate = await fetch(`${harness.baseUrl}/api/admin/announcements`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberToken}` },
       body: JSON.stringify({ title: 'Hack', body: 'Member post attempt' }),
     });
     assert.equal(memberCreate.status, 403);
@@ -38,7 +44,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     // Merchant (id: 2)
     const merchantUpload = await fetch(`${harness.baseUrl}/api/admin/uploads/announcement-image`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '2' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
       body: JSON.stringify({ dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }),
     });
     assert.equal(merchantUpload.status, 403);
@@ -48,7 +54,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     // Invalid fake PNG (bad magic bytes)
     const badUpload = await fetch(`${harness.baseUrl}/api/admin/uploads/announcement-image`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({
         dataUrl: `data:image/png;base64,${Buffer.from('not-a-real-png-at-all').toString('base64')}`,
       }),
@@ -63,7 +69,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     form.append('image', new Blob([validPngBytes], { type: 'image/png' }), 'promo.png');
     const goodUpload = await fetch(`${harness.baseUrl}/api/admin/uploads/announcement-image`, {
       method: 'POST',
-      headers: { 'x-user-id': '1' },
+      headers: { Authorization: `Bearer ${adminToken}` },
       body: form,
     });
     assert.equal(goodUpload.status, 201);
@@ -74,7 +80,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     // Create promotional announcement as admin
     const createRes = await fetch(`${harness.baseUrl}/api/admin/announcements`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({
         title: 'Mega Festive Sale',
         body: 'Save up to 30% on Solar Kits.',
@@ -95,7 +101,7 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
     // Create expired notice (endsAt in past) -> should be hidden automatically on public feed
     const expiredRes = await fetch(`${harness.baseUrl}/api/admin/announcements`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({
         title: 'Old Expired Notice',
         body: 'Should not appear',
@@ -109,63 +115,63 @@ describe('Item 1: Admin-Only Announcements, Notices & Promotional Banners', () =
 
     // Public/Member sees promo (and NOT expired notice), Merchant does NOT see MEMBERS-only promo
     const memberFeed = await fetch(`${harness.baseUrl}/api/announcements`, {
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${memberToken}` },
     }).then((r) => r.json());
     assert.ok(memberFeed.announcements.some((a: any) => a.id === promo.id));
     assert.ok(!memberFeed.announcements.some((a: any) => a.title === 'Old Expired Notice'));
 
     const merchantFeed = await fetch(`${harness.baseUrl}/api/announcements`, {
-      headers: { 'x-user-id': '2' },
+      headers: { Authorization: `Bearer ${merchantToken}` },
     }).then((r) => r.json());
     assert.ok(!merchantFeed.announcements.some((a: any) => a.id === promo.id));
 
     // Member dismisses promo -> hidden on subsequent fetch
     const dismissRes = await fetch(`${harness.baseUrl}/api/announcements/${promo.id}/dismiss`, {
       method: 'POST',
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${memberToken}` },
     });
     assert.equal(dismissRes.status, 200);
 
     const memberFeedAfterDismiss = await fetch(`${harness.baseUrl}/api/announcements`, {
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${memberToken}` },
     }).then((r) => r.json());
     assert.ok(!memberFeedAfterDismiss.announcements.some((a: any) => a.id === promo.id));
 
-    // Pull down / unpublish -> hidden even for guests
+    // Pull down / unpublish -> hidden even for public visitors
     const pullDown = await fetch(`${harness.baseUrl}/api/admin/announcements/${promo.id}/unpublish`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({}),
     });
     assert.equal(pullDown.status, 200);
-    const guestFeedAfterPullDown = await fetch(`${harness.baseUrl}/api/announcements`).then((r) => r.json());
-    assert.ok(!guestFeedAfterPullDown.announcements.some((a: any) => a.id === promo.id));
+    const publicFeedAfterPullDown = await fetch(`${harness.baseUrl}/api/announcements`).then((r) => r.json());
+    assert.ok(!publicFeedAfterPullDown.announcements.some((a: any) => a.id === promo.id));
 
     // Re-publish, edit & check revision, then soft-archive
     await fetch(`${harness.baseUrl}/api/admin/announcements/${promo.id}/publish`, {
       method: 'POST',
-      headers: { 'x-user-id': '1' },
+      headers: { Authorization: `Bearer ${adminToken}` },
     });
     await fetch(`${harness.baseUrl}/api/admin/announcements/${promo.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ title: 'Updated Festive Sale', audience: 'ALL' }),
     });
     const revisions = await fetch(`${harness.baseUrl}/api/admin/announcements/${promo.id}/revisions`, {
-      headers: { 'x-user-id': '1' },
+      headers: { Authorization: `Bearer ${adminToken}` },
     }).then((r) => r.json());
     assert.equal(revisions.revisions.length, 1);
 
     const archiveRes = await fetch(`${harness.baseUrl}/api/admin/announcements/${promo.id}`, {
       method: 'DELETE',
-      headers: { 'x-user-id': '1' },
+      headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(archiveRes.status, 200);
     const archivedData = await archiveRes.json();
     assert.equal(archivedData.announcement.status, 'ARCHIVED');
 
-    // Guest feed must not include archived announcement
-    const guestFeedAfterArchive = await fetch(`${harness.baseUrl}/api/announcements`).then((r) => r.json());
-    assert.ok(!guestFeedAfterArchive.announcements.some((a: any) => a.id === promo.id));
+    // Public feed must not include archived announcement
+    const publicFeedAfterArchive = await fetch(`${harness.baseUrl}/api/announcements`).then((r) => r.json());
+    assert.ok(!publicFeedAfterArchive.announcements.some((a: any) => a.id === promo.id));
   });
 });

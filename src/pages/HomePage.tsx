@@ -405,7 +405,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       )}
 
-      {/* Guest Welcome & Authentication Prompt Strip (Public Announcements Landing) */}
+      {/* Visitor Welcome & Authentication Prompt Strip (Public Announcements Landing) */}
       {!currentUser && (
         <div className="bg-gradient-to-r from-emerald-900 via-[#ff6600] to-emerald-950 text-white rounded-2xl p-4 sm:p-5 mb-8 shadow-md border border-emerald-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3">

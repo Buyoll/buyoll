@@ -9,6 +9,8 @@ export type PlatformEventType =
   | 'group.membership.updated'
   | 'group.products.updated'
   | 'subscription.updated'
+  | 'subscription.activated'
+  | 'subscription.expired'
   | 'user.wallet.updated';
 
 interface SseClient {

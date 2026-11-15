@@ -33,6 +33,12 @@ import {
   PlatformFeeEntry,
   RefreshTokenRecord,
   PasswordResetRecord,
+  SessionRecord,
+  OtpChallengeRecord,
+  SubscriptionActivationNotice,
+  WalletRecord,
+  WalletLedgerRecord,
+  EmailOutboxRecord,
 } from '../src/types.js';
 import { SUPPORT_EMAIL } from './config.js';
 import { runPendingMigrations, MigrationRecord } from './migrations.js';
@@ -98,6 +104,12 @@ export interface DatabaseSchema {
   platformFees?: PlatformFeeEntry[];
   refreshTokens?: RefreshTokenRecord[];
   passwordResets?: PasswordResetRecord[];
+  sessions?: SessionRecord[];
+  otpChallenges?: OtpChallengeRecord[];
+  subscriptionActivationNotices?: SubscriptionActivationNotice[];
+  wallets?: WalletRecord[];
+  walletLedger?: WalletLedgerRecord[];
+  emailOutbox?: EmailOutboxRecord[];
   tierOverrides?: Record<string, { monthlyFee?: number; yearlyFee?: number; yearlyDiscountPercent?: number }>;
   migrationsApplied?: MigrationRecord[];
   auditLogs: AuditLog[];
@@ -139,14 +151,16 @@ function getInitialDatabase(): DatabaseSchema {
   const users: User[] = [
     {
       id: 1,
-      name: 'Buyoll System Admin',
+      name: 'Legacy Placeholder Account',
       phone: '0700000000',
-      email: SUPPORT_EMAIL,
-      username: 'buyoll_admin',
-      role: 'admin',
+      email: 'legacy_placeholder@buyoll.local',
+      username: 'legacy_account_1',
+      role: 'member',
+      isDisabled: true,
+      isSuspended: true,
       credit: 0,
-      coins: 200,
-      points: 500,
+      coins: 0,
+      points: 0,
       lastActive: now,
       createdAt: now - 30 * dayMs,
     },
@@ -261,7 +275,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 3,
       name: 'Samuel Mwangi',
       phone: '0712345678',
-      role: 'buyer',
+      role: 'member',
       credit: 0,
       coins: 50,
       points: 120,
@@ -272,7 +286,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 4,
       name: 'Faith Chebet',
       phone: '0723456789',
-      role: 'buyer',
+      role: 'member',
       credit: 0,
       coins: 40,
       points: 80,
@@ -697,7 +711,7 @@ function getInitialDatabase(): DatabaseSchema {
         id: 'help_1',
         userId: 3,
         userName: 'Samuel Mwangi',
-        userRole: 'buyer',
+        userRole: 'member',
         category: 'inquiry',
         text: 'Hello Buyoll team! What happens when a group reaches 100% contribution? Do I pick the item right away?',
         adminReply: 'Hello Samuel! Yes, once 100% of the item cost is contributed, the pickup checkmark ticks green and you can immediately pick up your item from the store owner or arrange rider dispatch. The total then resets to 0 for the next member!',
@@ -763,6 +777,12 @@ function getInitialDatabase(): DatabaseSchema {
     trustJoinRequests: [],
     announcementCards: [],
     announcementRevisions: [],
+    sessions: [],
+    otpChallenges: [],
+    subscriptionActivationNotices: [],
+    wallets: [],
+    walletLedger: [],
+    emailOutbox: [],
   };
 }
 
@@ -965,9 +985,10 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.nextIds.moderation) dbCache!.nextIds.moderation = 1;
     if (!dbCache!.nextIds.peerLoan) dbCache!.nextIds.peerLoan = 1;
 
-    // Migrate all users: add roles, activeRole, unique platformId, and isolated roleWallets
+    // Ensure roles, activeRole, unique platformId, and isolated roleWallets
     for (const u of dbCache!.users) {
-      const active = u.activeRole || (u.role === 'buyer' ? 'member' : u.role) || 'member';
+      const rawRole = (u.activeRole || u.role) as string;
+      const active = rawRole === 'merchant' || rawRole === 'lender' || rawRole === 'admin' ? rawRole : 'member';
       u.role = active;
       u.activeRole = active;
       if (!u.roles || !Array.isArray(u.roles) || u.roles.length === 0) {
@@ -1044,7 +1065,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
       ];
     }
 
-    const mig = runPendingMigrations(dbCache!);
+    const mig = await runPendingMigrations(dbCache!);
     if (mig.dirty || mig.applied.length > 0) {
       await saveDatabase(dbCache!);
     }
@@ -1073,7 +1094,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     ];
     if (!initial.nextIds.coinLedger) initial.nextIds.coinLedger = 1;
     if (!initial.nextIds.moderation) initial.nextIds.moderation = 1;
-    runPendingMigrations(initial);
+    await runPendingMigrations(initial);
     await saveDatabase(initial);
     dbCache = initial;
     return dbCache;

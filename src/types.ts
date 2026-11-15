@@ -1,4 +1,4 @@
-export type UserRole = 'buyer' | 'member' | 'merchant' | 'admin' | 'lender';
+export type UserRole = 'member' | 'merchant' | 'admin' | 'lender';
 
 export interface RoleWallet {
   credit: number;
@@ -90,12 +90,23 @@ export interface User {
   verification_status?: 'pending' | 'approved';
   preferences?: UserPreferences;
   username?: string;
+  usernameNormalized?: string;
   avatarUpdatedAt?: number;
   restrictedLoanBalance?: number;
   restrictedLoanByGroup?: Record<number, number>;
   failedLoginCount?: number;
   lockedUntil?: number;
   tokenVersion?: number;
+  isDisabled?: boolean;
+  disabledAt?: number | null;
+  disabledReason?: string | null;
+  adminPasskeyHash?: string;
+  lastPasswordChangedAt?: number | null;
+  lastPasskeyChangedAt?: number | null;
+  securityBannerDismissedAt?: number | null;
+  securityBannerSnoozedUntil?: number | null;
+  passwordHmac?: string;
+  mustChangeCredentials?: boolean;
   emailVerifiedAt?: number;
   phoneVerifiedAt?: number;
   lastActive: number;
@@ -145,13 +156,15 @@ export interface Product {
   status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   publicationStatus?: 'draft' | 'posted';
   publishedAt?: number | null;
+  hiddenReason?: 'SUBSCRIPTION_EXPIRED' | 'MERCHANT_DRAFT' | 'ADMIN_REMOVED' | null;
+  hiddenAt?: number | null;
   paymentReceiving?: PaymentReceivingDetails;
   moderationStatus: 'approved' | 'pending' | 'returned';
   moderationNote?: string;
   speedOptions: SpeedOption[];
   stockQuantity: number;
   attributes?: Record<string, string>;
-  // Trip / Airbus Media (up to 3 photos, up to 2 videos)
+  // Trip & Stay Media (up to 3 photos, up to 2 videos)
   videos?: string[];
   isTripListing?: boolean;
   // Promotions and free bonus items:
@@ -751,9 +764,11 @@ export interface MerchantSubscriptionRecord {
   amount: number;
   paymentMethod: 'wallet_coins' | 'wallet_credit' | 'mpesa_till_paybill';
   paymentCode?: string;
-  status: 'pending' | 'active' | 'expired' | 'declined' | 'cancelled';
+  status: 'pending' | 'active' | 'expired' | 'declined' | 'cancelled' | 'rejected';
   startDate?: number;
   expiresAt?: number;
+  approvedBy?: number;
+  approvedAt?: number;
   createdAt: number;
   notes?: string;
 }
@@ -1019,4 +1034,95 @@ export interface PlatformAnnouncementRevision {
   changedAt?: number;
   updatedBy?: string;
   timestamp?: number;
+}
+
+export interface SessionRecord {
+  id: string;
+  userId: number;
+  role: UserRole;
+  createdAt: number;
+  lastActivityAt: number;
+  expiresAt: number;
+  revokedAt?: number | null;
+  revokeReason?: string | null;
+  userAgent?: string;
+  ip?: string;
+  lastReauthAt?: number;
+}
+
+export interface OtpChallengeRecord {
+  id: string;
+  purpose: 'forgot_password' | 'forgot_username' | 'admin_forgot';
+  userId?: number | null;
+  contact: string;
+  codeHash: string;
+  expiresAt: number;
+  attempts: number;
+  maxAttempts: number;
+  verifiedAt?: number | null;
+  verificationTokenHash?: string | null;
+  consumedAt?: number | null;
+  createdAt: number;
+}
+
+export interface SubscriptionActivationNotice {
+  id: string;
+  merchantId: number;
+  subscriptionId: string;
+  planId: string;
+  planName: string;
+  billingPeriod: BillingPeriod;
+  expiresAt: number;
+  createdAt: number;
+  seenAt?: number | null;
+}
+
+export interface WalletRecord {
+  id: string;
+  userId: number;
+  role: UserRole;
+  balanceCents: number;
+  updatedAt: number;
+  createdAt: number;
+}
+
+export type WalletLedgerCategory =
+  | 'DEPOSIT'
+  | 'SUBSCRIPTION_PAYMENT'
+  | 'SUBSCRIPTION_REVENUE'
+  | 'PROMOTION_PAYMENT'
+  | 'PROMOTION_REVENUE'
+  | 'LOAN_FUNDING'
+  | 'LOAN_DISBURSEMENT'
+  | 'GROUP_INSTALLMENT'
+  | 'PLATFORM_FEE'
+  | 'ADMIN_ADJUSTMENT'
+  | 'REFUND'
+  | 'MIGRATION_OPENING_BALANCE';
+
+export interface WalletLedgerRecord {
+  id: string;
+  walletId: string;
+  userId: number;
+  role: UserRole;
+  direction: 'CREDIT' | 'DEBIT';
+  amountCents: number;
+  balanceAfterCents: number;
+  category: WalletLedgerCategory;
+  referenceId?: string;
+  idempotencyKey?: string;
+  note: string;
+  actorId?: number;
+  createdAt: number;
+}
+
+export interface EmailOutboxRecord {
+  id: string;
+  to: string;
+  subject: string;
+  body: string;
+  kind: 'security_alert' | 'otp' | 'credential_changed' | 'subscription_notice' | 'general';
+  userId?: number;
+  createdAt: number;
+  meta?: Record<string, any>;
 }

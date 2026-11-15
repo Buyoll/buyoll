@@ -40,7 +40,7 @@ describe('Item 7: Restored Group Loans (1% Fee, Group-Scoped Lenders, Atomic Fun
     harness = await startTestServer();
     const db = await getDatabase();
     const now = Date.now();
-    const pw = hashPassword('LoanTestPass!1');
+    const pw = await hashPassword('LoanTestPass!1');
 
     modId = db.nextIds.user++;
     memberId = db.nextIds.user++;

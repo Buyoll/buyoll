@@ -802,7 +802,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   Place in Hero Featured Deals Carousel (KSh 500 / image placement)
                 </span>
                 <span className="text-[11px] text-slate-600 leading-relaxed block mt-0.5">
-                  Featured products rotate automatically right-to-left at 2.5s intervals on the main hero banner for maximum buyer visibility across over 100,000 deals.
+                  Featured products rotate automatically right-to-left at 2.5s intervals on the main hero banner for maximum member visibility across over 100,000 deals.
                 </span>
               </div>
             </label>
@@ -816,7 +816,7 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   Configured Group Speeds
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Define member counts and daily rates buyers can select on the product page.
+                  Define member counts and daily rates members can select on the product page.
                 </p>
               </div>
               <button

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types.ts';
-import { api, resolveImageUrl } from '../api.ts';
-import { Shield, Lock, Mail, ArrowRight, ArrowLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { SUPPORT_EMAIL } from '../config/support.ts';
+import { api } from '../api.ts';
+import { Shield, Lock, Mail, KeyRound, Eye, EyeOff, ArrowRight, ArrowLeft, AlertCircle } from 'lucide-react';
 
 interface AdminLoginPageProps {
   onSuccess: (user: User) => void;
@@ -15,8 +14,11 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
   onNavigate,
   onNotify,
 }) => {
-  const [identifier, setIdentifier] = useState(SUPPORT_EMAIL);
-  const [password, setPassword] = useState('admin123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [passkey, setPasskey] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasskey, setShowPasskey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,23 +26,27 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
     e.preventDefault();
     setError(null);
     if (!identifier.trim()) {
-      setError('Please provide your administrative email or credentials.');
+      setError('Please provide your administrative username or email.');
       return;
     }
     if (!password) {
-      setError('Please enter your administrator security password.');
+      setError('Please enter your administrator password.');
+      return;
+    }
+    if (!passkey) {
+      setError('Please enter your administrator security passkey.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await api.login({
+      const res = await api.adminLogin({
         identifier: identifier.trim(),
         password,
-        role: 'admin',
+        passkey,
       });
 
-      if (!res.user || res.user.role !== 'admin') {
+      if (!res.user || (res.user.role !== 'admin' && res.user.activeRole !== 'admin')) {
         setError('Access Denied (403): This account does not hold verified administrative permissions.');
         onNotify('error', 'Access Denied: Administrative permissions required.');
         return;
@@ -70,7 +76,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             Administrator Gateway
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Restricted Access · Authorized Buyoll System Administrators
+            Restricted Access · Authorized Buyoll System Administrator
           </p>
         </div>
 
@@ -84,7 +90,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
         <form onSubmit={handleAdminLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Admin Email / Phone
+              Admin Username or Email
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
@@ -92,7 +98,8 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
                 type="text"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder={SUPPORT_EMAIL}
+                placeholder="Username or admin email"
+                autoComplete="username"
                 required
                 className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
@@ -106,13 +113,48 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="current-password"
                 required
-                className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-2.5 text-slate-400 hover:text-[#ff6600]"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Security Passkey
+            </label>
+            <div className="relative">
+              <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <input
+                type={showPasskey ? 'text' : 'password'}
+                value={passkey}
+                onChange={(e) => setPasskey(e.target.value)}
+                placeholder="Enter security passkey"
+                autoComplete="off"
+                required
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-[#1A2622] border border-slate-200 dark:border-[#24312C] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasskey((s) => !s)}
+                aria-label={showPasskey ? 'Hide passkey' : 'Show passkey'}
+                className="absolute right-3 top-2.5 text-slate-400 hover:text-[#ff6600]"
+              >
+                {showPasskey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 

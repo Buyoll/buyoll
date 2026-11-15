@@ -5,13 +5,22 @@ import path from 'path';
 import { startTestServer, TestHarness } from './test_server.js';
 import { PUBLIC_DIR } from '../server/config.js';
 import { getDatabase, saveDatabase } from '../server/db.js';
+import { setUserRoleWalletCents } from '../server/wallet_service.js';
 
 describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group Products', () => {
   let harness: TestHarness;
+  let adminToken = '';
+  let merchantToken = '';
+  let member3Token = '';
+  let member4Token = '';
   const uploadedFiles: string[] = [];
 
   before(async () => {
     harness = await startTestServer();
+    adminToken = (await harness.loginAdmin()).accessToken;
+    merchantToken = await harness.issueToken(2, 'merchant');
+    member3Token = await harness.issueToken(3, 'member');
+    member4Token = await harness.issueToken(4, 'member');
   });
 
   after(async () => {
@@ -35,7 +44,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // 2. Non-admin cannot override tier pricing
     const forbiddenOverride = await fetch(`${harness.baseUrl}/api/admin/subscription-tiers/tier_500`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '2' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
       body: JSON.stringify({ yearlyDiscountPercent: 25 }),
     });
     assert.equal(forbiddenOverride.status, 403);
@@ -43,7 +52,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // 3. Admin overrides yearly discount percent -> recomputes yearlyFee dynamically
     const adminOverride = await fetch(`${harness.baseUrl}/api/admin/subscription-tiers/tier_500`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '1' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ monthlyFee: 500, yearlyDiscountPercent: 25 }),
     });
     assert.equal(adminOverride.status, 200);
@@ -52,12 +61,10 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     assert.equal(updated500.yearlyFee, 4500); // 500 * 12 * 0.75 = 4500
     assert.equal(updated500.yearlyDiscountPercent, 25);
 
-    // Reset tier_500 back to default and ensure merchant 2 has enough wallet balance for yearly sub test
+    // Fund merchant 2 wallet atomically via wallet_service (single source of truth in cents)
     const db = await getDatabase();
     const merchant = db.users.find((u) => u.id === 2)!;
-    merchant.credit = 20000;
-    if (!merchant.roleWallets) merchant.roleWallets = {};
-    merchant.roleWallets.merchant = { credit: 20000, coins: 1000, points: 0 };
+    setUserRoleWalletCents(db, merchant, 'merchant', 2000000); // 20,000 KES = 2,000,000 cents
     merchant.merchantSubscriptionStatus = 'inactive';
     merchant.merchantSubscriptionExpiresAt = undefined;
     db.merchantSubscriptions = [];
@@ -66,7 +73,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // 4. Merchant subscribes yearly using wallet
     const createSubRes = await fetch(`${harness.baseUrl}/api/merchant/subscription`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '2' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
       body: JSON.stringify({ tierId: 'tier_500', billingPeriod: 'yearly', paymentMethod: 'wallet' }),
     });
     assert.equal(createSubRes.status, 201);
@@ -79,7 +86,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // 5. Switch interval from YEARLY -> MONTHLY for next renewal
     const switchRes = await fetch(`${harness.baseUrl}/api/merchant/subscription/change-interval`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '2' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
       body: JSON.stringify({ billingPeriod: 'monthly' }),
     });
     assert.equal(switchRes.status, 200);
@@ -90,7 +97,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // 6. Cancel auto-renew preserves currentPeriodEnd / active access
     const cancelRes = await fetch(`${harness.baseUrl}/api/merchant/subscription/cancel`, {
       method: 'POST',
-      headers: { 'x-user-id': '2' },
+      headers: { Authorization: `Bearer ${merchantToken}` },
     });
     assert.equal(cancelRes.status, 200);
     const cancelJson = await cancelRes.json();
@@ -106,7 +113,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Invalid fake image rejected
     const badAvatar = await fetch(`${harness.baseUrl}/api/users/me/avatar`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member3Token}` },
       body: JSON.stringify({
         dataUrl: `data:image/png;base64,${Buffer.from('fake-image-payload').toString('base64')}`,
       }),
@@ -123,7 +130,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     form.append('avatar', new Blob([validPng], { type: 'image/png' }), 'user3.png');
     const uploadRes = await fetch(`${harness.baseUrl}/api/users/me/avatar`, {
       method: 'POST',
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${member3Token}` },
       body: form,
     });
     assert.equal(uploadRes.status, 200);
@@ -136,14 +143,14 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // PATCH /api/users/me validates email uniqueness and updates name
     const dupEmailRes = await fetch(`${harness.baseUrl}/api/users/me`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member3Token}` },
       body: JSON.stringify({ email: 'direct@buyoll.com' }),
     });
     assert.equal(dupEmailRes.status, 409);
 
     const patchRes = await fetch(`${harness.baseUrl}/api/users/me`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member3Token}` },
       body: JSON.stringify({ name: 'Samuel Updated' }),
     });
     assert.equal(patchRes.status, 200);
@@ -154,7 +161,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // DELETE /api/users/me/avatar clears avatarUrl
     const delRes = await fetch(`${harness.baseUrl}/api/users/me/avatar`, {
       method: 'DELETE',
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${member3Token}` },
     });
     assert.equal(delRes.status, 200);
     const delJson = await delRes.json();
@@ -173,7 +180,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Merchant 2 creates a draft product
     const createProdRes = await fetch(`${harness.baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '2' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
       body: JSON.stringify({
         title: 'Secret Prototype Solar Kit',
         description: 'Unpublished draft product for testing draft visibility',
@@ -194,7 +201,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
 
     // Member (id: 3) requesting status=draft&vendorId=2 NEVER sees the draft
     const memberRes = await fetch(`${harness.baseUrl}/api/products?status=draft&vendorId=2`, {
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${member3Token}` },
     });
     assert.equal(memberRes.status, 200);
     const memberJson = await memberRes.json();
@@ -202,7 +209,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
 
     // Owning Merchant (id: 2) requesting includeDrafts=true DOES see their draft
     const ownerRes = await fetch(`${harness.baseUrl}/api/products?includeDrafts=true&merchantId=2`, {
-      headers: { 'x-user-id': '2' },
+      headers: { Authorization: `Bearer ${merchantToken}` },
     });
     assert.equal(ownerRes.status, 200);
     const ownerJson = await ownerRes.json();
@@ -211,7 +218,7 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Group products management: non-manager member (id: 4) gets 403
     const forbidAdd = await fetch(`${harness.baseUrl}/api/groups/101/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '4' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member4Token}` },
       body: JSON.stringify({ productId: draftProduct.id }),
     });
     assert.equal(forbidAdd.status, 403);
@@ -219,14 +226,14 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Group moderator (id: 3, adminId of group 101) can add, feature/reorder, and remove secondary product
     const addRes = await fetch(`${harness.baseUrl}/api/groups/101/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member3Token}` },
       body: JSON.stringify({ productId: draftProduct.id, featured: false }),
     });
     assert.equal(addRes.status, 201);
 
     const patchRes = await fetch(`${harness.baseUrl}/api/groups/101/products/${draftProduct.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': '3' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${member3Token}` },
       body: JSON.stringify({ featured: true, order: 1 }),
     });
     assert.equal(patchRes.status, 200);
@@ -236,14 +243,14 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Cannot remove primary product #1 when active member payments exist
     const delPrimaryRes = await fetch(`${harness.baseUrl}/api/groups/101/products/1`, {
       method: 'DELETE',
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${member3Token}` },
     });
     assert.equal(delPrimaryRes.status, 409);
 
     // Can remove secondary product cleanly
     const delSecondaryRes = await fetch(`${harness.baseUrl}/api/groups/101/products/${draftProduct.id}`, {
       method: 'DELETE',
-      headers: { 'x-user-id': '3' },
+      headers: { Authorization: `Bearer ${member3Token}` },
     });
     assert.equal(delSecondaryRes.status, 200);
   });

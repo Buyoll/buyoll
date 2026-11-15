@@ -39,7 +39,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
   
   // New Question Form state
   const [newQuestionText, setNewQuestionText] = useState('');
-  const [guestName, setGuestName] = useState('');
+  const [visitorName, setVisitorName] = useState('');
   const [postCategory, setPostCategory] = useState<'inquiry' | 'complaint' | 'feedback' | 'general'>(
     initialCategory === 'complaint' ? 'complaint' : 'inquiry'
   );
@@ -79,7 +79,7 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
       const res = await api.postHelpMessage({
         text,
         category: postCategory,
-        guestName: currentUser ? currentUser.name : guestName.trim() || 'Community Member',
+        visitorName: currentUser ? currentUser.name : visitorName.trim() || 'Community Member',
       });
       setMessages(res.allMessages);
       setNewQuestionText('');
@@ -250,8 +250,8 @@ export const HelpSupportModal: React.FC<HelpSupportModalProps> = ({
             <div>
               <input
                 type="text"
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
+                value={visitorName}
+                onChange={(e) => setVisitorName(e.target.value)}
                 placeholder="Your Name (e.g. Samuel K.)"
                 className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff6600]"
               />

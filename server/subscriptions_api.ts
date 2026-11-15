@@ -1,10 +1,17 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { getDatabase, DatabaseSchema, logAudit, runDatabaseTransaction } from './db.js';
-import { User, SubscriptionRequest, MerchantSubscriptionTier } from '../src/types.js';
-import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
+import { User, SubscriptionRequest, MerchantSubscriptionTier, MerchantSubscriptionRecord, SubscriptionActivationNotice } from '../src/types.js';
+import { resolveAuthenticatedSession, resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { sendApiError, sendZodError } from './errors.js';
 import { emitPlatformEvent } from './events.js';
+import {
+  computeSubscriptionStatusEat,
+  SUBSCRIPTION_RENEWAL_MODE,
+  toCents,
+} from './config.js';
+import { debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
 
 export const subscriptionsRouter = Router();
 
@@ -161,31 +168,228 @@ function checkRateLimit(userId: number, maxReqs = 5, windowMs = 60000): boolean 
   return true;
 }
 
-// Helper to authenticate user from headers, signed cookies, or legacy session
+// Helper to authenticate user from signed session cookie or Bearer token
 async function getAuthUser(req: Request): Promise<User | null> {
   return resolveAuthenticatedUser(req);
 }
 
 function isUserAdmin(u: User | null): boolean {
-  if (!u) return false;
+  if (!u || u.isDisabled || u.isSuspended) return false;
   return (
     u.activeRole === 'admin' ||
     u.role === 'admin' ||
-    (Array.isArray(u.roles) && u.roles.includes('admin')) ||
-    u.id === 1
+    (Array.isArray(u.roles) && u.roles.includes('admin'))
   );
 }
 
 function isUserMerchant(u: User | null): boolean {
-  if (!u) return false;
+  if (!u || u.isDisabled || u.isSuspended) return false;
   return (
     u.activeRole === 'merchant' ||
     u.role === 'merchant' ||
-    (Array.isArray(u.roles) && u.roles.includes('merchant')) ||
-    u.id === 2 ||
-    u.id === 11 ||
-    u.id === 12
+    (Array.isArray(u.roles) && u.roles.includes('merchant'))
   );
+}
+
+/**
+ * Enforces expiry across active merchant subscriptions (or for a single merchant inline).
+ * Marks expired subscriptions EXPIRED and hides ONLY live published products with hiddenReason = 'SUBSCRIPTION_EXPIRED'.
+ */
+export async function enforceExpiredSubscriptions(merchantIdFilter?: number): Promise<number[]> {
+  const expiredMerchantIds: number[] = [];
+  const now = Date.now();
+
+  await runDatabaseTransaction(async (db) => {
+    const subs = db.merchantSubscriptions || [];
+    const affectedMerchants = new Set<number>();
+
+    for (const sub of subs) {
+      if (merchantIdFilter && sub.merchantId !== merchantIdFilter) continue;
+      if (sub.status === 'active' && sub.expiresAt && sub.expiresAt <= now) {
+        sub.status = 'expired';
+        affectedMerchants.add(sub.merchantId);
+      }
+    }
+
+    for (const u of db.users || []) {
+      if (merchantIdFilter && u.id !== merchantIdFilter) continue;
+      if (u.merchantSubscriptionStatus === 'active' && u.merchantSubscriptionExpiresAt && u.merchantSubscriptionExpiresAt <= now) {
+        const stillActive = subs.some(
+          (s) => s.merchantId === u.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+        );
+        if (!stillActive) {
+          u.merchantSubscriptionStatus = 'inactive';
+          affectedMerchants.add(u.id);
+        }
+      }
+    }
+
+    for (const mId of affectedMerchants) {
+      const mUser = db.users.find((u) => u.id === mId);
+      const stillActive = subs.some(
+        (s) => s.merchantId === mId && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+      );
+      if (stillActive) continue;
+      if (mUser) {
+        mUser.merchantSubscriptionStatus = 'inactive';
+      }
+      let hiddenCount = 0;
+      for (const p of db.products || []) {
+        if (p.vendorId === mId && p.publicationStatus !== 'draft' && p.live !== false) {
+          p.live = false;
+          p.hiddenReason = 'SUBSCRIPTION_EXPIRED';
+          p.hiddenAt = now;
+          p.updatedAt = now;
+          hiddenCount++;
+        }
+      }
+      if (hiddenCount > 0 || mUser) {
+        expiredMerchantIds.push(mId);
+        if (!db.userNotifications) db.userNotifications = [];
+        db.userNotifications.unshift({
+          id: `notif_exp_${now}_${mId}`,
+          userId: mId,
+          title: 'Subscription Expired — Listings Hidden',
+          message: `Your merchant subscription has expired. ${hiddenCount} live listing(s) have been hidden until you renew.`,
+          type: 'warning',
+          read: false,
+          timestamp: now,
+        });
+        logAudit(
+          db,
+          mId,
+          mUser?.name || `Merchant #${mId}`,
+          'SUBSCRIPTION_EXPIRED_ENFORCED',
+          `Subscription expired; hid ${hiddenCount} live listing(s) with hiddenReason=SUBSCRIPTION_EXPIRED.`
+        );
+      }
+    }
+  });
+
+  for (const mId of expiredMerchantIds) {
+    emitPlatformEvent('subscription.expired', { merchantId: mId, status: 'EXPIRED' }, [mId]);
+    emitPlatformEvent('subscription.updated', { merchantId: mId, status: 'EXPIRED' }, [mId]);
+  }
+  return expiredMerchantIds;
+}
+
+/**
+ * Single-transaction helper to activate a merchant subscription, compute expiry (supporting reset vs stack policy),
+ * restore ONLY products hidden due to SUBSCRIPTION_EXPIRED, create a one-time activation notice, and log audit.
+ */
+export function activateSubscriptionInTx(
+  db: DatabaseSchema,
+  params: {
+    merchantUser: User;
+    planId: string;
+    planName: string;
+    billingPeriod: 'monthly' | 'yearly';
+    subscriptionId: string;
+    actorId: number;
+    actorName: string;
+    paymentSummary: string;
+    now?: number;
+  }
+): {
+  startDate: number;
+  expiresAt: number;
+  restoredProductIds: number[];
+  activationNotice: SubscriptionActivationNotice;
+  statusPayload: ReturnType<typeof computeSubscriptionStatusEat>;
+} {
+  const now = params.now ?? Date.now();
+  const durationDays = params.billingPeriod === 'yearly' ? 365 : 30;
+  const durationMs = durationDays * 86400000;
+
+  let baseTime = now;
+  const existingActives = (db.merchantSubscriptions || []).filter(
+    (s) =>
+      s.merchantId === params.merchantUser.id &&
+      s.id !== params.subscriptionId &&
+      s.status === 'active' &&
+      s.expiresAt &&
+      s.expiresAt > now
+  );
+  if (SUBSCRIPTION_RENEWAL_MODE === 'stack' && existingActives.length > 0) {
+    const maxExpiry = Math.max(...existingActives.map((s) => s.expiresAt || now));
+    baseTime = Math.max(now, maxExpiry);
+  }
+  // Supersede prior active rows cleanly so there is a single active window
+  for (const prev of existingActives) {
+    prev.status = 'expired';
+    prev.notes = prev.notes
+      ? `${prev.notes} (Superseded by renewal ${params.subscriptionId})`
+      : `Superseded by renewal ${params.subscriptionId}`;
+  }
+
+  const expiresAt = baseTime + durationMs;
+  params.merchantUser.merchantSubscriptionStatus = 'active';
+  params.merchantUser.merchantSubscriptionPlan = params.planId as any;
+  params.merchantUser.merchantSubscriptionExpiresAt = expiresAt;
+  params.merchantUser.verified = true;
+  params.merchantUser.verifiedAt = now;
+
+  // Restore ONLY products previously hidden due to SUBSCRIPTION_EXPIRED — NEVER touch drafts!
+  const restoredProductIds: number[] = [];
+  for (const p of db.products || []) {
+    if (p.vendorId === params.merchantUser.id && p.hiddenReason === 'SUBSCRIPTION_EXPIRED') {
+      p.live = true;
+      p.status = 'PUBLISHED';
+      p.publicationStatus = 'posted';
+      p.hiddenReason = null;
+      p.hiddenAt = null;
+      p.updatedAt = now;
+      restoredProductIds.push(p.id);
+    }
+  }
+
+  if (!db.subscriptionActivationNotices) db.subscriptionActivationNotices = [];
+  let activationNotice = db.subscriptionActivationNotices.find(
+    (n) => n.subscriptionId === params.subscriptionId
+  );
+  if (!activationNotice) {
+    activationNotice = {
+      id: `sub_notice_${now}_${crypto.randomBytes(4).toString('hex')}`,
+      merchantId: params.merchantUser.id,
+      subscriptionId: params.subscriptionId,
+      planId: params.planId,
+      planName: params.planName,
+      billingPeriod: params.billingPeriod,
+      expiresAt,
+      createdAt: now,
+      seenAt: null,
+    };
+    db.subscriptionActivationNotices.unshift(activationNotice);
+  }
+
+  if (!db.userNotifications) db.userNotifications = [];
+  const durationLabel = params.billingPeriod === 'yearly' ? '1-year (365 days)' : '30-day';
+  db.userNotifications.unshift({
+    id: `notif_${now}_${crypto.randomBytes(3).toString('hex')}`,
+    userId: params.merchantUser.id,
+    title: `Thank you! ${params.planName} Approved`,
+    message: `Your payment (${params.paymentSummary}) has been verified! Your ${durationLabel} selling window is active until ${new Date(expiresAt).toLocaleDateString()}.${restoredProductIds.length > 0 ? ` ${restoredProductIds.length} paused listing(s) have been restored live.` : ''}`,
+    type: 'payment',
+    read: false,
+    timestamp: now,
+  });
+
+  logAudit(
+    db,
+    params.actorId,
+    params.actorName,
+    'SUBSCRIPTION_ACTIVATED',
+    `Activated ${params.billingPeriod} subscription ${params.subscriptionId} for merchant #${params.merchantUser.id} (${params.planName}, mode=${SUBSCRIPTION_RENEWAL_MODE}, restored=${restoredProductIds.length})`
+  );
+
+  const statusPayload = computeSubscriptionStatusEat(expiresAt, true, now);
+  return {
+    startDate: now,
+    expiresAt,
+    restoredProductIds,
+    activationNotice,
+    statusPayload,
+  };
 }
 
 // ======================================================================
@@ -252,25 +456,16 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
 
-      // 1. Check if user already has an active 30-day subscription (reject upgrades until cycle expires)
-      const hasActiveCycle =
-        (db.merchantSubscriptions || []).some(
-          (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
-        ) ||
-        (merchantUser.merchantSubscriptionStatus === 'active' &&
-          merchantUser.merchantSubscriptionExpiresAt &&
-          merchantUser.merchantSubscriptionExpiresAt > now);
-
-      if (hasActiveCycle) {
-        const expDate = merchantUser.merchantSubscriptionExpiresAt
-          ? new Date(merchantUser.merchantSubscriptionExpiresAt).toLocaleDateString()
-          : 'the end of your 30-day cycle';
-        throw {
-          status: 409,
-          code: 'ACTIVE_CYCLE_EXISTS',
-          message: `Your current 30-day subscription is still active until ${expDate}. Upgrade becomes available once this cycle expires.`,
-        };
-      }
+      // 1. Check active cycle against SUBSCRIPTION_RENEWAL_MODE ('reset' or 'stack' allow early renewal)
+      const activeSub = (db.merchantSubscriptions || []).find(
+        (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
+      );
+      const replacingActiveCycle = Boolean(
+        activeSub ||
+          (merchantUser.merchantSubscriptionStatus === 'active' &&
+            merchantUser.merchantSubscriptionExpiresAt &&
+            merchantUser.merchantSubscriptionExpiresAt > now)
+      );
 
       // 2. Prevent second pending subscription payment for this merchant
       const existingPending =
@@ -407,47 +602,66 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         };
       }
 
-      // METHOD B: MERCHANT WALLET (Instant Atomic Activation)
+      // METHOD B: MERCHANT WALLET (Atomic ledger transfer + instant activation)
       if (normalizedMethod === 'wallet') {
-        const walletCredit = merchantUser.roleWallets?.merchant?.credit ?? merchantUser.credit ?? 0;
-        if (walletCredit < amountExpected) {
-          throw {
-            status: 400,
-            code: 'INSUFFICIENT_BALANCE',
-            message: `Insufficient merchant wallet balance. You have KSh ${walletCredit.toLocaleString()} but need KSh ${amountExpected.toLocaleString()} for the ${targetPlan.name}.`,
-          };
+        const subId = `sub_req_${now}_${crypto.randomBytes(3).toString('hex')}`;
+        const adminUser = findPlatformAdminUser(db);
+        const amountCents = toCents(amountExpected);
+        if (adminUser) {
+          transferBetweenWalletsCents(db, {
+            fromUserId: merchantUser.id,
+            fromRole: 'merchant',
+            toUserId: adminUser.id,
+            toRole: 'admin',
+            amountCents,
+            debitCategory: 'SUBSCRIPTION_PAYMENT',
+            creditCategory: 'SUBSCRIPTION_REVENUE',
+            referenceId: subId,
+            idempotencyKey: `sub_pay_${subId}`,
+            note: `Merchant ${normalizedPeriod} subscription payment for ${targetPlan.name}`,
+            actorId: merchantUser.id,
+          });
+        } else {
+          const { debitWalletCents } = await import('./wallet_service.js');
+          debitWalletCents(db, {
+            userId: merchantUser.id,
+            role: 'merchant',
+            amountCents,
+            category: 'SUBSCRIPTION_PAYMENT',
+            referenceId: subId,
+            idempotencyKey: `sub_pay_${subId}`,
+            note: `Merchant ${normalizedPeriod} subscription payment for ${targetPlan.name}`,
+            actorId: merchantUser.id,
+          });
         }
 
-        // Deduct atomically
-        if (!merchantUser.roleWallets) merchantUser.roleWallets = {};
-        if (!merchantUser.roleWallets.merchant) merchantUser.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
-        merchantUser.roleWallets.merchant.credit = Math.max(0, merchantUser.roleWallets.merchant.credit - amountExpected);
-        if ((merchantUser.activeRole || merchantUser.role) === 'merchant') {
-          merchantUser.credit = merchantUser.roleWallets.merchant.credit;
-        }
-
-        // Ledger entry
+        const updatedBalance = merchantUser.roleWallets?.merchant?.credit ?? merchantUser.credit ?? 0;
         if (!db.storeCreditLedger) db.storeCreditLedger = [];
         db.storeCreditLedger.unshift({
           id: db.nextIds.ledger++,
           userId: merchantUser.id,
           amount: -amountExpected,
-          balanceAfter: merchantUser.roleWallets.merchant.credit,
+          balanceAfter: updatedBalance,
           type: 'transfer_out',
-          referenceId: `SUB-${now}`,
+          referenceId: subId,
           note: `Merchant subscription fee for ${targetPlan.name} (Instant Activation)`,
           createdAt: now,
         });
 
-        const expiresAt = now + durationDays * 86400000;
-        merchantUser.merchantSubscriptionStatus = 'active';
-        merchantUser.merchantSubscriptionPlan = targetPlan.id as any;
-        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
-        merchantUser.verified = true;
-        merchantUser.verifiedAt = now;
+        const activation = activateSubscriptionInTx(db, {
+          merchantUser,
+          planId: targetPlan.id,
+          planName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
+          subscriptionId: subId,
+          actorId: merchantUser.id,
+          actorName: merchantUser.name,
+          paymentSummary: `Wallet KSh ${amountExpected.toLocaleString()}`,
+          now,
+        });
 
         const newReq: SubscriptionRequest = {
-          id: `sub_req_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          id: subId,
           merchantId: user.id,
           merchantName: user.name,
           shopName: user.shopName || user.name,
@@ -460,7 +674,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           amountExpected,
           paymentMethod: 'wallet',
           status: 'approved',
-          adminId: 1,
+          adminId: adminUser?.id || user.id,
           reviewedAt: now,
           createdAt: now,
           updatedAt: now,
@@ -468,7 +682,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         db.subscriptionRequests.unshift(newReq);
 
         db.merchantSubscriptions.unshift({
-          id: newReq.id,
+          id: subId,
           merchantId: user.id,
           tierId: targetPlan.id,
           tierName: targetPlan.name,
@@ -476,35 +690,22 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           billingInterval: normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
           autoRenew: true,
           canceledAt: null,
-          currentPeriodEnd: expiresAt,
+          currentPeriodEnd: activation.expiresAt,
           amount: amountExpected,
           paymentMethod: 'wallet_credit',
           status: 'active',
-          startDate: now,
-          expiresAt,
+          startDate: activation.startDate,
+          expiresAt: activation.expiresAt,
+          approvedBy: adminUser?.id || user.id,
+          approvedAt: now,
           createdAt: now,
+          notes: replacingActiveCycle ? `Early renewal (${SUBSCRIPTION_RENEWAL_MODE} mode)` : undefined,
         });
-
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: user.id,
-          title: `🎉 ${normalizedPeriod === 'yearly' ? 'Yearly' : '30-Day'} Merchant Plan Active: ${targetPlan.name}`,
-          message: `KSh ${amountExpected.toLocaleString()} paid from Merchant Wallet. Store catalog limits active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}.`,
-          type: 'payment',
-          read: false,
-          timestamp: now,
-        });
-
-        logAudit(
-          db,
-          user.id,
-          user.name,
-          'SUBSCRIPTION_WALLET_ACTIVATED',
-          `Instantly activated ${targetPlan.name} (${normalizedPeriod}) via Merchant Wallet`
-        );
 
         return {
           request: newReq,
+          instantActivated: true,
+          activation,
           message: `Subscription activated immediately! Your ${targetPlan.name} is active for ${durationLabel}.`,
         };
       }
@@ -611,9 +812,27 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
       throw { status: 400, code: 'INVALID_METHOD', message: 'Unsupported payment method.' };
     });
 
+    if ((result as any).instantActivated && (result as any).activation) {
+      const act = (result as any).activation;
+      emitPlatformEvent(
+        'subscription.activated',
+        {
+          merchantId: user.id,
+          subscriptionId: result.request.id,
+          notice: act.activationNotice,
+          status: act.statusPayload,
+          restoredProductIds: act.restoredProductIds,
+        },
+        [user.id]
+      );
+      emitPlatformEvent('subscription.updated', { merchantId: user.id, status: act.statusPayload }, [user.id]);
+    }
+
     return res.status(201).json({
       success: true,
       request: result.request,
+      renewalMode: SUBSCRIPTION_RENEWAL_MODE,
+      activationNotice: (result as any).activation?.activationNotice || null,
       message: result.message,
     });
   } catch (err: any) {
@@ -757,15 +976,14 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
       const now = Date.now();
       const billingPeriod: 'monthly' | 'yearly' =
         targetReq?.billingPeriod === 'yearly' || targetSub?.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-      const durationDays = billingPeriod === 'yearly' ? 365 : 30;
-      const expiresAt = now + durationDays * 86400000;
       const merchantId = targetReq?.merchantId || targetSub?.merchantId!;
       const merchantUser = db.users.find((u) => u.id === merchantId);
+      if (!merchantUser) {
+        throw { status: 404, code: 'MERCHANT_NOT_FOUND', message: 'Merchant account not found.' };
+      }
 
       const planId = targetReq?.planId || targetSub?.tierId || 'tier_500';
-      const plan = resolvePlan(planId);
-
-      // Check duplicate code against other approved requests
+      const plan = resolvePlan(planId, db);
       const mpesaCode = targetReq?.mpesaCode || targetSub?.paymentCode;
       if (mpesaCode) {
         const duplicateActive = db.subscriptionRequests.some(
@@ -780,7 +998,19 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         }
       }
 
-      // Update SubscriptionRequest record
+      const subId = targetSub?.id || targetReq?.id || reqId;
+      const activation = activateSubscriptionInTx(db, {
+        merchantUser,
+        planId,
+        planName: plan?.name || targetSub?.tierName || 'Merchant Plan',
+        billingPeriod,
+        subscriptionId: subId,
+        actorId: user.id,
+        actorName: user.name,
+        paymentSummary: mpesaCode ? `M-Pesa ${mpesaCode}` : 'Admin Approval',
+        now,
+      });
+
       if (targetReq) {
         targetReq.status = 'approved';
         targetReq.billingPeriod = billingPeriod;
@@ -791,8 +1021,8 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         targetReq = {
           id: targetSub!.id,
           merchantId,
-          merchantName: merchantUser?.name || 'Merchant',
-          shopName: merchantUser?.shopName || 'Store',
+          merchantName: merchantUser.name || 'Merchant',
+          shopName: merchantUser.shopName || 'Store',
           planId,
           planName: plan?.name || targetSub!.tierName,
           billingPeriod,
@@ -808,30 +1038,42 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         db.subscriptionRequests.unshift(targetReq);
       }
 
-      // Update merchantSubscriptions record
       if (targetSub) {
         targetSub.status = 'active';
         targetSub.billingPeriod = billingPeriod;
-        targetSub.startDate = now;
-        targetSub.expiresAt = expiresAt;
+        targetSub.billingInterval = billingPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY';
+        targetSub.startDate = activation.startDate;
+        targetSub.expiresAt = activation.expiresAt;
+        targetSub.currentPeriodEnd = activation.expiresAt;
+        targetSub.approvedBy = user.id;
+        targetSub.approvedAt = now;
       } else {
         db.merchantSubscriptions.unshift({
-          id: targetReq.id,
+          id: subId,
           merchantId,
           tierId: planId,
           tierName: plan?.name || 'Merchant Plan',
           billingPeriod,
+          billingInterval: billingPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY',
+          autoRenew: true,
+          currentPeriodEnd: activation.expiresAt,
           amount: targetReq.amountExpected,
-          paymentMethod: targetReq.paymentMethod === 'wallet' ? 'wallet_credit' : targetReq.paymentMethod === 'coins' ? 'wallet_coins' : 'mpesa_till_paybill',
+          paymentMethod:
+            targetReq.paymentMethod === 'wallet'
+              ? 'wallet_credit'
+              : targetReq.paymentMethod === 'coins'
+              ? 'wallet_coins'
+              : 'mpesa_till_paybill',
           paymentCode: mpesaCode,
           status: 'active',
-          startDate: now,
-          expiresAt,
+          startDate: activation.startDate,
+          expiresAt: activation.expiresAt,
+          approvedBy: user.id,
+          approvedAt: now,
           createdAt: targetReq.createdAt,
         });
       }
 
-      // Approve in payments queue
       if (mpesaCode) {
         const p = db.payments.find((pay) => pay.code === mpesaCode);
         if (p) {
@@ -842,55 +1084,48 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         }
       }
 
-      // Update merchant user state
-      if (merchantUser) {
-        merchantUser.merchantSubscriptionStatus = 'active';
-        merchantUser.merchantSubscriptionPlan = planId as any;
-        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
-        merchantUser.verified = true;
-        merchantUser.verifiedAt = now;
-
-        // In-app notification to merchant
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: merchantUser.id,
-          title: `🎉 ${billingPeriod === 'yearly' ? 'Yearly' : '30-Day'} Merchant Plan Approved: ${plan?.name || 'Store'}`,
-          message: `Your payment code ${mpesaCode || ''} has been approved by Buyoll Admin! Your ${billingPeriod === 'yearly' ? '1-year (365 days)' : '30-day'} selling window and catalog limits are active until ${new Date(expiresAt).toLocaleDateString()}.`,
-          type: 'payment',
-          read: false,
-          timestamp: now,
-        });
-      }
-
-      logAudit(
-        db,
-        user.id,
-        user.name,
-        'SUBSCRIPTION_REQUEST_APPROVED',
-        `Approved ${billingPeriod} subscription request ${reqId} for merchant #${merchantId} (${plan?.name || planId})`
-      );
-
       return {
+        merchantId,
         request: targetReq,
+        activation,
         subscription: {
-          id: targetReq?.id || targetSub?.id,
+          id: subId,
           merchantId,
           tierId: planId,
           tierName: plan?.name || 'Merchant Plan',
           billingPeriod,
           status: 'active',
-          startDate: now,
-          expiresAt,
-          activeUntil: expiresAt,
+          startDate: activation.startDate,
+          expiresAt: activation.expiresAt,
+          activeUntil: activation.expiresAt,
         },
-        message: `Subscription approved for ${merchantUser?.name || 'merchant'}! ${billingPeriod === 'yearly' ? '365-day yearly' : '30-day'} selling window is active.`,
+        message: `Subscription approved for ${merchantUser.name}! ${billingPeriod === 'yearly' ? '365-day yearly' : '30-day'} selling window is active.`,
       };
     });
+
+    if ((result as any).merchantId && (result as any).activation) {
+      const mId = (result as any).merchantId;
+      const act = (result as any).activation;
+      emitPlatformEvent(
+        'subscription.activated',
+        {
+          merchantId: mId,
+          subscriptionId: (result as any).subscription.id,
+          notice: act.activationNotice,
+          status: act.statusPayload,
+          restoredProductIds: act.restoredProductIds,
+        },
+        [mId]
+      );
+      emitPlatformEvent('subscription.updated', { merchantId: mId, status: act.statusPayload }, [mId]);
+    }
 
     return res.json({
       success: true,
       request: result.request,
       subscription: (result as any).subscription,
+      activationNotice: (result as any).activation?.activationNotice || null,
+      restoredProductIds: (result as any).activation?.restoredProductIds || [],
       message: result.message,
     });
   } catch (err: any) {
@@ -1154,44 +1389,48 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
 
-      const hasActiveCycle =
-        db.merchantSubscriptions.some((s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now) ||
-        Boolean(merchantUser.merchantSubscriptionStatus === 'active' && merchantUser.merchantSubscriptionExpiresAt && merchantUser.merchantSubscriptionExpiresAt > now);
-
-      if (hasActiveCycle) {
-        throw {
-          status: 409,
-          code: 'ACTIVE_CYCLE_EXISTS',
-          message: 'An active subscription cycle already exists. Use change-interval to switch between Monthly and Yearly.',
-        };
-      }
-
       const amountExpected = normalizedPeriod === 'yearly' ? targetPlan.yearlyFee : targetPlan.monthlyFee;
-      const durationDays = normalizedPeriod === 'yearly' ? 365 : 30;
-      const expiresAt = now + durationDays * 86400000;
+      const amountCents = toCents(amountExpected);
       const billingInterval = normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY';
+      const subId = `sub_${now}_${crypto.randomBytes(3).toString('hex')}`;
 
       if (normalizedMethod === 'wallet') {
-        const walletCredit = merchantUser.roleWallets?.merchant?.credit ?? merchantUser.credit ?? 0;
-        if (walletCredit < amountExpected) {
-          throw {
-            status: 400,
-            code: 'INSUFFICIENT_BALANCE',
-            message: `Insufficient merchant wallet balance. Need KSh ${amountExpected.toLocaleString()}, available KSh ${walletCredit.toLocaleString()}.`,
-          };
-        }
-        if (!merchantUser.roleWallets) merchantUser.roleWallets = {};
-        if (!merchantUser.roleWallets.merchant) merchantUser.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
-        merchantUser.roleWallets.merchant.credit = Math.max(0, walletCredit - amountExpected);
-        if ((merchantUser.activeRole || merchantUser.role) === 'merchant') {
-          merchantUser.credit = merchantUser.roleWallets.merchant.credit;
+        const adminUser = findPlatformAdminUser(db);
+        let nextMerchantBalanceKes = 0;
+        if (adminUser && adminUser.id !== merchantUser.id) {
+          const txRes = transferBetweenWalletsCents(db, {
+            fromUserId: merchantUser.id,
+            fromRole: 'merchant',
+            toUserId: adminUser.id,
+            toRole: 'admin',
+            amountCents,
+            debitCategory: 'SUBSCRIPTION_PAYMENT',
+            creditCategory: 'SUBSCRIPTION_REVENUE',
+            referenceId: subId,
+            idempotencyKey: `sub_pay_${subId}`,
+            note: `Merchant ${normalizedPeriod} subscription for ${targetPlan.name}`,
+            actorId: merchantUser.id,
+          });
+          nextMerchantBalanceKes = txRes.fromWallet.balanceCents / 100;
+        } else {
+          const txRes = debitWalletCents(db, {
+            userId: merchantUser.id,
+            role: 'merchant',
+            amountCents,
+            category: 'SUBSCRIPTION_PAYMENT',
+            referenceId: subId,
+            idempotencyKey: `sub_pay_${subId}`,
+            note: `Merchant ${normalizedPeriod} subscription for ${targetPlan.name}`,
+            actorId: merchantUser.id,
+          });
+          nextMerchantBalanceKes = txRes.wallet.balanceCents / 100;
         }
         if (!db.storeCreditLedger) db.storeCreditLedger = [];
         db.storeCreditLedger.unshift({
           id: db.nextIds.ledger++,
           userId: merchantUser.id,
           amount: -amountExpected,
-          balanceAfter: merchantUser.roleWallets.merchant.credit,
+          balanceAfter: nextMerchantBalanceKes,
           type: 'transfer_out',
           referenceId: `SUB-${now}`,
           note: `Merchant ${normalizedPeriod} subscription for ${targetPlan.name}`,
@@ -1209,7 +1448,6 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       }
 
       const isInstant = normalizedMethod !== 'mpesa';
-      const subId = `sub_${now}_${Math.random().toString(36).substring(2, 6)}`;
       const reqRecord: SubscriptionRequest = {
         id: subId,
         merchantId: user.id,
@@ -1225,6 +1463,8 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         paymentMethod: normalizedMethod,
         mpesaCode: cleanedCode,
         status: isInstant ? 'approved' : 'pending',
+        approvedBy: isInstant ? merchantUser.id : undefined,
+        approvedAt: isInstant ? now : undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -1239,7 +1479,7 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         billingInterval: billingInterval as 'MONTHLY' | 'YEARLY',
         autoRenew: data.autoRenew !== false,
         canceledAt: null,
-        currentPeriodEnd: isInstant ? expiresAt : null,
+        currentPeriodEnd: null as number | null,
         amount: amountExpected,
         paymentMethod: (normalizedMethod === 'wallet'
           ? 'wallet_credit'
@@ -1248,31 +1488,67 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
           : 'mpesa_till_paybill') as 'wallet_credit' | 'wallet_coins' | 'mpesa_till_paybill',
         paymentCode: cleanedCode,
         status: (isInstant ? 'active' : 'pending') as 'active' | 'pending',
-        startDate: isInstant ? now : undefined,
-        expiresAt: isInstant ? expiresAt : undefined,
+        approvedBy: isInstant ? merchantUser.id : undefined,
+        approvedAt: isInstant ? now : undefined,
+        startDate: undefined as number | undefined,
+        expiresAt: undefined as number | undefined,
         createdAt: now,
       };
       db.merchantSubscriptions.unshift(subRecord);
 
+      let activationInfo: ReturnType<typeof activateSubscriptionInTx> | null = null;
       if (isInstant) {
-        merchantUser.merchantSubscriptionStatus = 'active';
-        merchantUser.merchantSubscriptionPlan = targetPlan.id as any;
-        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
-        merchantUser.verified = true;
-        merchantUser.verifiedAt = now;
+        activationInfo = activateSubscriptionInTx(db, {
+          merchantUser,
+          planId: targetPlan.id,
+          planName: targetPlan.name,
+          billingPeriod: normalizedPeriod,
+          subscriptionId: subId,
+          actorId: merchantUser.id,
+          actorName: merchantUser.name,
+          paymentSummary: normalizedMethod === 'wallet' ? 'Merchant Wallet Credit' : 'Wallet Coins',
+          now,
+        });
+        subRecord.startDate = activationInfo.startDate;
+        subRecord.expiresAt = activationInfo.expiresAt;
+        subRecord.currentPeriodEnd = activationInfo.expiresAt;
       } else {
         merchantUser.merchantSubscriptionStatus = 'pending_verification';
+        logAudit(
+          db,
+          user.id,
+          user.name,
+          'MERCHANT_SUBSCRIPTION_CREATED',
+          `Submitted ${normalizedPeriod} subscription (${targetPlan.name}, KSh ${amountExpected}) via M-Pesa code ${cleanedCode}`
+        );
       }
 
-      logAudit(
-        db,
-        user.id,
-        user.name,
-        'MERCHANT_SUBSCRIPTION_CREATED',
-        `Created ${normalizedPeriod} subscription (${targetPlan.name}, KSh ${amountExpected}) via ${normalizedMethod}`
-      );
+      return {
+        request: reqRecord,
+        subscription: subRecord,
+        user: sanitizeUser(merchantUser),
+        activationInfo,
+        isInstant,
+      };
+    });
 
-      return { request: reqRecord, subscription: subRecord, user: sanitizeUser(merchantUser) };
+    if (result.isInstant && result.activationInfo) {
+      emitPlatformEvent(
+        'subscription.activated',
+        {
+          merchantId: result.user.id,
+          subscription: result.subscription,
+          notice: result.activationInfo.activationNotice,
+          status: result.activationInfo.statusPayload,
+          restoredProductIds: result.activationInfo.restoredProductIds,
+        },
+        [result.user.id]
+      );
+      emitPlatformEvent('user.wallet.updated', { userId: result.user.id }, [result.user.id]);
+    }
+    emitPlatformEvent('subscription.updated', {
+      merchantId: result.user.id,
+      subscription: result.subscription,
     });
 
     return res.status(201).json({
@@ -1280,6 +1556,8 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       request: result.request,
       subscription: result.subscription,
       user: result.user,
+      restoredProductIds: result.activationInfo?.restoredProductIds || [],
+      notice: result.activationInfo?.activationNotice || null,
       message: `Subscription ${result.subscription.status === 'active' ? 'activated' : 'submitted for admin approval'}.`,
     });
   } catch (err: any) {
@@ -1389,4 +1667,94 @@ subscriptionsRouter.post('/merchant/subscription/cancel', async (req: Request, r
   } catch (err: any) {
     return sendApiError(res, err.status || 500, err.code || 'CANCEL_ERROR', err.message || 'Failed to cancel auto-renewal');
   }
+});
+
+// ======================================================================
+// 7. AFRICA/NAIROBI (EAT) SUBSCRIPTION COUNTDOWN, ALARM & THANK-YOU NOTICES
+// ======================================================================
+subscriptionsRouter.get('/merchant/subscription/status', async (req: Request, res: Response) => {
+  const auth = await resolveAuthenticatedSession(req, undefined, { touchActivity: true });
+  if (!auth.user) {
+    return sendApiError(res, 401, auth.errorCode || 'UNAUTHORIZED', auth.errorMessage || 'Authentication required');
+  }
+
+  await enforceExpiredSubscriptions(auth.user.id);
+  const db = await getDatabase();
+  const now = Date.now();
+  const dbUser = db.users.find((u) => u.id === auth.user!.id) || auth.user;
+
+  const activeSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === dbUser.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+  );
+  const pendingSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === dbUser.id && s.status === 'pending'
+  );
+  const latestSub =
+    activeSub ||
+    (db.merchantSubscriptions || []).find((s) => s.merchantId === dbUser.id) ||
+    null;
+
+  const expiresAt = activeSub?.expiresAt || dbUser.merchantSubscriptionExpiresAt || latestSub?.expiresAt || null;
+  const isActive = Boolean(
+    activeSub ||
+      (dbUser.merchantSubscriptionStatus === 'active' &&
+        dbUser.merchantSubscriptionExpiresAt &&
+        dbUser.merchantSubscriptionExpiresAt > now)
+  );
+
+  const eatStatus = computeSubscriptionStatusEat(expiresAt, isActive, now);
+  const tiers = getComputedSubscriptionTiers(db);
+  const tier = tiers.find((t) => t.id === (activeSub?.tierId || dbUser.merchantSubscriptionPlan || latestSub?.tierId)) || null;
+
+  return res.json({
+    ...eatStatus,
+    hasActiveSubscription: eatStatus.status === 'ACTIVE',
+    hasPendingRequest: Boolean(pendingSub),
+    pendingSubscription: pendingSub || null,
+    activeSubscription: activeSub || null,
+    latestSubscription: latestSub,
+    planId: tier?.id || activeSub?.tierId || dbUser.merchantSubscriptionPlan || null,
+    planName: tier?.name || activeSub?.tierName || null,
+    billingPeriod: activeSub?.billingPeriod || latestSub?.billingPeriod || 'monthly',
+    renewalMode: SUBSCRIPTION_RENEWAL_MODE,
+    warningMessage:
+      eatStatus.alarm_level === 'RED' && eatStatus.status === 'ACTIVE'
+        ? 'Your subscription is running out. Top up / renew now to keep your listings live.'
+        : eatStatus.status === 'EXPIRED'
+        ? 'Your subscription has expired. Listings are hidden until you renew.'
+        : null,
+  });
+});
+
+subscriptionsRouter.get('/merchant/notices/pending', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+
+  const db = await getDatabase();
+  const pending = (db.subscriptionActivationNotices || []).filter(
+    (n) => n.merchantId === user.id && !n.seenAt
+  );
+  return res.json({ notices: pending });
+});
+
+subscriptionsRouter.post('/merchant/notices/:id/seen', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+
+  const noticeId = String(req.params.id || '').trim();
+  const result = await runDatabaseTransaction(async (db) => {
+    const notice = (db.subscriptionActivationNotices || []).find(
+      (n) => n.id === noticeId && n.merchantId === user.id
+    );
+    if (!notice) return null;
+    if (!notice.seenAt) {
+      notice.seenAt = Date.now();
+    }
+    return notice;
+  });
+
+  if (!result) {
+    return sendApiError(res, 404, 'NOT_FOUND', 'Activation notice not found');
+  }
+  return res.json({ success: true, notice: result });
 });

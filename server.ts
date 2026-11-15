@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -5,6 +6,8 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from './server/api.js';
+import { SUBSCRIPTION_EXPIRY_SWEEP_MS } from './server/config.js';
+import { enforceExpiredSubscriptions } from './server/subscriptions_api.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,7 +73,19 @@ async function startServer() {
     });
   }
 
+  // Schedule background subscription expiry sweep (Africa/Nairobi EAT & UTC expiry check)
+  enforceExpiredSubscriptions().catch((err) => {
+    console.warn('Initial subscription expiry sweep warning:', err);
+  });
+  const expirySweepTimer = setInterval(() => {
+    enforceExpiredSubscriptions().catch((err) => {
+      console.warn('Scheduled subscription expiry sweep warning:', err);
+    });
+  }, SUBSCRIPTION_EXPIRY_SWEEP_MS);
+  expirySweepTimer.unref?.();
+
   const shutdown = () => {
+    clearInterval(expirySweepTimer);
     if (vite) {
       vite.close().catch(() => {});
     }

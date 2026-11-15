@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, PaymentRecord, RefundRequest, AuditLog, Product, ChamaGroup, MpesaStatementRecord, ChatModerationEvent, WalletDepositRequest, PlatformAnnouncementSlot, PlatformAnnouncementRevision } from '../types.ts';
 import { api } from '../api.ts';
+import { useUser } from '../context/UserContext.tsx';
 import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager.tsx';
 import {
   Shield,
@@ -66,12 +67,27 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [activeTab, setActiveTab] = useState<'payments' | 'deposits' | 'wallets' | 'users' | 'moderation' | 'refunds' | 'audit' | 'verifications' | 'subscriptions' | 'featured' | 'announcements' | 'settings'>('payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
 
-  // Settings State
+  const { logoutRole } = useUser();
+
+  // Settings & Security State
   const [adminName, setAdminName] = useState(currentUser?.name || 'Administrator');
   const [adminEmail, setAdminEmail] = useState(currentUser?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPasskeyInput, setCurrentPasskeyInput] = useState('');
+  const [newPasskeyInput, setNewPasskeyInput] = useState('');
+  const [confirmPasskeyInput, setConfirmPasskeyInput] = useState('');
+  const [savingPasskey, setSavingPasskey] = useState(false);
+  const [adminSecurity, setAdminSecurity] = useState<{
+    username: string;
+    email: string;
+    mustChangeCredentials: boolean;
+    lastPasswordChangedAt: number | null;
+    lastPasskeyChangedAt: number | null;
+    showSecurityBanner: boolean;
+    recentReauthValid: boolean;
+  } | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -188,7 +204,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   async function loadAllAdminData() {
     setLoading(true);
     try {
-      const [overviewRes, walletsRes, usersRes, chatLogsRes, depositsRes, verifsRes, subsRes, featRes] = await Promise.all([
+      const [overviewRes, walletsRes, usersRes, chatLogsRes, depositsRes, verifsRes, subsRes, featRes, secRes] = await Promise.all([
         api.getAdminOverview(),
         api.getAdminWallets().catch(() => null),
         api.getAdminUsers().catch(() => ({ users: [] })),
@@ -197,7 +213,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         api.getAdminMerchantVerifications().catch(() => ({ verifications: [] })),
         api.getAdminMerchantSubscriptions().catch(() => ({ subscriptions: [] })),
         api.getAdminFeaturedProducts().catch(() => ({ featured: [], allProducts: [] })),
+        api.getAdminSecuritySettings().catch(() => null),
       ]);
+      if (secRes) {
+        setAdminSecurity(secRes);
+        if (secRes.email) setAdminEmail(secRes.email);
+      }
 
       if (overviewRes) {
         setData({
@@ -643,17 +664,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     if (!pw) return { score: 0, label: 'Not entered', color: 'bg-slate-200', textCol: 'text-slate-400', width: '0%' };
     let score = 0;
     if (pw.length >= 8) score++;
+    if (/[A-Za-z]/.test(pw) && /\d/.test(pw)) score++;
     if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
-    if (/\d/.test(pw)) score++;
     if (/[^A-Za-z0-9]/.test(pw)) score++;
 
-    if (pw.length < 6) {
-      return { score: 1, label: 'Too short (min 6 chars)', color: 'bg-red-500', textCol: 'text-red-600', width: '20%' };
+    if (pw.length < 8) {
+      return { score: 1, label: 'Too short (min 8 chars)', color: 'bg-red-500', textCol: 'text-red-600', width: '20%' };
     }
-    if (score === 1) return { score: 1, label: 'Weak', color: 'bg-red-500', textCol: 'text-red-600', width: '25%' };
-    if (score === 2) return { score: 2, label: 'Fair', color: 'bg-amber-500', textCol: 'text-amber-600', width: '50%' };
-    if (score === 3) return { score: 3, label: 'Good', color: 'bg-sky-500', textCol: 'text-sky-600', width: '75%' };
+    if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
+      return { score: 1, label: 'Needs letter & number', color: 'bg-amber-500', textCol: 'text-amber-600', width: '35%' };
+    }
+    if (score <= 2) return { score: 2, label: 'Fair', color: 'bg-amber-500', textCol: 'text-amber-600', width: '55%' };
+    if (score === 3) return { score: 3, label: 'Good', color: 'bg-sky-500', textCol: 'text-sky-600', width: '80%' };
     return { score: 4, label: 'Strong', color: 'bg-emerald-600', textCol: 'text-emerald-700', width: '100%' };
+  };
+
+  const handleDismissBanner = async (mode: 'dismiss' | 'snooze') => {
+    try {
+      const res = await api.dismissAdminSecurityBanner(mode);
+      setAdminSecurity((prev) => (prev ? { ...prev, showSecurityBanner: res.showSecurityBanner } : prev));
+      onNotify('info', mode === 'snooze' ? 'Reminder snoozed for 24 hours.' : 'Security recommendation dismissed.');
+    } catch (err: any) {
+      onNotify('error', err.message || 'Could not update reminder.');
+    }
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -666,7 +699,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         email: adminEmail.trim(),
       });
       setSettingsNotice({ type: 'success', text: res.message || 'Profile information updated successfully.' });
-      onNotify('success', 'Administrator username/email updated.');
+      onNotify('success', 'Administrator profile/email updated.');
     } catch (err: any) {
       setSettingsNotice({ type: 'error', text: err.message || 'Failed to update administrator profile.' });
       onNotify('error', err.message || 'Profile update error.');
@@ -685,8 +718,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       setSavingSettings(false);
       return;
     }
-    if (newPassword.length < 6) {
-      setSettingsNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
+    if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setSettingsNotice({ type: 'error', text: 'New password must be at least 8 characters and contain at least one letter and one number.' });
       setSavingSettings(false);
       return;
     }
@@ -697,20 +730,79 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
 
     try {
-      const res = await api.updateAdminAccount({
+      const res = await api.adminChangePassword({
         currentPassword,
         newPassword,
       });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setSettingsNotice({ type: 'success', text: 'Administrator password changed successfully! Your session remains active.' });
+      setAdminSecurity((prev) =>
+        prev
+          ? {
+              ...prev,
+              lastPasswordChangedAt: res.lastPasswordChangedAt,
+              mustChangeCredentials: false,
+              showSecurityBanner: prev.lastPasskeyChangedAt ? false : prev.showSecurityBanner,
+            }
+          : prev
+      );
+      setSettingsNotice({ type: 'success', text: res.message || 'Administrator password updated successfully!' });
       onNotify('success', 'Administrator password updated successfully.');
     } catch (err: any) {
       setSettingsNotice({ type: 'error', text: err.message || 'Could not update password. Please check your current password.' });
       onNotify('error', err.message || 'Password update failed.');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleChangePasskey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingPasskey(true);
+    setSettingsNotice(null);
+
+    if (!currentPasskeyInput) {
+      setSettingsNotice({ type: 'error', text: 'Enter your current security passkey to authorize passkey rotation.' });
+      setSavingPasskey(false);
+      return;
+    }
+    if (newPasskeyInput.length < 8) {
+      setSettingsNotice({ type: 'error', text: 'New security passkey must be at least 8 characters long.' });
+      setSavingPasskey(false);
+      return;
+    }
+    if (newPasskeyInput !== confirmPasskeyInput) {
+      setSettingsNotice({ type: 'error', text: 'New security passkey and confirmation do not match.' });
+      setSavingPasskey(false);
+      return;
+    }
+
+    try {
+      const res = await api.adminChangePasskey({
+        currentPasskey: currentPasskeyInput,
+        newPasskey: newPasskeyInput,
+      });
+      setCurrentPasskeyInput('');
+      setNewPasskeyInput('');
+      setConfirmPasskeyInput('');
+      setAdminSecurity((prev) =>
+        prev
+          ? {
+              ...prev,
+              lastPasskeyChangedAt: res.lastPasskeyChangedAt,
+              mustChangeCredentials: false,
+              showSecurityBanner: prev.lastPasswordChangedAt ? false : prev.showSecurityBanner,
+            }
+          : prev
+      );
+      setSettingsNotice({ type: 'success', text: res.message || 'Administrator security passkey rotated successfully!' });
+      onNotify('success', 'Security passkey updated.');
+    } catch (err: any) {
+      setSettingsNotice({ type: 'error', text: err.message || 'Could not update passkey.' });
+      onNotify('error', err.message || 'Passkey update failed.');
+    } finally {
+      setSavingPasskey(false);
     }
   };
 
@@ -805,10 +897,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
           <button
             onClick={async () => {
-              try {
-                await api.logout();
-              } catch {}
-              localStorage.removeItem('buyoll_auth_user');
+              await logoutRole('admin');
               onNavigate('admin-portal');
               onNotify('info', 'Logged out of administrator session.');
             }}
@@ -819,6 +908,48 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Dismissible / Snoozable Admin Security Recommendation Banner (Section 3.1) */}
+      {adminSecurity?.showSecurityBanner && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+              <Shield className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                Security Recommendation: Rotate Initial Admin Credentials
+              </h3>
+              <p className="text-xs text-amber-900 mt-0.5 leading-relaxed">
+                For stronger platform protection, update your initial administrator password and security passkey in Settings whenever convenient.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg cursor-pointer"
+            >
+              Change Now
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDismissBanner('snooze')}
+              className="px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              Remind Later
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDismissBanner('dismiss')}
+              className="px-3 py-1.5 text-amber-800 hover:bg-amber-100 text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200 mb-6 overflow-x-auto pb-1 scrollbar-none">
@@ -1294,7 +1425,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <div className="text-2xl font-black text-slate-900 tabular-nums">
                 {walletsData?.summary?.totalUsers || (filteredUsers || []).length}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">Buyers, merchants, lenders, admins</p>
+              <p className="text-[11px] text-slate-500 mt-1">Members, merchants, lenders, admins</p>
             </div>
           </div>
 
@@ -1403,7 +1534,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               >
                 <option value="all">All Roles</option>
                 <option value="merchant">Merchants</option>
-                <option value="buyer">Buyers / Members</option>
+                <option value="member">Members</option>
                 <option value="lender">Lenders</option>
                 <option value="admin">Admins</option>
               </select>
@@ -2940,111 +3071,189 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </div>
             </div>
 
-            {/* Card 2: Password Update with Live Strength Meter */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                  <Lock className="w-4 h-4 text-[#ff6600]" />
-                  <h3 className="text-sm font-bold text-slate-900">Change Password</h3>
+            {/* Card 2: Change Password & Passkey Rotation */}
+            <div className="space-y-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-[#ff6600]" />
+                      <h3 className="text-sm font-bold text-slate-900">Change Password</h3>
+                    </div>
+                    {adminSecurity?.lastPasswordChangedAt && (
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        Updated {new Date(adminSecurity.lastPasswordChangedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleChangePassword} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Current Password <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="Enter current password"
+                        className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        New Password <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Min 8 chars, at least 1 letter & 1 number"
+                        className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                      />
+
+                      {newPassword && (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500">Password strength:</span>
+                            <span className={`font-bold ${getPasswordStrength(newPassword).textCol}`}>
+                              {getPasswordStrength(newPassword).label}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${getPasswordStrength(newPassword).color}`}
+                              style={{ width: getPasswordStrength(newPassword).width }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Confirm New Password <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter new password"
+                        className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                      />
+                      {confirmPassword && confirmPassword !== newPassword && (
+                        <p className="text-[11px] text-red-500 mt-1">Passwords do not match.</p>
+                      )}
+                      {confirmPassword && confirmPassword === newPassword && (
+                        <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Passwords match!
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        type="submit"
+                        disabled={savingSettings || !currentPassword || !newPassword || newPassword !== confirmPassword}
+                        className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>{savingSettings ? 'Updating Password...' : 'Update Password'}</span>
+                      </button>
+                    </div>
+                  </form>
                 </div>
-
-                <form onSubmit={handleChangePassword} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                      Current Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                      New Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimum 6 characters"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
-                    />
-
-                    {/* Live Strength Meter */}
-                    {newPassword && (
-                      <div className="mt-2 space-y-1">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-500">Password strength:</span>
-                          <span className={`font-bold ${getPasswordStrength(newPassword).textCol}`}>
-                            {getPasswordStrength(newPassword).label}
-                          </span>
-                        </div>
-                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-300 ${getPasswordStrength(newPassword).color}`}
-                            style={{ width: getPasswordStrength(newPassword).width }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                      Confirm New Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Re-enter new password"
-                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
-                    />
-                    {confirmPassword && confirmPassword !== newPassword && (
-                      <p className="text-[11px] text-red-500 mt-1">Passwords do not match.</p>
-                    )}
-                    {confirmPassword && confirmPassword === newPassword && (
-                      <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Passwords match!
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={savingSettings || !currentPassword || !newPassword || newPassword !== confirmPassword}
-                      className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>{savingSettings ? 'Changing Password...' : 'Update Password'}</span>
-                    </button>
-                  </div>
-                </form>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500">End active session:</span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try { await api.logout(); } catch {}
-                    localStorage.removeItem('buyoll_auth_user');
-                    onNavigate('admin-portal');
-                    onNotify('info', 'Logged out.');
-                  }}
-                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <LogOut className="w-3 h-3" />
-                  <span>Log Out</span>
-                </button>
+              {/* Card 3: Security Passkey Rotation */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-[#ff6600]" />
+                    <h3 className="text-sm font-bold text-slate-900">Change Security Passkey</h3>
+                  </div>
+                  {adminSecurity?.lastPasskeyChangedAt && (
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      Updated {new Date(adminSecurity.lastPasskeyChangedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+
+                <form onSubmit={handleChangePasskey} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Current Security Passkey <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={currentPasskeyInput}
+                      onChange={(e) => setCurrentPasskeyInput(e.target.value)}
+                      placeholder="Enter current security passkey"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      New Security Passkey (min 8 chars) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={newPasskeyInput}
+                      onChange={(e) => setNewPasskeyInput(e.target.value)}
+                      placeholder="Minimum 8 characters"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Confirm New Passkey <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={confirmPasskeyInput}
+                      onChange={(e) => setConfirmPasskeyInput(e.target.value)}
+                      placeholder="Re-enter new security passkey"
+                      className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                    />
+                    {confirmPasskeyInput && confirmPasskeyInput !== newPasskeyInput && (
+                      <p className="text-[11px] text-red-500 mt-1">Passkeys do not match.</p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={savingPasskey || !currentPasskeyInput || !newPasskeyInput || newPasskeyInput !== confirmPasskeyInput}
+                    className="w-full py-2.5 px-4 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>{savingPasskey ? 'Rotating Passkey...' : 'Update Security Passkey'}</span>
+                  </button>
+                </form>
+
+                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">End active admin session:</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await logoutRole('admin');
+                      onNavigate('admin-portal');
+                      onNotify('info', 'Logged out of administrator session.');
+                    }}
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

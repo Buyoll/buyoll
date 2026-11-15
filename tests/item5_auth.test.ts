@@ -51,10 +51,10 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
     assert.ok(regJson.accessToken);
     assert.ok(regJson.refreshToken);
 
-    // Check raw DB hashed password with scrypt salt:hash
+    // Check raw DB hashed password with argon2id
     const rawDb = JSON.parse(await fs.readFile(harness.dbFile, 'utf-8'));
     const storedAlice = rawDb.users.find((u: any) => u.id === regJson.user.id);
-    assert.ok(storedAlice.password.includes(':'), 'Password must be scrypt hashed with salt');
+    assert.ok(storedAlice.password.startsWith('$argon2id$'), 'Password must be argon2id hashed');
     assert.notEqual(storedAlice.password, 'StrongPassword#2026');
 
     // Reject duplicate username

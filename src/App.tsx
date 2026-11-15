@@ -14,6 +14,7 @@ import { ProfilePage } from './pages/ProfilePage.tsx';
 import { AuthModal } from './pages/AuthModal.tsx';
 import { Footer } from './components/Footer.tsx';
 import { HelpSupportModal } from './pages/HelpSupportModal.tsx';
+import { IdleTimeoutModal } from './components/IdleTimeoutModal.tsx';
 import { ADMIN_PORTAL_PATH, isAdminPortalPath } from './config/adminPortal.ts';
 
 import { PromoPopup } from './components/PromoPopup.tsx';
@@ -48,7 +49,7 @@ import {
 import { useUser } from './context/UserContext.tsx';
 
 export default function App() {
-  const { currentUser, setCurrentUser, onProfileUpdate } = useUser();
+  const { currentUser, authLoading, setCurrentUser, onProfileUpdate, logoutRole } = useUser();
   const [currentView, setCurrentView] = useState<'home' | 'product' | 'group' | 'my-chamas' | 'wallet' | 'vendor-dashboard' | 'admin-dashboard' | 'admin-portal' | 'lenders-dashboard' | 'profile'>('home');
   const [viewArg, setViewArg] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -100,6 +101,13 @@ export default function App() {
   const handleNavigate = useCallback((view: string, arg?: any, options?: { forceScroll?: boolean }) => {
     const user = currentUserRef.current;
     const activeRole = getUserActiveRole(user);
+
+    // While session bootstrap is loading, avoid prematurely opening AuthModal for protected routes
+    if (!user && authLoading && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard' || view === 'profile' || view === 'admin-dashboard')) {
+      setCurrentView(view as any);
+      setViewArg(arg ?? null);
+      return;
+    }
 
     // Protected private route check: redirect unauthenticated visitors to login, preserving destination
     if (!user && (view === 'my-chamas' || view === 'wallet' || view === 'vendor-dashboard' || view === 'lenders-dashboard' || view === 'profile')) {
@@ -163,7 +171,7 @@ export default function App() {
     if (!isSameView || options?.forceScroll) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [handleOpenAuth]);
+  }, [authLoading, handleOpenAuth]);
 
   // Promotional CTA Navigation handler
   const handlePromoAction = useCallback((cta: PromoCTA) => {
@@ -321,7 +329,17 @@ export default function App() {
       }
     };
 
-    syncRouteFromUrl();
+    const handleNotifyEvent = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (detail?.message) {
+        handleNotify(detail.type || 'info', detail.message);
+      }
+    };
+    window.addEventListener('buyoll:notify', handleNotifyEvent);
+
+    if (!authLoading) {
+      syncRouteFromUrl();
+    }
     window.addEventListener('popstate', syncRouteFromUrl);
     window.addEventListener('hashchange', syncRouteFromUrl);
 
@@ -339,10 +357,11 @@ export default function App() {
     }
 
     return () => {
+      window.removeEventListener('buyoll:notify', handleNotifyEvent);
       window.removeEventListener('popstate', syncRouteFromUrl);
       window.removeEventListener('hashchange', syncRouteFromUrl);
     };
-  }, [handleNavigate, handleOpenAuth, handleOpenHelp]);
+  }, [authLoading, handleNavigate, handleOpenAuth, handleOpenHelp]);
 
   // Session verification: depend strictly on primitive user ID (not object reference)
   const currentUserId = currentUser?.id;
@@ -391,16 +410,14 @@ export default function App() {
     }, 4500);
   }
 
-  function handleLogout() {
-    api.logout();
-    onProfileUpdate(null);
+  async function handleLogout() {
+    const activeRole = getUserActiveRole(currentUserRef.current);
+    const wasAdmin = activeRole === 'admin' || (typeof window !== 'undefined' && isAdminPortalPath(window.location.pathname));
+    await logoutRole(activeRole);
     setPendingTargetView(null);
     setPendingTargetArg(null);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('alibaird_client_db');
-    }
     handleNotify('info', 'You have been signed out.');
-    handleNavigate('home');
+    handleNavigate(wasAdmin ? 'admin-portal' : 'home');
   }
 
   return (
@@ -486,7 +503,7 @@ export default function App() {
         )}
 
         {currentView === 'my-chamas' && (
-          <RoleGuard allow={['member']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+          <RoleGuard allow={['member']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <MyChamasPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -497,7 +514,7 @@ export default function App() {
         )}
 
         {currentView === 'wallet' && (
-          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <WalletPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -511,7 +528,7 @@ export default function App() {
         )}
 
         {currentView === 'vendor-dashboard' && (
-          <RoleGuard allow={['merchant']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+          <RoleGuard allow={['merchant']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <VendorDashboardPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -533,7 +550,7 @@ export default function App() {
         )}
 
         {currentView === 'admin-dashboard' && (
-          <RoleGuard allow={['admin']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+          <RoleGuard allow={['admin']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <React.Suspense
               fallback={
                 <div className="max-w-7xl mx-auto px-4 py-20 text-center">
@@ -552,7 +569,7 @@ export default function App() {
         )}
 
         {currentView === 'lenders-dashboard' && (
-          <RoleGuard allow={['lender']} currentUser={currentUser} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+          <RoleGuard allow={['lender']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <LendersDashboardPage
               currentUser={currentUser}
               onNavigate={handleNavigate}
@@ -562,18 +579,22 @@ export default function App() {
           </RoleGuard>
         )}
 
-        {currentView === 'profile' && currentUser && (
-          <ProfilePage
-            currentUser={currentUser}
-            onNavigate={handleNavigate}
-            onOpenAuth={() => handleOpenAuth('member')}
-            onNotify={handleNotify}
-            onProfileUpdate={onProfileUpdate}
-            onUserUpdate={(updated?: User) => {
-              onProfileUpdate(updated);
-            }}
-            initialTab={viewArg || 'overview'}
-          />
+        {currentView === 'profile' && (
+          <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
+            {currentUser && (
+              <ProfilePage
+                currentUser={currentUser}
+                onNavigate={handleNavigate}
+                onOpenAuth={() => handleOpenAuth('member')}
+                onNotify={handleNotify}
+                onProfileUpdate={onProfileUpdate}
+                onUserUpdate={(updated?: User) => {
+                  onProfileUpdate(updated);
+                }}
+                initialTab={viewArg || 'overview'}
+              />
+            )}
+          </RoleGuard>
         )}
       </main>
 
@@ -778,6 +799,15 @@ export default function App() {
         currentUser={currentUser}
         onClose={closePromoPopup}
         onCtaClick={handlePromoAction}
+      />
+
+      {/* 20-Minute Inactivity Warning Modal */}
+      <IdleTimeoutModal
+        onLoggedOut={(role) => {
+          setPendingTargetView(null);
+          setPendingTargetArg(null);
+          handleNavigate(role === 'admin' ? 'admin-portal' : 'home');
+        }}
       />
     </div>
   );

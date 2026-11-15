@@ -1,6 +1,14 @@
-import { DatabaseSchema } from './db.js';
-import { LOAN_PLATFORM_FEE_RATE, SUPPORT_EMAIL } from './config.js';
-import { normalizeUsernameSeed } from './auth_utils.js';
+import { DatabaseSchema, logAudit } from './db.js';
+import { fromCents, LOAN_PLATFORM_FEE_RATE, SUPPORT_EMAIL, toCents } from './config.js';
+import {
+  hashPasskey,
+  hashPassword,
+  normalizeUsername,
+  normalizeUsernameSeed,
+  sendSecurityEmail,
+} from './auth_utils.js';
+import { ensureWallet } from './wallet_service.js';
+import { User, UserRole } from '../src/types.js';
 
 export interface MigrationRecord {
   id: string;
@@ -8,11 +16,20 @@ export interface MigrationRecord {
   appliedAt: number;
 }
 
+export interface MigrationContext {
+  alreadyApplied: boolean;
+}
+
 export interface MigrationDefinition {
   id: string;
   name: string;
-  up: (db: DatabaseSchema) => boolean;
-  down: (db: DatabaseSchema) => boolean;
+  up: (db: DatabaseSchema, ctx: MigrationContext) => Promise<boolean> | boolean;
+  down: (db: DatabaseSchema) => Promise<boolean> | boolean;
+}
+
+function scrubRoleValue(role?: string | null): UserRole {
+  if (role === 'merchant' || role === 'lender' || role === 'admin') return role;
+  return 'member';
 }
 
 export const MIGRATIONS: MigrationDefinition[] = [
@@ -311,12 +328,333 @@ export const MIGRATIONS: MigrationDefinition[] = [
       return false;
     },
   },
+  {
+    id: '007_role_normalization_and_terminology_cleanup',
+    name: 'Normalize legacy buyer role references to member, compute usernameNormalized, and initialize security/session stores',
+    up(db) {
+      let changed = false;
+      if (!db.sessions) {
+        db.sessions = [];
+        changed = true;
+      }
+      if (!db.otpChallenges) {
+        db.otpChallenges = [];
+        changed = true;
+      }
+      if (!db.subscriptionActivationNotices) {
+        db.subscriptionActivationNotices = [];
+        changed = true;
+      }
+      if (!db.emailOutbox) {
+        db.emailOutbox = [];
+        changed = true;
+      }
+
+      const seenNormUsernames = new Set<string>();
+      for (const u of db.users || []) {
+        const cleanActive = scrubRoleValue((u.activeRole || u.role) as string);
+        if ((u.role as any) === 'buyer' || u.role !== cleanActive) {
+          u.role = cleanActive;
+          changed = true;
+        }
+        if ((u.activeRole as any) === 'buyer' || !u.activeRole) {
+          u.activeRole = cleanActive;
+          changed = true;
+        }
+        if (Array.isArray(u.roles)) {
+          const cleanRoles = Array.from(new Set(u.roles.map((r) => scrubRoleValue(r as string))));
+          if (JSON.stringify(cleanRoles) !== JSON.stringify(u.roles)) {
+            u.roles = cleanRoles;
+            changed = true;
+          }
+        } else {
+          u.roles = [cleanActive];
+          changed = true;
+        }
+        if (u.roleWallets && (u.roleWallets as any).buyer) {
+          if (!u.roleWallets.member) {
+            u.roleWallets.member = (u.roleWallets as any).buyer;
+          }
+          delete (u.roleWallets as any).buyer;
+          changed = true;
+        }
+        let norm = normalizeUsername(u.username || '');
+        if (!norm || norm.length < 3) {
+          const fallbackSeed = normalizeUsernameSeed(u.email?.split('@')[0] || u.name, u.id);
+          u.username = fallbackSeed;
+          norm = normalizeUsername(fallbackSeed);
+          changed = true;
+        }
+        if (seenNormUsernames.has(norm)) {
+          u.username = `${(u.username || 'user').slice(0, 22)}_${u.id}`;
+          norm = normalizeUsername(u.username);
+          changed = true;
+        }
+        seenNormUsernames.add(norm);
+        if (u.usernameNormalized !== norm) {
+          u.usernameNormalized = norm;
+          changed = true;
+        }
+      }
+
+      for (const msg of db.helpChat || []) {
+        if ((msg.userRole as any) === 'buyer') {
+          msg.userRole = 'member';
+          changed = true;
+        }
+      }
+
+      for (const p of db.products || []) {
+        if (p.hiddenReason === undefined) {
+          p.hiddenReason = null;
+          changed = true;
+        }
+      }
+
+      return changed;
+    },
+    down() {
+      return false;
+    },
+  },
+  {
+    id: '008_admin_replacement_and_security_fields',
+    name: 'Disable legacy admin accounts, strip prior admin rights, and seed active argon2id platform admin from environment variables',
+    async up(db, ctx) {
+      let changed = false;
+      const now = Date.now();
+
+      const adminUsername = (process.env.ADMIN_USERNAME || 'jobsimiyu').trim();
+      const adminUsernameNorm = normalizeUsername(adminUsername);
+      const adminFullName = (process.env.ADMIN_FULL_NAME || 'Job Simiyu').trim();
+      const adminEmail = (process.env.ADMIN_EMAIL || 'Jobsimiyu8@gmail.com').trim().toLowerCase();
+      const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+      const adminInitialPasskey = process.env.ADMIN_INITIAL_PASSKEY;
+      const forceCredentialChange =
+        String(process.env.ADMIN_FORCE_CREDENTIAL_CHANGE || 'false').toLowerCase() === 'true';
+
+      // Locate designated admin account (only match by configured username or email — never old id:1 unless it matches)
+      let designatedAdmin = (db.users || []).find(
+        (u) =>
+          (u.usernameNormalized && u.usernameNormalized === adminUsernameNorm) ||
+          (u.username && normalizeUsername(u.username) === adminUsernameNorm) ||
+          (u.email && u.email.toLowerCase() === adminEmail)
+      );
+
+      // Disable and revoke ALL other legacy accounts carrying admin rights
+      for (const u of db.users || []) {
+        if (designatedAdmin && u.id === designatedAdmin.id) continue;
+        const hadAdminRights =
+          u.role === 'admin' ||
+          u.activeRole === 'admin' ||
+          (Array.isArray(u.roles) && u.roles.includes('admin')) ||
+          u.username?.toLowerCase() === 'buyoll_admin' ||
+          u.username?.toLowerCase() === 'admin2';
+        if (hadAdminRights) {
+          u.role = 'member';
+          u.activeRole = 'member';
+          u.roles = (u.roles || []).filter((r) => r !== 'admin');
+          if (u.roles.length === 0) u.roles = ['member'];
+          u.isDisabled = true;
+          u.isSuspended = true;
+          u.disabledAt = u.disabledAt || now;
+          u.disabledReason = 'LEGACY_ADMIN_REPLACED';
+          u.tokenVersion = (u.tokenVersion || 1) + 1;
+          delete u.adminPasskeyHash;
+          // Revoke all refreshTokens & sessions for disabled old admins
+          for (const rt of db.refreshTokens || []) {
+            if (rt.userId === u.id && !rt.revokedAt) rt.revokedAt = now;
+          }
+          for (const s of db.sessions || []) {
+            if (s.userId === u.id && !s.revokedAt) {
+              s.revokedAt = now;
+              s.revokeReason = 'ADMIN_REPLACED';
+            }
+          }
+          changed = true;
+        }
+      }
+
+      if (!designatedAdmin) {
+        const maxId = (db.users || []).reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+        if (db.nextIds.user <= maxId) db.nextIds.user = maxId + 1;
+        const newAdminId = db.nextIds.user++;
+
+        const passwordHash = adminInitialPassword ? await hashPassword(adminInitialPassword) : undefined;
+        const passkeyHash = adminInitialPasskey ? await hashPasskey(adminInitialPasskey) : undefined;
+
+        designatedAdmin = {
+          id: newAdminId,
+          name: adminFullName,
+          username: adminUsername.toLowerCase(),
+          usernameNormalized: adminUsernameNorm,
+          email: adminEmail,
+          phone: '0700000001',
+          password: passwordHash,
+          adminPasskeyHash: passkeyHash,
+          role: 'admin',
+          roles: ['admin'],
+          activeRole: 'admin',
+          platformId: `BYL-A-${10000 + newAdminId}`,
+          verified: true,
+          isDisabled: false,
+          isSuspended: false,
+          credit: 0,
+          coins: 500,
+          points: 500,
+          failedLoginCount: 0,
+          tokenVersion: 1,
+          mustChangeCredentials: forceCredentialChange,
+          lastPasswordChangedAt: null,
+          lastPasskeyChangedAt: null,
+          securityBannerDismissedAt: null,
+          securityBannerSnoozedUntil: null,
+          roleWallets: {
+            admin: { credit: 0, coins: 500, points: 500 },
+          },
+          lastActive: now,
+          createdAt: now,
+        };
+        db.users.unshift(designatedAdmin);
+        logAudit(
+          db,
+          newAdminId,
+          adminFullName,
+          'ADMIN_REPLACED_BY_MIGRATION',
+          `Seeded platform administrator @${designatedAdmin.username} and disabled prior admin accounts.`
+        );
+        sendSecurityEmail(db, {
+          to: adminEmail,
+          subject: 'Buyoll Administrator Account Initialized',
+          body: `Hello ${adminFullName}, your Buyoll administrator account (@${designatedAdmin.username}) has been initialized.`,
+          kind: 'security_alert',
+          userId: newAdminId,
+        });
+        changed = true;
+      } else {
+        // Idempotent ensure fields exist WITHOUT overwriting rotated password/passkey!
+        if (!ctx.alreadyApplied) {
+          if (adminInitialPassword && !designatedAdmin.lastPasswordChangedAt) {
+            designatedAdmin.password = await hashPassword(adminInitialPassword);
+            changed = true;
+          }
+          if (adminInitialPasskey && !designatedAdmin.lastPasskeyChangedAt) {
+            designatedAdmin.adminPasskeyHash = await hashPasskey(adminInitialPasskey);
+            changed = true;
+          }
+        } else {
+          if (adminInitialPassword && !designatedAdmin.password) {
+            designatedAdmin.password = await hashPassword(adminInitialPassword);
+            changed = true;
+          }
+          if (adminInitialPasskey && !designatedAdmin.adminPasskeyHash) {
+            designatedAdmin.adminPasskeyHash = await hashPasskey(adminInitialPasskey);
+            changed = true;
+          }
+        }
+        if (designatedAdmin.isDisabled) {
+          designatedAdmin.isDisabled = false;
+          designatedAdmin.isSuspended = false;
+          changed = true;
+        }
+        if (designatedAdmin.role !== 'admin' || designatedAdmin.activeRole !== 'admin') {
+          designatedAdmin.role = 'admin';
+          designatedAdmin.activeRole = 'admin';
+          designatedAdmin.roles = ['admin'];
+          changed = true;
+        }
+      }
+
+      return changed;
+    },
+    down() {
+      return false;
+    },
+  },
+  {
+    id: '009_wallets_and_integer_ledger',
+    name: 'Create canonical wallets and integer-cents walletLedger preserving all existing balances',
+    up(db) {
+      let changed = false;
+      if (!db.wallets) {
+        db.wallets = [];
+        changed = true;
+      }
+      if (!db.walletLedger) {
+        db.walletLedger = [];
+        changed = true;
+      }
+
+      const beforeWalletsCount = db.wallets.length;
+      const beforeLedgerCount = db.walletLedger.length;
+
+      for (const u of db.users || []) {
+        const roles = new Set<UserRole>();
+        roles.add(scrubRoleValue(u.activeRole || u.role));
+        for (const r of u.roles || []) {
+          roles.add(scrubRoleValue(r));
+        }
+        if (u.roleWallets) {
+          for (const k of Object.keys(u.roleWallets)) {
+            if (k === 'member' || k === 'merchant' || k === 'lender' || k === 'admin') {
+              roles.add(k);
+            }
+          }
+        }
+        for (const role of roles) {
+          ensureWallet(db, u, role);
+          // Reconcile if user.roleWallets[role].credit was higher/updated directly in legacy seed
+          const w = db.wallets.find((x) => x.userId === u.id && x.role === role);
+          const roleCreditCents = toCents(u.roleWallets?.[role]?.credit ?? (role === (u.activeRole || u.role) ? u.credit : 0) ?? 0);
+          if (w && w.balanceCents === 0 && roleCreditCents > 0) {
+            const now = Date.now();
+            w.balanceCents = roleCreditCents;
+            w.updatedAt = now;
+            db.walletLedger.push({
+              id: `wled_${now}_${w.id}_sync`,
+              walletId: w.id,
+              userId: u.id,
+              role,
+              direction: 'CREDIT',
+              amountCents: roleCreditCents,
+              balanceAfterCents: roleCreditCents,
+              category: 'MIGRATION_OPENING_BALANCE',
+              idempotencyKey: `opening_sync_${w.id}`,
+              note: `Opening wallet balance sync for ${role} role`,
+              createdAt: now,
+            });
+            changed = true;
+          } else if (w) {
+            // Ensure projection matches canonical wallet
+            if (u.roleWallets?.[role] && u.roleWallets[role]!.credit !== fromCents(w.balanceCents)) {
+              u.roleWallets[role]!.credit = fromCents(w.balanceCents);
+              changed = true;
+            }
+            if (scrubRoleValue(u.activeRole || u.role) === role && u.credit !== fromCents(w.balanceCents)) {
+              u.credit = fromCents(w.balanceCents);
+              changed = true;
+            }
+          }
+        }
+      }
+
+      if (db.wallets.length !== beforeWalletsCount || db.walletLedger.length !== beforeLedgerCount) {
+        changed = true;
+      }
+      return changed;
+    },
+    down(db) {
+      delete (db as any).wallets;
+      delete (db as any).walletLedger;
+      return true;
+    },
+  },
 ];
 
-export function runPendingMigrations(db: DatabaseSchema): {
+export async function runPendingMigrations(db: DatabaseSchema): Promise<{
   applied: string[];
   dirty: boolean;
-} {
+}> {
   if (!db.migrationsApplied) {
     db.migrationsApplied = [];
   }
@@ -331,8 +669,9 @@ export function runPendingMigrations(db: DatabaseSchema): {
   }
 
   for (const migration of MIGRATIONS) {
-    if (!appliedIds.has(migration.id)) {
-      const modified = migration.up(db);
+    const alreadyApplied = appliedIds.has(migration.id);
+    if (!alreadyApplied) {
+      const modified = await migration.up(db, { alreadyApplied: false });
       db.migrationsApplied.push({
         id: migration.id,
         name: migration.name,
@@ -342,8 +681,7 @@ export function runPendingMigrations(db: DatabaseSchema): {
       if (modified) dirty = true;
       dirty = true;
     } else {
-      // Ensure idempotent defaults on newly added/loaded records even if migration was recorded
-      if (migration.up(db)) {
+      if (await migration.up(db, { alreadyApplied: true })) {
         dirty = true;
       }
     }
@@ -352,16 +690,16 @@ export function runPendingMigrations(db: DatabaseSchema): {
   return { applied: newlyApplied, dirty };
 }
 
-export function rollbackLastMigration(db: DatabaseSchema): {
+export async function rollbackLastMigration(db: DatabaseSchema): Promise<{
   rolledBack: string | null;
-} {
+}> {
   if (!db.migrationsApplied || db.migrationsApplied.length === 0) {
     return { rolledBack: null };
   }
   const last = db.migrationsApplied.pop()!;
   const def = MIGRATIONS.find((m) => m.id === last.id);
   if (def) {
-    def.down(db);
+    await def.down(db);
   }
   return { rolledBack: last.id };
 }

@@ -6,6 +6,11 @@ import { sendApiError, sendZodError } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import { LOAN_PLATFORM_FEE_RATE, toCents, fromCents, computeFeeCents } from './config.js';
 import {
+  creditWalletCents,
+  debitWalletCents,
+  findPlatformAdminUser,
+} from './wallet_service.js';
+import {
   ChamaGroup,
   GroupLenderAuthorization,
   PaymentRecord,
@@ -683,17 +688,31 @@ async function processAtomicLoanFunding(authUser: User, loanId: number, explicit
     const feeKes = fromCents(feeCents);
     const netKes = fromCents(netCents);
 
-    const lenderBalanceKes = getLenderSpendableBalance(lender);
-    if (toCents(lenderBalanceKes) < principalCents) {
-      throw Object.assign(
-        new Error(
-          `Insufficient wallet balance. You have KSh ${lenderBalanceKes.toLocaleString()} but need KSh ${principalKes.toLocaleString()} to fund this loan.`
-        ),
-        { status: 400, code: 'INSUFFICIENT_FUNDS' }
-      );
-    }
+    const { wallet: updatedLenderWallet } = debitWalletCents(db, {
+      userId: lender.id,
+      role: 'lender',
+      amountCents: principalCents,
+      category: 'LOAN_FUNDING',
+      referenceId: `LOAN_FUND_${loan.id}`,
+      idempotencyKey: `loan_fund_debit_${loan.id}`,
+      note: `Funded loan #${loan.id} for ${requester.name} in Group #${resolvedGroupId} (Principal: KSh ${principalKes.toLocaleString()}, 1% platform fee: KSh ${feeKes.toLocaleString()})`,
+      actorId: lender.id,
+    });
+    const nextLenderBalance = fromCents(updatedLenderWallet.balanceCents);
 
-    const nextLenderBalance = deductLenderBalance(lender, principalKes);
+    const platformAdmin = findPlatformAdminUser(db);
+    if (platformAdmin && feeCents > 0) {
+      creditWalletCents(db, {
+        userId: platformAdmin.id,
+        role: 'admin',
+        amountCents: feeCents,
+        category: 'PLATFORM_FEE',
+        referenceId: `LOAN_FEE_${loan.id}`,
+        idempotencyKey: `loan_fee_${loan.id}`,
+        note: `1% platform fee on loan #${loan.id} (Group #${resolvedGroupId})`,
+        actorId: lender.id,
+      });
+    }
 
     // Credit borrower's restricted group-locked non-withdrawable loan balance (99% net)
     const nextRestrictedTotal = fromCents(toCents(requester.restrictedLoanBalance || 0) + netCents);
@@ -917,7 +936,7 @@ groupLoansRouter.get('/lenders/alerts', async (req: Request, res: Response) => {
     return sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
   }
 
-  const activeRole = authUser.activeRole || (authUser.role === 'buyer' ? 'member' : authUser.role) || 'member';
+  const activeRole = authUser.activeRole || authUser.role || 'member';
   if (activeRole !== 'lender' && authUser.role !== 'admin') {
     return sendApiError(
       res,
@@ -1027,18 +1046,24 @@ groupLoansRouter.post('/groups/:id/pay-from-wallet', ensureNumericGroupId, async
         }
       }
 
+      const now = Date.now();
+      const paymentCode = generateWalletRef('WAL');
+
       if (fromCreditCents > 0) {
-        user.credit = fromCents(toCents(generalCreditKes) - fromCreditCents);
-        if (user.roleWallets?.member) {
-          user.roleWallets.member.credit = user.credit;
-        }
+        debitWalletCents(db, {
+          userId: user.id,
+          role: 'member',
+          amountCents: fromCreditCents,
+          category: 'GROUP_INSTALLMENT',
+          referenceId: paymentCode,
+          idempotencyKey: `group_pay_${paymentCode}`,
+          note: `Group #${group.id} Slot #${slot.slotNumber} installment paid from wallet`,
+          actorId: user.id,
+        });
       }
 
       slot.paidAmount = (slot.paidAmount || 0) + numAmount;
-      slot.lastPaymentDate = Date.now();
-
-      const now = Date.now();
-      const paymentCode = generateWalletRef('WAL');
+      slot.lastPaymentDate = now;
       const paymentRecord: PaymentRecord = {
         id: db.nextIds.payment++,
         type: 'group_installment',

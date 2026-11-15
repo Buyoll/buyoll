@@ -3,65 +3,7 @@ import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { getDatabase, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
 
-// -------------------------------------------------------------
-// SECURE PASSWORD HASHING (Scrypt + Salt)
-// -------------------------------------------------------------
-export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-export function verifyPassword(password: string, storedHash?: string): boolean {
-  if (!storedHash) return true; // If user has no password yet
-  if (!storedHash.includes(':')) {
-    // Legacy plaintext password compare
-    return password === storedHash;
-  }
-  const [salt, key] = storedHash.split(':');
-  try {
-    const keyBuffer = Buffer.from(key, 'hex');
-    const derivedKey = crypto.scryptSync(password, salt, 64);
-    return crypto.timingSafeEqual(keyBuffer, derivedKey);
-  } catch {
-    return false;
-  }
-}
-
-// -------------------------------------------------------------
-// ADMIN LOGIN RATE LIMITER (5 attempts / 15 minutes lockout)
-// -------------------------------------------------------------
-interface FailedLoginRecord {
-  count: number;
-  lockedUntil?: number;
-}
-const adminFailedLogins = new Map<string, FailedLoginRecord>();
-
-function checkAdminLoginRateLimit(identifier: string): { allowed: boolean; waitMinutes?: number } {
-  const now = Date.now();
-  const record = adminFailedLogins.get(identifier.toLowerCase());
-  if (!record) return { allowed: true };
-  if (record.lockedUntil && record.lockedUntil > now) {
-    const wait = Math.ceil((record.lockedUntil - now) / 60000);
-    return { allowed: false, waitMinutes: wait };
-  }
-  return { allowed: true };
-}
-
-function recordAdminFailedLogin(identifier: string): void {
-  const now = Date.now();
-  const key = identifier.toLowerCase();
-  const record = adminFailedLogins.get(key) || { count: 0 };
-  record.count += 1;
-  if (record.count >= 5) {
-    record.lockedUntil = now + 15 * 60 * 1000; // 15 min lock
-  }
-  adminFailedLogins.set(key, record);
-}
-
-function clearAdminFailedLogin(identifier: string): void {
-  adminFailedLogins.delete(identifier.toLowerCase());
-}
+export { hashPassword, verifyPassword } from './auth_utils.js';
 import {
   User,
   Product,
@@ -90,15 +32,26 @@ import {
 
 import { prompt2Router } from './prompt2_api.js';
 import { chamaTrustRouter } from './chama_trust_api.js';
-import { subscriptionsRouter, getComputedSubscriptionTiers } from './subscriptions_api.js';
+import {
+  subscriptionsRouter,
+  getComputedSubscriptionTiers,
+  enforceExpiredSubscriptions,
+  activateSubscriptionInTx,
+} from './subscriptions_api.js';
 import { announcementsRouter } from './announcements_api.js';
 import { profileAndGroupsRouter } from './profile_and_groups_api.js';
 import { authRouter } from './auth_api.js';
 import { groupMembershipRouter } from './group_membership_api.js';
 import { groupLoansRouter } from './group_loans_api.js';
-import { resolveAuthenticatedUser } from './auth_utils.js';
-import { handleEventsSse } from './events.js';
-import { SUPPORT_EMAIL } from './config.js';
+import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
+import { emitPlatformEvent, handleEventsSse } from './events.js';
+import { SUPPORT_EMAIL, toCents, fromCents } from './config.js';
+import {
+  creditWalletCents,
+  debitWalletCents,
+  ensureWallet,
+  getWalletBalanceCents,
+} from './wallet_service.js';
 
 export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
 
@@ -153,7 +106,7 @@ function isGroupModerator(user: User | null | undefined, group: ChamaGroup): boo
 }
 
 function isProductPosted(p: Product): boolean {
-  return p.publicationStatus !== 'draft' && p.live !== false;
+  return p.publicationStatus !== 'draft' && p.live !== false && p.hiddenReason !== 'SUBSCRIPTION_EXPIRED';
 }
 
 function normalizePaymentReceiving(input: any, fallback?: any) {
@@ -190,7 +143,8 @@ async function requireAdminUser(req: Request, res: Response): Promise<{ user: Us
     res.status(401).json({ error: 'Authentication required. Please sign in to access administration functions.' });
     return null;
   }
-  if (user.role !== 'admin') {
+  const isAdm = user.role === 'admin' || user.activeRole === 'admin' || (Array.isArray(user.roles) && user.roles.includes('admin'));
+  if (!isAdm || user.isDisabled || user.isSuspended) {
     res.status(403).json({ error: 'Access denied. Administrative role required.' });
     return null;
   }
@@ -343,7 +297,8 @@ apiRouter.get('/wallet/user/:id', async (req: Request, res: Response) => {
   if (!user) return res.status(404).json({ error: 'Resource not found' });
 
   const targetUserId = Number(req.params.id);
-  if (targetUserId !== user.id && user.role !== 'admin') {
+  const isAdmin = user.role === 'admin' || user.activeRole === 'admin';
+  if (targetUserId !== user.id && !isAdmin) {
     return res.status(404).json({ error: 'Resource not found' });
   }
 
@@ -351,9 +306,15 @@ apiRouter.get('/wallet/user/:id', async (req: Request, res: Response) => {
   const target = db.users.find((u) => u.id === targetUserId);
   if (!target) return res.status(404).json({ error: 'Resource not found' });
 
+  const activeRole = target.activeRole || target.role || 'member';
+  const balanceCents = getWalletBalanceCents(db, target, activeRole);
+  const credit = fromCents(balanceCents);
+
   res.json({
     userId: target.id,
-    credit: target.credit || 0,
+    role: activeRole,
+    credit,
+    balanceCents,
     coins: target.coins || 0,
     points: target.points || 0,
   });
@@ -378,280 +339,7 @@ apiRouter.get('/loans/:id', async (req: Request, res: Response) => {
 });
 
 
-// -------------------------------------------------------------
-// AUTH ROUTES
-// -------------------------------------------------------------
-apiRouter.get('/auth/me', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
-  user.activeRole = activeRole;
-  user.role = activeRole;
-  if (!user.roles || !Array.isArray(user.roles)) {
-    user.roles = [activeRole];
-  }
-  if (!user.platformId) {
-    const prefix = activeRole === 'merchant' ? 'BYL-V' : activeRole === 'lender' ? 'BYL-L' : activeRole === 'admin' ? 'BYL-A' : 'BYL-M';
-    user.platformId = `${prefix}-${(10000 + user.id).toString()}`;
-  }
-  if (user.roleWallets && user.roleWallets[activeRole]) {
-    user.credit = user.roleWallets[activeRole].credit;
-    user.coins = user.roleWallets[activeRole].coins;
-    user.points = user.roleWallets[activeRole].points;
-  }
-  if (ensureUserReferralCode(user)) {
-    const db = await getDatabase();
-    await saveDatabase(db);
-  }
-  res.json({ user });
-});
-
-apiRouter.post('/auth/login', async (req: Request, res: Response) => {
-  const { identifier, phone, password, role } = req.body;
-  const lookup = (identifier || phone || '').trim().toLowerCase();
-
-  if (!lookup) {
-    return res.status(400).json({ error: 'Please enter your email, phone number, or name.' });
-  }
-
-  const db = await getDatabase();
-  let user = db.users.find(
-    (u) =>
-      (u.email && u.email.toLowerCase() === lookup) ||
-      (u.phone && u.phone.toLowerCase() === lookup) ||
-      (u.name && u.name.toLowerCase() === lookup) ||
-      (u.shopName && u.shopName.toLowerCase() === lookup) ||
-      (lookup === 'samuel' && (u.name.toLowerCase().includes('samuel') || u.id === 3)) ||
-      (lookup === 'buyoll direct' && (u.name.toLowerCase().includes('buyoll direct') || u.shopName?.toLowerCase().includes('buyoll') || u.id === 2)) ||
-      (lookup === 'grace' && (u.name.toLowerCase().includes('grace') || u.id === 30)) ||
-      (lookup === 'buyoll system' && (u.name.toLowerCase().includes('system') || u.role === 'admin' || u.id === 1))
-  );
-
-  // Check rate limit if logging in as admin
-  if (role === 'admin' || lookup === SUPPORT_EMAIL.toLowerCase() || lookup.includes('admin')) {
-    const rate = checkAdminLoginRateLimit(lookup);
-    if (!rate.allowed) {
-      return res.status(429).json({
-        error: `Too many failed administrator login attempts. Access temporarily locked for security. Please try again in ${rate.waitMinutes || 15} minutes.`,
-      });
-    }
-  }
-
-  // If user found, validate role & password
-  if (user) {
-    const userRoles = user.roles || [user.activeRole || user.role || 'member'];
-    const reqRole = role === 'buyer' ? 'member' : role;
-    const isAdminAccount = user.role === 'admin' || (user.roles && user.roles.includes('admin'));
-
-    if (isAdminAccount) {
-      const rate = checkAdminLoginRateLimit(lookup);
-      if (!rate.allowed) {
-        return res.status(429).json({
-          error: `Too many failed administrator login attempts. Access temporarily locked for security. Please try again in ${rate.waitMinutes || 15} minutes.`,
-        });
-      }
-    }
-
-    // If specific role requested at login, check if user has that role
-    if (reqRole) {
-      if (userRoles.includes(reqRole)) {
-        user.activeRole = reqRole;
-        user.role = reqRole;
-      } else if (reqRole !== 'admin') {
-        const primaryRole = user.activeRole || user.role;
-        const displayRole = primaryRole === 'member' ? 'Member' : primaryRole === 'merchant' ? 'Merchant' : primaryRole === 'lender' ? 'Lender' : 'Admin';
-        return res.status(400).json({
-          error: `This account is registered as a ${displayRole}. Please sign in as a ${displayRole} or complete registration for ${reqRole}.`,
-        });
-      }
-    }
-
-    if (user.password && password) {
-      const isValid = verifyPassword(password, user.password);
-      if (!isValid) {
-        if (isAdminAccount) {
-          recordAdminFailedLogin(lookup);
-        }
-        return res.status(400).json({ error: 'Incorrect password. Please verify and try again.' });
-      }
-
-      // Transparently migrate plaintext password to secure scrypt hash
-      if (!user.password.includes(':')) {
-        user.password = hashPassword(password);
-      }
-    }
-
-    if (password && !user.password) {
-      user.password = hashPassword(password);
-    }
-
-    if (isAdminAccount) {
-      clearAdminFailedLogin(lookup);
-    }
-
-    const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
-    user.activeRole = activeRole;
-    user.role = activeRole;
-    if (!user.roles || !Array.isArray(user.roles)) {
-      user.roles = [activeRole];
-    }
-    if (!user.platformId) {
-      const prefix = activeRole === 'merchant' ? 'BYL-V' : activeRole === 'lender' ? 'BYL-L' : activeRole === 'admin' ? 'BYL-A' : 'BYL-M';
-      user.platformId = `${prefix}-${(10000 + user.id).toString()}`;
-    }
-    if (user.roleWallets && user.roleWallets[activeRole]) {
-      user.credit = user.roleWallets[activeRole].credit;
-      user.coins = user.roleWallets[activeRole].coins;
-      user.points = user.roleWallets[activeRole].points;
-    }
-
-    ensureUserReferralCode(user);
-    user.lastActive = Date.now();
-    await saveDatabase(db);
-    return res.json({ user, notice: `Welcome back, ${user.name}!` });
-  }
-
-  // User not found
-  if (role === 'admin') {
-    recordAdminFailedLogin(lookup);
-    return res.status(403).json({
-      error: 'Administrator credentials not recognized. Access to Buyoll Administration is strictly restricted.',
-    });
-  }
-
-  // If phone was provided directly via quick-login, create Member by default (never auto-grant other roles)
-  if (phone && !identifier) {
-    const trimmedPhone = phone.trim();
-    const newId = db.nextIds.user++;
-    const newUser: User = {
-      id: newId,
-      name: ('User ' + trimmedPhone.slice(-4)).trim(),
-      phone: trimmedPhone,
-      email: `${trimmedPhone}@buyoll.com`,
-      role: 'member',
-      roles: ['member'],
-      activeRole: 'member',
-      platformId: `BYL-M-${(10000 + newId).toString()}`,
-      referralCode: `BYL-${10000 + newId}-${generateCode(3)}`,
-      credit: 0,
-      coins: 50,
-      points: 10,
-      roleWallets: {
-        member: { credit: 0, nonWithdrawableBalance: 0, coins: 50, points: 10 },
-      },
-      lastActive: Date.now(),
-      createdAt: Date.now(),
-    };
-    db.users.push(newUser);
-    logAudit(db, newUser.id, newUser.name, 'USER_REGISTERED', `Registered new member account.`);
-    await saveDatabase(db);
-    return res.json({ user: newUser });
-  }
-
-  return res.status(404).json({
-    error: 'No account found with this email/phone. Please switch to Sign up or check your credentials.',
-  });
-});
-
-// CORE RULE 1: Signup creates a Member by default. Role is NEVER writable by client at signup.
-apiRouter.post('/auth/register', async (req: Request, res: Response) => {
-  const { name, email, password, phone, role, shopName, lenderType, adminPasskey } = req.body;
-
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Please enter your full name or entity name.' });
-  }
-
-  if (!email || !email.trim()) {
-    return res.status(400).json({ error: 'Please provide a valid email address.' });
-  }
-
-  if (!password || password.length < 4) {
-    return res.status(400).json({ error: 'Password must be at least 4 characters long.' });
-  }
-
-  const cleanRole = (role === 'merchant' || role === 'lender' || role === 'admin') ? role : 'member';
-
-  const db = await getDatabase();
-
-  // If registering as admin, enforce SINGLE ADMIN rule and setup key verification
-  if (cleanRole === 'admin') {
-    const existingAdmins = (db.users || []).filter((u: any) => u.role === 'admin' || (u.roles && u.roles.includes('admin')));
-    if (existingAdmins.length > 0) {
-      return res.status(403).json({
-        error: 'Administrator registration is permanently closed. The system administrator account has already been registered.',
-      });
-    }
-
-    const envKey = (process.env.ADMIN_SETUP_KEY || process.env.VITE_ADMIN_SETUP_KEY || 'BUYOLL_ADMIN_2026').trim();
-    const providedKey = String(adminPasskey || '').trim();
-    if (!providedKey || (providedKey !== envKey && providedKey !== 'BUYOLL_ADMIN_2026')) {
-      return res.status(403).json({
-        error: 'Invalid Administrator Setup Key. Please verify the ADMIN_SETUP_KEY configured in your environment.',
-      });
-    }
-  }
-  const cleanEmail = email.trim().toLowerCase();
-  const existing = db.users.find(
-    (u) =>
-      (u.email && u.email.toLowerCase() === cleanEmail) ||
-      (phone && u.phone && u.phone === phone.trim())
-  );
-
-  if (existing) {
-    return res.status(400).json({
-      error: 'An account with this email address already exists. Please log in instead.',
-    });
-  }
-
-  const newId = db.nextIds.user++;
-  const autoPhone = phone ? phone.trim() : '07' + Math.floor(10000000 + Math.random() * 90000000).toString();
-
-  const prefix = cleanRole === 'merchant' ? 'BYL-V' : cleanRole === 'lender' ? 'BYL-L' : cleanRole === 'admin' ? 'BYL-A' : 'BYL-M';
-  const platformId = `${prefix}-${(10000 + newId).toString()}`;
-
-  const startingCoins = cleanRole === 'member' ? 100 : cleanRole === 'merchant' ? 200 : cleanRole === 'lender' ? 300 : 500;
-  const startingPoints = cleanRole === 'member' ? 25 : 50;
-
-  const newUser: User = {
-    id: newId,
-    name: name.trim(),
-    email: cleanEmail,
-    phone: autoPhone,
-    password: cleanRole === 'admin' ? hashPassword(password.trim()) : password.trim(),
-    role: cleanRole,
-    roles: [cleanRole],
-    activeRole: cleanRole,
-    platformId,
-    referralCode: `BYL-${10000 + newId}-${generateCode(3)}`,
-    shopName: cleanRole === 'merchant' ? (shopName?.trim() || name.trim()) : undefined,
-    shopDescription: cleanRole === 'merchant' ? 'Verified seller on Buyoll' : undefined,
-    verified: cleanRole === 'admin' ? true : false,
-    merchantSubscriptionStatus: cleanRole === 'merchant' ? 'inactive' : undefined,
-    credit: 0,
-    coins: startingCoins,
-    points: startingPoints,
-    roleWallets: {
-      [cleanRole]: {
-        credit: 0,
-        nonWithdrawableBalance: 0,
-        coins: startingCoins,
-        points: startingPoints,
-      },
-    },
-    lastActive: Date.now(),
-    createdAt: Date.now(),
-  };
-
-  db.users.push(newUser);
-  logAudit(db, newUser.id, newUser.name, 'USER_REGISTERED', `New ${cleanRole} account registered (${platformId}).`);
-  await saveDatabase(db);
-
-  const displayRole = cleanRole.charAt(0).toUpperCase() + cleanRole.slice(1);
-  res.json({
-    user: newUser,
-    notice: `Account created successfully as ${displayRole}! Welcome to Buyoll.`,
-  });
-});
+// Auth routes (/auth/me, /auth/login, /auth/register, /auth/logout, etc.) are served by authRouter mounted above.
 
 // CORE RULE 9: Dedicated registration to add a new role (e.g. Member -> Merchant, Member -> Lender, etc.)
 apiRouter.post('/user/roles/register', async (req: Request, res: Response) => {
@@ -703,9 +391,10 @@ apiRouter.post('/user/roles/register', async (req: Request, res: Response) => {
     if (lenderLocation) dbUser.lenderLocation = String(lenderLocation).trim();
   }
 
-  // Switch active role to the newly registered role
+  // Switch active role to the newly registered role and ensure canonical wallet row
   dbUser.activeRole = role;
   dbUser.role = role;
+  ensureWallet(db, dbUser, role);
   dbUser.credit = dbUser.roleWallets[role].credit;
   dbUser.coins = dbUser.roleWallets[role].coins;
   dbUser.points = dbUser.roleWallets[role].points;
@@ -715,7 +404,7 @@ apiRouter.post('/user/roles/register', async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    user: dbUser,
+    user: sanitizeUser(dbUser),
     message: `Congratulations! You have completed registration for ${role}.`,
   });
 });
@@ -741,56 +430,41 @@ apiRouter.post('/user/roles/switch', async (req: Request, res: Response) => {
     });
   }
 
-  // Save current active role's wallet balance
   const prevRole = dbUser.activeRole || dbUser.role || 'member';
-  if (!dbUser.roleWallets) dbUser.roleWallets = {};
-  dbUser.roleWallets[prevRole] = {
-    credit: dbUser.credit || 0,
-    nonWithdrawableBalance: dbUser.nonWithdrawableBalance || 0,
-    coins: dbUser.coins || 0,
-    points: dbUser.points || 0,
-  };
-
-  // Ensure target role has a wallet
-  if (!dbUser.roleWallets[role]) {
-    dbUser.roleWallets[role] = {
-      credit: role === 'lender' ? 50000 : 0,
-      nonWithdrawableBalance: 0,
-      coins: 50,
-      points: 10,
-    };
-  }
+  ensureWallet(db, dbUser, prevRole);
 
   dbUser.activeRole = role;
   dbUser.role = role;
-  dbUser.credit = dbUser.roleWallets[role].credit;
-  dbUser.coins = dbUser.roleWallets[role].coins;
-  dbUser.points = dbUser.roleWallets[role].points;
+  ensureWallet(db, dbUser, role);
+  dbUser.credit = dbUser.roleWallets?.[role]?.credit ?? 0;
+  dbUser.coins = dbUser.roleWallets?.[role]?.coins ?? 0;
+  dbUser.points = dbUser.roleWallets?.[role]?.points ?? 0;
 
   logAudit(db, dbUser.id, dbUser.name, 'ROLE_SWITCHED', `Switched active role to: ${role}.`);
   await saveDatabase(db);
 
   res.json({
     success: true,
-    user: dbUser,
+    user: sanitizeUser(dbUser),
     message: `Switched active role to ${role}.`,
   });
 });
 
-apiRouter.get('/auth/users', async (req: Request, res: Response) => {
+apiRouter.get('/auth/users', async (_req: Request, res: Response) => {
   const db = await getDatabase();
-  // Return users list for switcher/profile selection
   res.json({
-    users: db.users.map(u => ({
-      id: u.id,
-      name: u.name,
-      phone: u.phone,
-      role: u.role,
-      shopName: u.shopName,
-      verified: u.verified,
-      starRating: u.starRating || 5.0,
-      ratingCount: u.ratingCount || 15,
-    })),
+    users: db.users
+      .filter((u) => !u.isDisabled)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        phone: u.phone,
+        role: u.role,
+        shopName: u.shopName,
+        verified: u.verified,
+        starRating: u.starRating || 5.0,
+        ratingCount: u.ratingCount || 15,
+      })),
   });
 });
 
@@ -1173,15 +847,20 @@ apiRouter.post('/merchant/subscribe', async (req: Request, res: Response) => {
 // Vendor product creation (Staged as draft inside My Groups until merchant creates group(s) and clicks Post)
 apiRouter.post('/products', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
-  if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+  const isMerchantActor = user.role === 'merchant' || user.activeRole === 'merchant';
+  if (!user || (!isMerchantActor && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only verified merchants or admins can create products' });
+  }
+
+  if (isMerchantActor) {
+    await enforceExpiredSubscriptions(user.id);
   }
 
   const db = await getDatabase();
   const dbUser = db.users.find(u => u.id === user.id) || user;
 
   // Merchant gating check: Subscription must be active, non-expired (30-day or yearly window), and within plan catalog limits
-  if (user.role === 'merchant') {
+  if (isMerchantActor) {
     const now = Date.now();
     const activeSub = (db.merchantSubscriptions || []).find(
       (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
@@ -1194,7 +873,8 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 
     if (!activeSub && !userSubActive) {
       const isExpired = Boolean(
-        dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now
+        (dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now) ||
+          (db.merchantSubscriptions || []).some((s) => s.merchantId === user.id && s.status === 'expired')
       );
       return res.status(403).json({
         error: isExpired
@@ -1273,7 +953,7 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     discountPercent: discountPercent ? Number(discountPercent) : undefined,
     images: initialImages,
     videos: cleanVideos,
-    isTripListing: req.body.isTripListing || category.toLowerCase().includes('trip') || category.toLowerCase().includes('airbus') || category.toLowerCase().includes('stay'),
+    isTripListing: req.body.isTripListing || category.toLowerCase().includes('trip') || category.toLowerCase().includes('aviation') || category.toLowerCase().includes('stay'),
     vendorId: user.id,
     vendorName: dbUser.shopName || dbUser.name,
     isFeatured: req.body.isFeatured || false,
@@ -1306,8 +986,13 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 // PUBLISH STAGED PRODUCT TO ANNOUNCEMENTS (Requires active non-expired sub + >= 1 group)
 apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
-  if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+  const isMerchantActor = user.role === 'merchant' || user.activeRole === 'merchant';
+  if (!user || (!isMerchantActor && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only merchants or admins can publish products' });
+  }
+
+  if (isMerchantActor) {
+    await enforceExpiredSubscriptions(user.id);
   }
 
   const db = await getDatabase();
@@ -1322,7 +1007,7 @@ apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You do not have permission to publish this product.' });
   }
 
-  if (user.role === 'merchant') {
+  if (isMerchantActor) {
     const now = Date.now();
     const activeSub = (db.merchantSubscriptions || []).find(
       (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
@@ -1335,7 +1020,8 @@ apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
 
     if (!activeSub && !userSubActive) {
       const isExpired = Boolean(
-        dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now
+        (dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now) ||
+          (db.merchantSubscriptions || []).some((s) => s.merchantId === user.id && s.status === 'expired')
       );
       return res.status(403).json({
         error: isExpired
@@ -1358,6 +1044,8 @@ apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
   const now = Date.now();
   product.live = true;
   product.publicationStatus = 'posted';
+  product.hiddenReason = null;
+  product.hiddenAt = null;
   product.publishedAt = now;
   product.createdAt = now; // Appear in Newly Posted Announcements at publish time
   product.updatedAt = now;
@@ -1515,7 +1203,7 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
   res.json({ product, message: 'Product updated successfully.' });
 });
 
-// TRIP / AIRBUS MEDIA UPLOADS & REPLACEMENTS (UP TO 3 PHOTOS, UP TO 2 VIDEOS)
+// TRIP & TRAVEL MEDIA UPLOADS & REPLACEMENTS (UP TO 3 PHOTOS, UP TO 2 VIDEOS)
 apiRouter.post('/products/:id/media', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) {
@@ -1627,8 +1315,13 @@ apiRouter.delete('/products/:id', async (req: Request, res: Response) => {
 // STORE OWNER PRE-CREATES SPEED GROUPS (UP TO ALL 10 SPEEDS: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
-  if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+  const isMerchantActor = Boolean(user && (user.role === 'merchant' || user.activeRole === 'merchant'));
+  if (!user || (!isMerchantActor && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Only merchants / store owners or admins can pre-create Chama groups' });
+  }
+
+  if (isMerchantActor) {
+    await enforceExpiredSubscriptions(user.id);
   }
 
   const db = await getDatabase();
@@ -1641,7 +1334,7 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
     return res.status(403).json({ error: 'Only the product owner can create groups for this product' });
   }
 
-  if (product.publicationStatus === 'posted' && user.role === 'merchant') {
+  if (product.publicationStatus === 'posted' && isMerchantActor) {
     return res.status(403).json({
       error: 'Groups are read-only once a product is posted.',
       code: 'GROUP_IMMUTABLE_POSTED',
@@ -1651,6 +1344,13 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
   const activeSub = (db.merchantSubscriptions || []).find(
     (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
   );
+  if (isMerchantActor && !activeSub && !(dbUser.merchantSubscriptionStatus === 'active' && dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt > Date.now())) {
+    return res.status(403).json({
+      error: 'Your merchant subscription has expired. Renew to manage groups.',
+      code: 'SUBSCRIPTION_EXPIRED',
+      isExpired: true,
+    });
+  }
   const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
   const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
@@ -1769,7 +1469,7 @@ apiRouter.get('/groups/my', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Authentication required. Please sign in to view My Groups.' });
   }
 
-  const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+  const activeRole = user.activeRole || user.role || 'member';
   const db = await getDatabase();
 
   // Admin rule: Admin oversight lives inside Admin Dashboard
@@ -1817,7 +1517,7 @@ apiRouter.get('/groups', async (req: Request, res: Response) => {
     const merchantProductIds = db.products.filter(p => p.vendorId === user.id).map(p => p.id);
     groups = groups.filter(g => g.vendorId === user.id || g.adminId === user.id || merchantProductIds.includes(g.productId));
   } else if (!user || activeRole !== 'admin') {
-    // Public / buyer / member view: hide groups whose parent product is still an unposted draft
+    // Public / member view: hide groups whose parent product is still an unposted draft or expired
     const postedProductIds = new Set(db.products.filter(p => isProductPosted(p)).map(p => p.id));
     groups = groups.filter(g => postedProductIds.has(g.productId));
   }
@@ -1842,7 +1542,7 @@ apiRouter.get('/groups/:id', async (req: Request, res: Response) => {
 
   const user = await getAuthenticatedUser(req);
   if (user) {
-    const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+    const activeRole = user.activeRole || user.role || 'member';
 
     // Admin rule: Admin must see only the Admin dashboard
     if (activeRole === 'admin') {
@@ -1890,11 +1590,15 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'You must be signed in to create a group' });
   }
 
-  // Only merchants can create products/groups. Members and lenders cannot.
-  if (user.role !== 'merchant' && user.role !== 'admin') {
+  const isMerchantActor = user.role === 'merchant' || user.activeRole === 'merchant';
+  if (!isMerchantActor && user.role !== 'admin') {
     return res.status(403).json({
       error: 'Only verified merchants can create groups. Members and lenders cannot create groups.',
     });
+  }
+
+  if (isMerchantActor) {
+    await enforceExpiredSubscriptions(user.id);
   }
 
   const { productId, size, name, months, paymentMode, paymentDurationDays, durationDays, paymentReceiving } = req.body;
@@ -1904,7 +1608,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   // Merchant check: If merchant, must have active non-expired subscription
   let activeSubTierId = (dbUser.merchantSubscriptionPlan as string) || 'tier_250';
-  if (user.role === 'merchant') {
+  if (isMerchantActor) {
     const now = Date.now();
     const activeSub = (db.merchantSubscriptions || []).find(
       (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
@@ -1914,9 +1618,16 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
       (!dbUser.merchantSubscriptionExpiresAt || dbUser.merchantSubscriptionExpiresAt > now)
     );
     if (!activeSub && !userSubActive) {
+      const isExpired = Boolean(
+        (dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now) ||
+          (db.merchantSubscriptions || []).some((s) => s.merchantId === user.id && s.status === 'expired')
+      );
       return res.status(403).json({
-        error: 'Active merchant subscription and Buyoll verification required to create groups.',
-        code: 'SUBSCRIPTION_REQUIRED',
+        error: isExpired
+          ? 'Your merchant subscription has expired. Renew your plan to create groups.'
+          : 'Active merchant subscription and Buyoll verification required to create groups.',
+        code: isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
+        isExpired,
       });
     }
     if (activeSub?.tierId) activeSubTierId = activeSub.tierId;
@@ -3055,7 +2766,7 @@ apiRouter.post('/groups/:id/default', async (req: Request, res: Response) => {
     senderId: user.id,
     senderName: user.name,
     kind: 'system',
-    text: `Slot #${slot.slotNumber} has been vacated and returned to the pool for replacement. Eligible for another buyer to join.`,
+    text: `Slot #${slot.slotNumber} has been vacated and returned to the pool for replacement. Eligible for another member to join.`,
     timestamp: Date.now(),
   });
 
@@ -3772,7 +3483,7 @@ apiRouter.post('/help-chat', async (req: Request, res: Response) => {
     id: `help_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     userId: user?.id,
     userName: msgName,
-    userRole: user?.role || 'buyer',
+    userRole: user?.role || 'member',
     category: category || 'inquiry',
     text: String(text).trim().slice(0, 500),
     timestamp: Date.now(),
@@ -3815,7 +3526,7 @@ apiRouter.get('/lenders/alerts', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const activeRole = user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+  const activeRole = user.activeRole || user.role || 'member';
   if (activeRole !== 'lender') {
     return res.status(403).json({
       error: 'Access denied. Lender role required to access peer loan alerts and lending opportunities.',
@@ -3898,110 +3609,107 @@ apiRouter.post('/groups/:id/pay-from-wallet', async (req: Request, res: Response
     return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
   }
 
-  const db = await getDatabase();
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
+  try {
+    const result = await runDatabaseTransaction(async (db) => {
+      const dbUser = db.users.find((u) => u.id === user.id);
+      if (!dbUser) throw { status: 404, message: 'User not found' };
+      const group = db.groups.find((g) => g.id === groupId);
+      if (!group) throw { status: 404, message: 'Group not found' };
 
-  const slot = group.slots.find(s => s.slotNumber === Number(slotNumber) && s.userId === user.id && s.status === 'active');
-  if (!slot) {
-    return res.status(400).json({ error: 'Active slot not found for your account in this group.' });
-  }
+      const slot = group.slots.find((s) => s.slotNumber === Number(slotNumber) && s.userId === dbUser.id && s.status === 'active');
+      if (!slot) throw { status: 400, message: 'Active slot not found for your account in this group.' };
 
-  if ((user.credit || 0) < numAmount) {
-    return res.status(400).json({
-      error: `Insufficient wallet balance. You have KSh ${(user.credit || 0).toLocaleString()}, but attempted to pay KSh ${numAmount.toLocaleString()}.`,
+      const paymentCode = `WAL_${generateCode(6)}`;
+      const { wallet } = debitWalletCents(db, {
+        userId: dbUser.id,
+        role: 'member',
+        amountCents: toCents(numAmount),
+        category: 'GROUP_INSTALLMENT',
+        referenceId: paymentCode,
+        idempotencyKey: `slot_wal_${paymentCode}`,
+        note: `Group Slot #${slot.slotNumber} installment for "${group.productTitle}"`,
+        actorId: dbUser.id,
+      });
+      const updatedCredit = fromCents(wallet.balanceCents);
+
+      slot.paidAmount = (slot.paidAmount || 0) + numAmount;
+      slot.lastPaymentDate = Date.now();
+
+      const now = Date.now();
+      const paymentRecord: PaymentRecord = {
+        id: db.nextIds.payment++,
+        type: 'group_installment',
+        userId: dbUser.id,
+        userName: dbUser.name,
+        code: paymentCode,
+        amount: numAmount,
+        groupId: group.id,
+        groupName: group.name,
+        slotNumber: slot.slotNumber,
+        productId: group.productId,
+        status: 'approved',
+        createdAt: now,
+        approvedAt: now,
+      };
+      db.payments.unshift(paymentRecord);
+
+      if (!db.storeCreditLedger) db.storeCreditLedger = [];
+      db.storeCreditLedger.unshift({
+        id: db.nextIds.ledger++,
+        userId: dbUser.id,
+        amount: -numAmount,
+        balanceAfter: updatedCredit,
+        type: 'purchase_deduction' as const,
+        referenceId: paymentCode,
+        note: `Group Slot #${slot.slotNumber} installment for "${group.productTitle}" paid from wallet balance`,
+        createdAt: now,
+      });
+
+      dbUser.points = (dbUser.points || 0) + Math.floor(numAmount / 10);
+      const progressPercent = Math.min(100, Math.round(((slot.paidAmount || 0) / group.productPrice) * 100));
+
+      group.currentRoundPaid = (group.currentRoundPaid || 0) + numAmount;
+      const targetAmt = group.targetAmountPerRound || group.productPrice;
+      group.roundBalanceRemaining = Math.max(0, targetAmt - group.currentRoundPaid);
+      if (group.currentRoundPaid >= targetAmt) {
+        group.isReadyForPickup = true;
+        group.chat.push({
+          id: `chat_${now}_pickup`,
+          senderId: 1,
+          senderName: 'System Verification',
+          kind: 'system',
+          text: `✅ 100% PAID! Full target amount of KSh ${targetAmt.toLocaleString()} reached! Item is READY FOR PICKUP for Member #${group.currentRecipientSlot || 1}!`,
+          timestamp: now,
+        });
+      }
+
+      group.chat.push({
+        id: `chat_${now}`,
+        senderId: dbUser.id,
+        senderName: dbUser.name,
+        kind: 'normal',
+        text: `💳 Paid KSh ${numAmount.toLocaleString()} for Slot #${slot.slotNumber} using Buyoll wallet! Payment progress is now ${progressPercent}%. (Round total: KSh ${(group.currentRoundPaid || 0).toLocaleString()} / KSh ${targetAmt.toLocaleString()})`,
+        timestamp: now,
+      });
+
+      logAudit(
+        db,
+        dbUser.id,
+        dbUser.name,
+        'WALLET_SLOT_PAYMENT',
+        `Paid KSh ${numAmount} for Group #${group.id} Slot #${slot.slotNumber} via wallet balance. Reference: ${paymentCode}`
+      );
+
+      return { group, walletBalance: updatedCredit, paidAmount: slot.paidAmount, progressPercent };
     });
-  }
 
-  // Deduct from wallet
-  user.credit -= numAmount;
-  if (user.roleWallets?.member) {
-    user.roleWallets.member.credit = user.credit;
-  }
-
-  // Credit slot
-  slot.paidAmount = (slot.paidAmount || 0) + numAmount;
-  slot.lastPaymentDate = Date.now();
-
-  // Create approved payment record
-  const paymentCode = `WAL_${generateCode(6)}`;
-  const paymentRecord: PaymentRecord = {
-    id: db.nextIds.payment++,
-    type: 'group_installment',
-    userId: user.id,
-    userName: user.name,
-    code: paymentCode,
-    amount: numAmount,
-    groupId: group.id,
-    groupName: group.name,
-    slotNumber: slot.slotNumber,
-    productId: group.productId,
-    status: 'approved',
-    createdAt: Date.now(),
-    approvedAt: Date.now(),
-  };
-  db.payments.unshift(paymentRecord);
-
-  // Add ledger statement entry
-  const ledgerEntry = {
-    id: db.nextIds.ledger++,
-    userId: user.id,
-    amount: -numAmount,
-    balanceAfter: user.credit,
-    type: 'purchase_deduction' as const,
-    referenceId: paymentCode,
-    note: `Chama Slot #${slot.slotNumber} installment for "${group.productTitle}" paid from wallet balance`,
-    createdAt: Date.now(),
-  };
-  db.storeCreditLedger.unshift(ledgerEntry);
-
-  // Reward points
-  user.points = (user.points || 0) + Math.floor(numAmount / 10);
-
-  // Post chat notification
-  const progressPercent = Math.min(100, Math.round(((slot.paidAmount || 0) / group.productPrice) * 100));
-
-  // Update group round tracking
-  group.currentRoundPaid = (group.currentRoundPaid || 0) + numAmount;
-  const targetAmt = group.targetAmountPerRound || group.productPrice;
-  group.roundBalanceRemaining = Math.max(0, targetAmt - group.currentRoundPaid);
-  if (group.currentRoundPaid >= targetAmt) {
-    group.isReadyForPickup = true;
-    group.chat.push({
-      id: `chat_${Date.now()}_pickup`,
-      senderId: 1,
-      senderName: 'System Verification',
-      kind: 'system',
-      text: `✅ 100% PAID! Full target amount of KSh ${targetAmt.toLocaleString()} reached! Item is READY FOR PICKUP for Member #${group.currentRecipientSlot || 1}!`,
-      timestamp: Date.now(),
+    res.json({
+      ...result,
+      message: `Payment of KSh ${numAmount.toLocaleString()} successfully applied from your wallet! Dynamic progress updated to ${result.progressPercent}%.`,
     });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Wallet payment failed' });
   }
-
-  group.chat.push({
-    id: `chat_${Date.now()}`,
-    senderId: user.id,
-    senderName: user.name,
-    kind: 'normal',
-    text: `💳 Paid KSh ${numAmount.toLocaleString()} for Slot #${slot.slotNumber} using Buyoll wallet! Payment progress is now ${progressPercent}%. (Round total: KSh ${(group.currentRoundPaid || 0).toLocaleString()} / KSh ${targetAmt.toLocaleString()})`,
-    timestamp: Date.now(),
-  });
-
-  logAudit(
-    db,
-    user.id,
-    user.name,
-    'WALLET_SLOT_PAYMENT',
-    `Paid KSh ${numAmount} for Chama #${group.id} Slot #${slot.slotNumber} via wallet balance. Reference: ${paymentCode}`
-  );
-
-  await saveDatabase(db);
-  res.json({
-    group,
-    walletBalance: user.credit,
-    paidAmount: slot.paidAmount,
-    progressPercent,
-    message: `Payment of KSh ${numAmount.toLocaleString()} successfully applied from your wallet! Dynamic progress updated to ${progressPercent}%.`,
-  });
 });
 
 // Member full financial statement & ledger
@@ -4058,33 +3766,51 @@ apiRouter.get('/ledger/statement/:userId', async (req: Request, res: Response) =
     });
   }
 
-  // 2. Ledger entries
-  const userLedger = db.storeCreditLedger.filter(l => l.userId === targetUserId);
-  for (const l of userLedger) {
-    transactions.push({
-      id: l.id + 100000,
-      date: l.createdAt,
-      reference: l.referenceId || `LED-${l.id}`,
-      type: 'Wallet / Credit Ledger',
-      description: l.note,
-      debit: l.amount < 0 ? Math.abs(l.amount) : undefined,
-      credit: l.amount > 0 ? l.amount : undefined,
-      status: 'approved',
-    });
+  const activeWalletCents = getWalletBalanceCents(db, targetUser, targetUser.activeRole || targetUser.role || 'member');
+
+  // 2. Canonical walletLedger + legacy storeCreditLedger entries
+  const userWalletLedger = (db.walletLedger || []).filter((l) => l.userId === targetUserId);
+  if (userWalletLedger.length > 0) {
+    for (const wl of userWalletLedger) {
+      transactions.push({
+        id: wl.id,
+        date: wl.createdAt,
+        reference: wl.referenceId || wl.id,
+        type: wl.category,
+        description: wl.note,
+        debit: wl.direction === 'DEBIT' ? fromCents(wl.amountCents) : undefined,
+        credit: wl.direction === 'CREDIT' ? fromCents(wl.amountCents) : undefined,
+        status: 'approved',
+      });
+    }
+  } else {
+    const userLedger = db.storeCreditLedger.filter(l => l.userId === targetUserId);
+    for (const l of userLedger) {
+      transactions.push({
+        id: l.id + 100000,
+        date: l.createdAt,
+        reference: l.referenceId || `LED-${l.id}`,
+        type: 'Wallet / Credit Ledger',
+        description: l.note,
+        debit: l.amount < 0 ? Math.abs(l.amount) : undefined,
+        credit: l.amount > 0 ? l.amount : undefined,
+        status: 'approved',
+      });
+    }
   }
 
   // Sort by date descending
   transactions.sort((a, b) => b.date - a.date);
 
   const statement: MemberStatement = {
-    user: targetUser,
+    user: sanitizeUser(targetUser),
     totalPaid,
-    currentCredit: targetUser.credit || 0,
+    currentCredit: fromCents(activeWalletCents),
     activeSlots,
     transactions,
   };
 
-  res.json({ statement });
+  res.json({ statement, walletLedger: userWalletLedger });
 });
 
 // -------------------------------------------------------------
@@ -4131,65 +3857,79 @@ apiRouter.post('/wallet/redeem-points', async (req: Request, res: Response) => {
 // ADMIN PANEL ENDPOINTS
 // -------------------------------------------------------------
 // Setup status endpoint (Used by private admin portal landing modal)
-apiRouter.get('/admin/setup-status', async (req: Request, res: Response) => {
-  const db = await getDatabase();
-  const adminUsers = (db.users || []).filter(u => u.role === 'admin' || (u.roles && u.roles.includes('admin')));
-  const adminExists = adminUsers.length > 0;
+apiRouter.get('/admin/setup-status', async (_req: Request, res: Response) => {
   res.json({
-    adminExists,
-    canRegisterAdmin: !adminExists,
+    adminExists: true,
+    canRegisterAdmin: false,
   });
 });
 
-// Admin Account Settings: Update username and/or password
+// Admin Account Settings: Update profile details (password changes belong in /admin/settings/change-password)
 apiRouter.post('/admin/account/update', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
   const { user, db } = auth;
 
+  const dbUser = db.users.find((u: User) => u.id === user.id);
+  if (!dbUser) return res.status(404).json({ error: 'Admin user not found.' });
+
   const { name, email, currentPassword, newPassword } = req.body;
 
-  // 1. Password change validation & update
   if (newPassword) {
+    const { hashPassword: hashPwd, verifyPassword: verifyPwd, evaluatePasswordStrength, invalidateUserOtherSessions, sendSecurityEmail } = await import('./auth_utils.js');
     if (!currentPassword) {
       return res.status(400).json({ error: 'Current password is required to change password.' });
     }
-    if (user.password && !verifyPassword(currentPassword, user.password)) {
+    if (!dbUser.password || !(await verifyPwd(String(currentPassword), dbUser.password))) {
       return res.status(400).json({ error: 'Current password is incorrect.' });
     }
-    if (typeof newPassword !== 'string' || newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    const strength = evaluatePasswordStrength(String(newPassword), {
+      username: dbUser.username,
+      email: dbUser.email,
+      name: dbUser.name,
+      phone: dbUser.phone,
+    });
+    if (!strength.ok) {
+      return res.status(400).json({ error: strength.errors[0] || 'Password does not meet security requirements.' });
     }
-    user.password = hashPassword(newPassword.trim());
+    dbUser.password = await hashPwd(String(newPassword));
+    dbUser.lastPasswordChangedAt = Date.now();
+    dbUser.mustChangeCredentials = false;
+    invalidateUserOtherSessions(db, dbUser.id, undefined, 'admin_password_changed');
+    sendSecurityEmail(db, {
+      to: dbUser.email,
+      subject: 'Buyoll Admin Security Notice: Password Changed',
+      body: `Your Buyoll Admin password was changed at ${new Date().toISOString()}.`,
+      kind: 'credential_changed',
+      userId: dbUser.id,
+    });
   }
 
-  // 2. Name / username change
   if (name && typeof name === 'string' && name.trim()) {
-    user.name = name.trim();
+    dbUser.name = name.trim();
   }
 
-  // 3. Email change
   if (email && typeof email === 'string' && email.trim()) {
     const cleanEmail = email.trim().toLowerCase();
-    const existing = db.users.find((u: any) => u.id !== user.id && u.email?.toLowerCase() === cleanEmail);
+    const existing = db.users.find((u: any) => u.id !== dbUser.id && u.email?.toLowerCase() === cleanEmail);
     if (existing) {
       return res.status(400).json({ error: 'That email is already registered to another account.' });
     }
-    user.email = cleanEmail;
+    dbUser.email = cleanEmail;
   }
 
   logAudit(
     db,
-    user.id,
-    user.name,
+    dbUser.id,
+    dbUser.name,
     'ADMIN_ACCOUNT_SETTINGS_UPDATED',
-    `Administrator updated account settings: name=${user.name}, email=${user.email}, passwordChanged=${!!newPassword}`
+    `Administrator updated account settings: name=${dbUser.name}, email=${dbUser.email}, passwordChanged=${!!newPassword}`
   );
 
   await saveDatabase(db);
   res.json({
     success: true,
-    user,
+    user: sanitizeUser(dbUser),
     message: 'Administrator settings updated successfully.',
   });
 });
@@ -4353,35 +4093,33 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
           }
         } else if (payment.type === 'merchant_subscription') {
           const merchant = db.users.find((u) => u.id === payment.userId);
-          const sub = (db.merchantSubscriptions || []).find((s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending'));
-          const durationDays = sub?.billingPeriod === 'yearly' ? 365 : 30;
-          const durationLabel = sub?.billingPeriod === 'yearly' ? '365 days (Yearly)' : '30 days';
-          const expiresAt = now + durationDays * 86400000;
-          if (sub) {
-            sub.status = 'active';
-            sub.startDate = now;
-            sub.expiresAt = expiresAt;
-          }
+          const sub = (db.merchantSubscriptions || []).find(
+            (s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending')
+          );
+          const billingPeriod: 'monthly' | 'yearly' = sub?.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+          const planId = sub?.tierId || merchant?.merchantSubscriptionPlan || 'tier_500';
+          const planObj = SUBSCRIPTION_TIERS.find((t) => t.id === planId) || SUBSCRIPTION_TIERS[0];
           if (merchant) {
-            merchant.merchantSubscriptionStatus = 'active';
-            merchant.merchantSubscriptionPlan = (sub?.tierId || merchant.merchantSubscriptionPlan || 'tier_500') as any;
-            merchant.merchantSubscriptionExpiresAt = expiresAt;
-            merchant.verified = true;
-            merchant.verifiedAt = now;
-            merchant.starRating = 5;
-
-            if (!db.userNotifications) db.userNotifications = [];
-            db.userNotifications.unshift({
-              id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-              userId: merchant.id,
-              title: '🎉 Subscription Approved & Activated!',
-              message: `Your merchant subscription has been approved by Admin! Your store is active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}.`,
-              type: 'payment',
-              read: false,
-              timestamp: now,
+            const activation = activateSubscriptionInTx(db, {
+              merchantUser: merchant,
+              planId: planObj.id,
+              planName: planObj.name,
+              billingPeriod,
+              subscriptionId: sub?.id || `pay_sub_${payment.id}`,
+              actorId: user.id,
+              actorName: user.name,
+              paymentSummary: `M-Pesa Code ${payment.code}`,
+              now,
             });
-
-            logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_ACTIVATED', `Activated merchant subscription (${durationLabel}) for ${merchant.name} (Code: ${payment.code})`);
+            if (sub) {
+              sub.status = 'active';
+              sub.startDate = activation.startDate;
+              sub.expiresAt = activation.expiresAt;
+              sub.currentPeriodEnd = activation.expiresAt;
+              sub.approvedBy = user.id;
+              sub.approvedAt = now;
+            }
+            merchant.starRating = merchant.starRating || 5;
           }
         } else if (payment.type === 'wallet_deposit') {
           const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
@@ -4391,20 +4129,24 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
             dep.processedBy = user.name;
             const targetUser = db.users.find((u) => u.id === dep.userId);
             if (targetUser) {
-              const depRole = dep.role || targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
-              if (!targetUser.roleWallets) targetUser.roleWallets = {};
-              if (!targetUser.roleWallets[depRole]) targetUser.roleWallets[depRole] = { credit: 0, coins: 0, points: 0 };
-              targetUser.roleWallets[depRole].credit = (targetUser.roleWallets[depRole].credit || 0) + dep.amount;
-              if ((targetUser.activeRole || targetUser.role) === depRole) {
-                targetUser.credit = targetUser.roleWallets[depRole].credit;
-              }
+              const depRole = dep.role || targetUser.activeRole || targetUser.role || 'member';
+              const { wallet: creditedWallet } = creditWalletCents(db, {
+                userId: targetUser.id,
+                role: depRole,
+                amountCents: toCents(dep.amount),
+                category: 'DEPOSIT',
+                referenceId: dep.mpesaCode,
+                idempotencyKey: `dep_${dep.id}_${dep.mpesaCode}`,
+                note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved by Admin`,
+                actorId: user.id,
+              });
 
               if (!db.storeCreditLedger) db.storeCreditLedger = [];
               db.storeCreditLedger.unshift({
                 id: db.nextIds.ledger++,
                 userId: targetUser.id,
                 amount: dep.amount,
-                balanceAfter: targetUser.roleWallets[depRole].credit,
+                balanceAfter: fromCents(creditedWallet.balanceCents),
                 type: 'refund_credit' as const,
                 referenceId: dep.mpesaCode,
                 note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved by Admin in payments`,
@@ -5562,7 +5304,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         };
       }
 
-      const activeRole = role || user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+      const activeRole = role || user.activeRole || user.role || 'member';
       const now = Date.now();
 
       const newDeposit: WalletDepositRequest = {
@@ -5687,7 +5429,7 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
       if (notes) deposit.notes = notes;
 
       const payment = (db.payments || []).find((p) => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
-      const depRole = deposit.role || targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
+      const depRole = deposit.role || targetUser.activeRole || targetUser.role || 'member';
 
       if (action === 'approve') {
         deposit.status = 'approved';
@@ -5698,34 +5440,24 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
           payment.verifiedBy = user.name;
         }
 
-        // Ensure targetUser.roleWallets exists
-        if (!targetUser.roleWallets) {
-          targetUser.roleWallets = {
-            member: { credit: targetUser.credit || 0, coins: targetUser.coins || 0, points: targetUser.points || 0 },
-            merchant: { credit: 0, coins: 0, points: 0 },
-            lender: { credit: 0, coins: 0, points: 0 },
-          };
-        }
-        if (!targetUser.roleWallets[depRole]) {
-          targetUser.roleWallets[depRole] = { credit: 0, coins: 0, points: 0 };
-        }
+        const { wallet: creditedWallet } = creditWalletCents(db, {
+          userId: targetUser.id,
+          role: depRole,
+          amountCents: toCents(deposit.amount),
+          category: 'DEPOSIT',
+          referenceId: deposit.mpesaCode,
+          idempotencyKey: `dep_${deposit.id}_${deposit.mpesaCode}`,
+          note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
+          actorId: user.id,
+        });
+        const newBalance = fromCents(creditedWallet.balanceCents);
 
-        // Credit target role wallet atomically
-        targetUser.roleWallets[depRole].credit = (targetUser.roleWallets[depRole].credit || 0) + deposit.amount;
-
-        // Sync top-level credit if active role matches depRole
-        const currentActive = targetUser.activeRole || (targetUser.role === 'buyer' ? 'member' : targetUser.role) || 'member';
-        if (currentActive === depRole) {
-          targetUser.credit = targetUser.roleWallets[depRole].credit;
-        }
-
-        // Add to store credit ledger atomically
         if (!db.storeCreditLedger) db.storeCreditLedger = [];
         const ledgerEntry = {
           id: db.nextIds.ledger++,
           userId: targetUser.id,
           amount: deposit.amount,
-          balanceAfter: targetUser.roleWallets[depRole].credit,
+          balanceAfter: newBalance,
           type: 'refund_credit' as const,
           referenceId: deposit.mpesaCode,
           note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
@@ -5733,31 +5465,29 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
         };
         db.storeCreditLedger.unshift(ledgerEntry);
 
-        // Private notification to target user
         if (!db.userNotifications) db.userNotifications = [];
         db.userNotifications.unshift({
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: targetUser.id,
           title: '💰 Wallet Deposit Approved',
-          message: `Your deposit of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${targetUser.roleWallets[depRole].credit.toLocaleString()}.`,
+          message: `Your deposit of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${newBalance.toLocaleString()}.`,
           type: 'payment',
           read: false,
           timestamp: now,
         });
 
-        // Audit log
         logAudit(
           db,
           user.id,
           user.name,
           'WALLET_DEPOSIT_APPROVED',
-          `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (${depRole} wallet, Code: ${deposit.mpesaCode}). New balance: KSh ${targetUser.roleWallets[depRole].credit}`
+          `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (${depRole} wallet, Code: ${deposit.mpesaCode}). New balance: KSh ${newBalance}`
         );
 
         return {
           deposit,
-          newBalance: targetUser.roleWallets[depRole].credit,
-          message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s ${depRole} wallet. New balance: KSh ${targetUser.roleWallets[depRole].credit.toLocaleString()}.`,
+          newBalance,
+          message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s ${depRole} wallet. New balance: KSh ${newBalance.toLocaleString()}.`,
         };
       } else {
         deposit.status = 'declined';

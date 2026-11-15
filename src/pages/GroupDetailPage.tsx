@@ -3817,7 +3817,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Name:</span>
-                    <span className="font-bold text-slate-800">{currentUser?.name || 'Guest'}</span>
+                    <span className="font-bold text-slate-800">{currentUser?.name || 'Member'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Phone:</span>

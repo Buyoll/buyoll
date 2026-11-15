@@ -13,7 +13,7 @@ function isNumericIdParam(raw: string): boolean {
 }
 
 function getEffectiveRole(user: User): string {
-  return user.activeRole || (user.role === 'buyer' ? 'member' : user.role) || 'member';
+  return user.activeRole || user.role || 'member';
 }
 
 function getEffectiveJoinPolicy(group: ChamaGroup): GroupJoinPolicy {

@@ -66,15 +66,17 @@ describe('Items 3 & 4: Remove Admin Outline Toggle, Cleanup Footer, & Centralize
     assert.ok(supportConfig.includes('buyoll@customerservive.com'), 'Support config must define buyoll@customerservive.com');
   });
 
-  it('serves seeded admin and API responses using SUPPORT_EMAIL (buyoll@customerservive.com)', async () => {
+  it('serves admin auth session and API responses without legacy support email', async () => {
     assert.equal(SUPPORT_EMAIL, 'buyoll@customerservive.com');
 
+    const { accessToken } = await harness.loginAdmin();
     const meRes = await fetch(`${harness.baseUrl}/api/auth/me`, {
-      headers: { 'x-user-id': '1' },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     assert.equal(meRes.status, 200);
     const meJson = await meRes.json();
-    assert.equal(meJson.user.email, 'buyoll@customerservive.com');
+    assert.equal(meJson.user.role, 'admin');
+    assert.equal(meJson.user.email, harness.adminCredentials.email);
 
     const cardsRes = await fetch(`${harness.baseUrl}/api/announcement-cards`);
     assert.equal(cardsRes.status, 200);

@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts up",
     "migrate:rollback": "tsx scripts/migrate.ts down",
+    "check:terms": "node scripts/check_terminology.mjs",
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/multer": "^2.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "argon2": "^0.45.2",
     "cookie-parser": "^1.4.7",
     "d3": "^7.9.0",
     "dotenv": "^17.2.3",

@@ -10,6 +10,7 @@ import {
   PlatformAnnouncementRevision,
   JoinRelationship,
 } from '../src/types.js';
+import { resolveAuthenticatedUser } from './auth_utils.js';
 import { SUPPORT_EMAIL } from './config.js';
 
 export const chamaTrustRouter = Router();
@@ -18,18 +19,7 @@ export const chamaTrustRouter = Router();
 // AUTH & SESSION HELPERS
 // ----------------------------------------------------------------------
 async function getAuthUser(req: Request): Promise<User | null> {
-  const userIdHeader = req.headers['x-user-id'] || req.headers['authorization'] || req.query.authUserId;
-  if (!userIdHeader) return null;
-  const idStr = String(userIdHeader).replace(/^Bearer\s+/, '').trim();
-  const db = await getDatabase();
-  const uid = Number(idStr);
-  if (!isNaN(uid)) {
-    const user = db.users.find((u) => u.id === uid);
-    if (user) return user;
-  }
-  // Also check email if provided in header
-  const userByEmail = db.users.find((u) => u.email?.toLowerCase() === idStr.toLowerCase());
-  return userByEmail || null;
+  return resolveAuthenticatedUser(req);
 }
 
 // ----------------------------------------------------------------------

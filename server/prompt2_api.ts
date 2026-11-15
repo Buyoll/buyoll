@@ -15,7 +15,17 @@ import {
 } from '../src/types.js';
 import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { emitPlatformEvent } from './events.js';
-import { getComputedSubscriptionTiers, resolvePlan } from './subscriptions_api.js';
+import {
+  activateSubscriptionInTx,
+  getComputedSubscriptionTiers,
+  resolvePlan,
+} from './subscriptions_api.js';
+import { toCents } from './config.js';
+import {
+  creditWalletCents,
+  debitWalletCents,
+  findPlatformAdminUser,
+} from './wallet_service.js';
 
 export const prompt2Router = Router();
 
@@ -28,23 +38,20 @@ async function getAuthUser(req: Request): Promise<User | null> {
 }
 
 export function isUserMerchant(u: User | null): boolean {
-  if (!u) return false;
+  if (!u || u.isDisabled || u.isSuspended) return false;
   return (
     u.activeRole === 'merchant' ||
     u.role === 'merchant' ||
-    (Array.isArray(u.roles) && u.roles.includes('merchant')) ||
-    u.id === 2 ||
-    u.id === 12
+    (Array.isArray(u.roles) && u.roles.includes('merchant'))
   );
 }
 
 export function isUserAdmin(u: User | null): boolean {
-  if (!u) return false;
+  if (!u || u.isDisabled || u.isSuspended) return false;
   return (
     u.activeRole === 'admin' ||
     u.role === 'admin' ||
-    (Array.isArray(u.roles) && u.roles.includes('admin')) ||
-    u.id === 1
+    (Array.isArray(u.roles) && u.roles.includes('admin'))
   );
 }
 
@@ -549,24 +556,20 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
       const useCredit = paymentMethod === 'wallet_credit';
       const feeAmount = period === 'yearly' ? targetTier.yearlyFee : targetTier.monthlyFee;
       const now = Date.now();
+      const finalMethod = useCredit ? 'wallet_credit' : 'wallet_coins';
+      const subId = `sub_wallet_${now}_${targetTier.id}`;
 
       if (useCredit) {
-        // Check merchant operating credit
-        const currentMerchantCredit = dbMerchant.roleWallets?.merchant?.credit ?? dbMerchant.credit ?? 0;
-        if (currentMerchantCredit < feeAmount) {
-          throw {
-            status: 400,
-            message: `Insufficient merchant wallet balance. You have KSh ${currentMerchantCredit.toLocaleString()} but need KSh ${feeAmount.toLocaleString()} for the ${targetTier.name} (${durationLabel}). Top up via Till 196853 first or use another payment method.`,
-          };
-        }
-
-        // Deduct from merchant wallet
-        if (!dbMerchant.roleWallets) dbMerchant.roleWallets = {};
-        if (!dbMerchant.roleWallets.merchant) dbMerchant.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
-        dbMerchant.roleWallets.merchant.credit = Math.max(0, (dbMerchant.roleWallets.merchant.credit || 0) - feeAmount);
-        if ((dbMerchant.activeRole || dbMerchant.role) === 'merchant') {
-          dbMerchant.credit = dbMerchant.roleWallets.merchant.credit;
-        }
+        const { wallet: debitedWallet } = debitWalletCents(db, {
+          userId: dbMerchant.id,
+          role: 'merchant',
+          amountCents: toCents(feeAmount),
+          category: 'SUBSCRIPTION_PAYMENT',
+          referenceId: subId,
+          idempotencyKey: `sub_hold_${subId}`,
+          note: `Store credit held for ${targetTier.name} (${durationLabel}) subscription (Pending Admin Approval)`,
+          actorId: dbMerchant.id,
+        });
 
         // Record in store credit ledger
         if (!db.storeCreditLedger) db.storeCreditLedger = [];
@@ -574,7 +577,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
           id: db.nextIds.ledger++,
           userId: dbMerchant.id,
           amount: -feeAmount,
-          balanceAfter: dbMerchant.roleWallets.merchant.credit,
+          balanceAfter: debitedWallet.balanceCents / 100,
           type: 'transfer_out' as any,
           referenceId: `SUB-${now}`,
           note: `Store credit held for ${targetTier.name} (${durationLabel}) subscription (Pending Admin Approval)`,
@@ -590,7 +593,7 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
           };
         }
 
-        const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
+        const adminUser = findPlatformAdminUser(db) || db.users[0];
         dbMerchant.coins = (dbMerchant.coins || 0) - feeCoins;
         if (adminUser) adminUser.coins = (adminUser.coins || 0) + feeCoins;
 
@@ -609,9 +612,8 @@ prompt2Router.post('/merchant/subscription/pay-coins', async (req: Request, res:
         });
       }
 
-      const finalMethod = useCredit ? 'wallet_credit' : 'wallet_coins';
       const newSub: MerchantSubscriptionRecord = {
-        id: `sub_wallet_${now}_${targetTier.id}`,
+        id: subId,
         merchantId: user.id,
         tierId: targetTier.id,
         tierName: targetTier.name,
@@ -769,51 +771,112 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
 });
 
 
-// Pay Featured Product fee (KES 30 / day) with Wallet Coins (Method 1)
+// Pay Featured Product fee (KES 30 / day) with Wallet Coins or Wallet Credit
 prompt2Router.post('/products/feature/pay-coins', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+  if (!user || (!isUserMerchant(user) && !isUserAdmin(user))) {
     return res.status(403).json({ error: 'Merchant authorization required' });
   }
 
-  const { productId, days } = req.body;
+  const { productId, days, paymentMethod } = req.body;
   const numDays = Math.max(1, Math.min(90, Number(days) || 7));
   const feePerDay = 30; // STRICT KES 30/day featured fee
-  const totalCoins = numDays * feePerDay;
+  const totalAmount = numDays * feePerDay;
 
-  const db = await getDatabase();
-  const product = db.products.find((p) => p.id === Number(productId));
-  if (!product) return res.status(404).json({ error: 'Product not found' });
-  if (product.vendorId !== user.id && user.role !== 'admin') {
-    return res.status(403).json({ error: 'You can only feature your own products.' });
-  }
+  try {
+    const updatedProduct = await runDatabaseTransaction(async (db) => {
+      const product = db.products.find((p) => p.id === Number(productId));
+      if (!product) throw { status: 404, message: 'Product not found' };
+      if (product.vendorId !== user.id && !isUserAdmin(user)) {
+        throw { status: 403, message: 'You can only feature your own products.' };
+      }
 
-  const merchantUser = db.users.find((u) => u.id === user.id);
-  if (!merchantUser) return res.status(404).json({ error: 'User not found' });
+      const merchantUser = db.users.find((u) => u.id === user.id);
+      if (!merchantUser) throw { status: 404, message: 'User not found' };
 
-  if ((merchantUser.coins || 0) < totalCoins) {
-    return res.status(400).json({
-      error: `Insufficient coins. You have ${merchantUser.coins || 0} coins but need ${totalCoins} coins (${numDays} days @ KSh 30/day).`,
+      const adminUser = findPlatformAdminUser(db) || db.users[0];
+      const now = Date.now();
+
+      if (paymentMethod === 'wallet_credit') {
+        const refId = `FEAT_${product.id}_${now}`;
+        const { wallet } = debitWalletCents(db, {
+          userId: merchantUser.id,
+          role: 'merchant',
+          amountCents: toCents(totalAmount),
+          category: 'PROMOTION_PAYMENT',
+          referenceId: refId,
+          idempotencyKey: `feat_debit_${refId}`,
+          note: `Featured placement fee for "${product.title}" (${numDays} days @ KSh 30/day)`,
+          actorId: merchantUser.id,
+        });
+        if (adminUser && adminUser.id !== merchantUser.id) {
+          creditWalletCents(db, {
+            userId: adminUser.id,
+            role: 'admin',
+            amountCents: toCents(totalAmount),
+            category: 'PROMOTION_REVENUE',
+            referenceId: refId,
+            idempotencyKey: `feat_rev_${refId}`,
+            note: `Featured product revenue for "${product.title}" (${numDays} days)`,
+            actorId: merchantUser.id,
+          });
+        }
+        if (!db.storeCreditLedger) db.storeCreditLedger = [];
+        db.storeCreditLedger.unshift({
+          id: db.nextIds.ledger++,
+          userId: merchantUser.id,
+          amount: -totalAmount,
+          balanceAfter: wallet.balanceCents / 100,
+          type: 'transfer_out' as any,
+          referenceId: refId,
+          note: `Featured placement fee for "${product.title}" (${numDays} days)`,
+          createdAt: now,
+        });
+      } else {
+        if ((merchantUser.coins || 0) < totalAmount) {
+          throw {
+            status: 400,
+            message: `Insufficient coins. You have ${merchantUser.coins || 0} coins but need ${totalAmount} coins (${numDays} days @ KSh 30/day).`,
+          };
+        }
+        merchantUser.coins = (merchantUser.coins || 0) - totalAmount;
+        if (adminUser) adminUser.coins = (adminUser.coins || 0) + totalAmount;
+        if (!db.coinLedger) db.coinLedger = [];
+        db.coinLedger.push({
+          id: db.coinLedger.length + 1,
+          senderId: merchantUser.id,
+          senderName: merchantUser.name,
+          recipientId: adminUser?.id || 1,
+          recipientName: adminUser?.name || 'Admin Escrow',
+          amount: totalAmount,
+          type: 'transfer',
+          reason: 'featured_product',
+          note: `Featured placement (${numDays} days) for "${product.title}"`,
+          timestamp: now,
+        });
+      }
+
+      product.isFeatured = true;
+      product.updatedAt = now;
+
+      logAudit(
+        db,
+        user.id,
+        user.name,
+        'PRODUCT_FEATURED_PAID',
+        `Paid ${totalAmount} (${paymentMethod === 'wallet_credit' ? 'KSh wallet' : 'coins'}) to feature "${product.title}" for ${numDays} days`
+      );
+      return product;
     });
+
+    res.json({
+      success: true,
+      product: updatedProduct,
+      message: `"${updatedProduct.title}" is now FEATURED for ${numDays} days! Appears in Featured section and Announcements.`,
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to feature product' });
   }
-
-  // Atomic coins transfer
-  const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
-  merchantUser.coins = (merchantUser.coins || 0) - totalCoins;
-  adminUser.coins = (adminUser.coins || 0) + totalCoins;
-
-  // Activate featured status
-  product.isFeatured = true;
-  product.updatedAt = Date.now();
-
-  logAudit(db, user.id, user.name, 'PRODUCT_FEATURED_COINS_PAID', `Paid ${totalCoins} coins to feature "${product.title}" for ${numDays} days`);
-  await saveDatabase(db);
-
-  res.json({
-    success: true,
-    product,
-    message: `"${product.title}" is now FEATURED for ${numDays} days! Appears in Featured section and Announcements.`,
-  });
 });
 
 // ----------------------------------------------------------------------
@@ -837,7 +900,9 @@ prompt2Router.get('/merchant/verification/status', async (req: Request, res: Res
 // Merchant submits registration & documents
 prompt2Router.post('/merchant/verification/submit', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'merchant') return res.status(403).json({ error: 'Merchant authorization required' });
+  if (!user || (!isUserMerchant(user) && !isUserAdmin(user))) {
+    return res.status(403).json({ error: 'Merchant authorization required' });
+  }
 
   const {
     hasPhysicalShop,
@@ -888,7 +953,7 @@ prompt2Router.post('/merchant/verification/submit', async (req: Request, res: Re
 // Admin schedules shop visit
 prompt2Router.post('/admin/merchant-verifications/:id/schedule-visit', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const mid = Number(req.params.id);
   const { scheduledDate, representative } = req.body;
@@ -922,7 +987,7 @@ prompt2Router.post('/admin/merchant-verifications/:id/schedule-visit', async (re
 // Admin records shop visit & advert installation
 prompt2Router.post('/admin/merchant-verifications/:id/complete-visit', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const mid = Number(req.params.id);
   const { notes, advertInstalled, photoUrl } = req.body;
@@ -948,7 +1013,7 @@ prompt2Router.post('/admin/merchant-verifications/:id/complete-visit', async (re
 // Admin grants exemption with MANDATORY written reason
 prompt2Router.post('/admin/merchant-verifications/:id/grant-exemption', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const mid = Number(req.params.id);
   const { requirement, reason } = req.body;
@@ -990,7 +1055,7 @@ prompt2Router.post('/admin/merchant-verifications/:id/grant-exemption', async (r
 // Admin decides verification: verify or decline
 prompt2Router.post('/admin/merchant-verifications/:id/decide', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const mid = Number(req.params.id);
   const { action, declineReason } = req.body; // 'verify' | 'decline'
@@ -1047,7 +1112,7 @@ prompt2Router.post('/admin/merchant-verifications/:id/decide', async (req: Reque
 // Admin lists all verifications
 prompt2Router.get('/admin/merchant-verifications', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
   const list = (db.merchantVerifications || []).map((v) => {
@@ -1092,16 +1157,14 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
   const subId = req.params.id;
 
   try {
-    const { sub, merchantName } = await runDatabaseTransaction(async (db) => {
+    const result = await runDatabaseTransaction(async (db) => {
       const targetSub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
       if (!targetSub) throw { status: 404, message: 'Subscription not found' };
 
-      // Strictly prevent duplicate approval / processing
       if (targetSub.status !== 'pending') {
         throw { status: 400, message: `This subscription has already been ${targetSub.status}. Duplicate processing prevented.` };
       }
 
-      // Check if payment code was already used for an active subscription
       if (targetSub.paymentCode) {
         const duplicateActive = (db.merchantSubscriptions || []).some(
           (s) => s.id !== targetSub.id && s.paymentCode === targetSub.paymentCode && s.status === 'active'
@@ -1111,19 +1174,61 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
         }
       }
 
-      const targetTier = SUBSCRIPTION_TIERS.find((t) => t.id === targetSub.tierId) || SUBSCRIPTION_TIERS[0];
+      const tiers = getComputedSubscriptionTiers(db);
+      const targetTier = tiers.find((t) => t.id === targetSub.tierId) || tiers[0];
       const now = Date.now();
-      const durationDays = targetSub.billingPeriod === 'yearly' ? 365 : 30;
-      const durationLabel = targetSub.billingPeriod === 'yearly' ? '365 days (Yearly)' : '30 days';
-      const expiresAt = now + durationDays * 86400000;
+      const billingPeriod: 'monthly' | 'yearly' = targetSub.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+      const durationLabel = billingPeriod === 'yearly' ? '365 days (Yearly)' : '30 days';
+
+      const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
+      if (!merchantUser) throw { status: 404, message: 'Merchant account not found' };
+
+      const methodDesc =
+        targetSub.paymentMethod === 'wallet_credit'
+          ? 'Merchant Wallet Store Credit'
+          : targetSub.paymentMethod === 'wallet_coins'
+          ? 'Wallet Coins'
+          : targetSub.paymentCode || 'M-Pesa Till';
+
+      const activation = activateSubscriptionInTx(db, {
+        merchantUser,
+        planId: targetTier.id,
+        planName: targetTier.name,
+        billingPeriod,
+        subscriptionId: targetSub.id,
+        actorId: user.id,
+        actorName: user.name,
+        paymentSummary: methodDesc,
+        now,
+      });
 
       targetSub.status = 'active';
-      targetSub.startDate = now;
-      targetSub.expiresAt = expiresAt;
+      targetSub.startDate = activation.startDate;
+      targetSub.expiresAt = activation.expiresAt;
+      targetSub.currentPeriodEnd = activation.expiresAt;
+      targetSub.approvedBy = user.id;
+      targetSub.approvedAt = now;
 
-      // Also approve payment record if present
+      if (targetSub.paymentMethod === 'wallet_credit' && targetSub.amount > 0) {
+        const platformAdmin = findPlatformAdminUser(db);
+        if (platformAdmin && platformAdmin.id !== merchantUser.id) {
+          creditWalletCents(db, {
+            userId: platformAdmin.id,
+            role: 'admin',
+            amountCents: toCents(targetSub.amount),
+            category: 'SUBSCRIPTION_REVENUE',
+            referenceId: targetSub.id,
+            idempotencyKey: `sub_rev_${targetSub.id}`,
+            note: `Settled merchant subscription payment from ${merchantUser.name} (${targetTier.name})`,
+            actorId: user.id,
+          });
+        }
+      }
+
       if (db.payments) {
-        const payment = db.payments.find(p => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id)));
+        const payment = db.payments.find(
+          (p) => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id))
+        );
         if (payment) {
           payment.status = 'approved';
           payment.approvedAt = now;
@@ -1132,41 +1237,27 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
         }
       }
 
-      const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
-      if (merchantUser) {
-        merchantUser.merchantSubscriptionStatus = 'active';
-        merchantUser.merchantSubscriptionPlan = targetSub.tierId as any;
-        merchantUser.merchantSubscriptionExpiresAt = expiresAt;
-        merchantUser.verified = true;
-        merchantUser.verifiedAt = now;
-
-        const methodDesc = targetSub.paymentMethod === 'wallet_credit'
-          ? 'Merchant Wallet Store Credit'
-          : targetSub.paymentMethod === 'wallet_coins'
-          ? 'Wallet Coins'
-          : (targetSub.paymentCode || 'M-Pesa Till');
-
-        if (!db.userNotifications) db.userNotifications = [];
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: merchantUser.id,
-          title: `🎉 Subscription Approved: ${targetTier.name}`,
-          message: `Your payment (${methodDesc}) has been approved by Admin! Your store catalog limits are now active for ${durationLabel} until ${new Date(expiresAt).toLocaleDateString()}. You can now post listings and create speed groups!`,
-          type: 'payment',
-          read: false,
-          timestamp: now,
-        });
-      }
-
-      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_APPROVED', `Approved ${targetSub.paymentMethod} (${durationLabel}) subscription for merchant #${targetSub.merchantId} (${targetTier.name})`);
-
-      return { sub: targetSub, merchantName: merchantUser?.name || 'merchant', durationLabel };
+      return { sub: targetSub, merchantName: merchantUser.name || 'merchant', merchantId: merchantUser.id, durationLabel, activation };
     });
+
+    emitPlatformEvent(
+      'subscription.activated',
+      {
+        merchantId: result.merchantId,
+        subscription: result.sub,
+        notice: result.activation.activationNotice,
+        status: result.activation.statusPayload,
+        restoredProductIds: result.activation.restoredProductIds,
+      },
+      [result.merchantId]
+    );
+    emitPlatformEvent('subscription.updated', { merchantId: result.merchantId, subscription: result.sub });
 
     res.json({
       success: true,
-      subscription: sub,
-      message: `Approved subscription for ${merchantName}! ${sub.billingPeriod === 'yearly' ? 'Yearly (365-day)' : '30-day'} active window started.`,
+      subscription: result.sub,
+      restoredProductIds: result.activation.restoredProductIds,
+      message: `Approved subscription for ${result.merchantName}! ${result.sub.billingPeriod === 'yearly' ? 'Yearly (365-day)' : '30-day'} active window started.`,
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to approve subscription' });
@@ -1186,7 +1277,6 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
       const targetSub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
       if (!targetSub) throw { status: 404, message: 'Subscription not found' };
 
-      // Strictly prevent duplicate decline / processing
       if (targetSub.status !== 'pending') {
         throw { status: 400, message: `This subscription has already been ${targetSub.status}. Duplicate processing prevented.` };
       }
@@ -1194,9 +1284,10 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
       targetSub.status = 'declined';
       const now = Date.now();
 
-      // Also reject payment record if present
       if (db.payments) {
-        const payment = db.payments.find(p => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id)));
+        const payment = db.payments.find(
+          (p) => (targetSub.paymentCode && p.code === targetSub.paymentCode) || (p.notes && p.notes.includes(targetSub.id))
+        );
         if (payment) {
           payment.status = 'rejected';
           payment.rejectionReason = reason || 'Declined by Admin';
@@ -1205,30 +1296,32 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
 
       const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
       if (merchantUser) {
-        // Check if user has any other active subscription
         const hasOtherActive = (db.merchantSubscriptions || []).some(
-          s => s.id !== targetSub.id && s.merchantId === targetSub.merchantId && s.status === 'active' && s.expiresAt && s.expiresAt > now
+          (s) => s.id !== targetSub.id && s.merchantId === targetSub.merchantId && s.status === 'active' && s.expiresAt && s.expiresAt > now
         );
         if (!hasOtherActive) {
           merchantUser.merchantSubscriptionStatus = 'inactive';
         }
 
-        // If was paid with wallet credit, refund store credit back to merchant wallet
         if (targetSub.paymentMethod === 'wallet_credit') {
           const refundAmt = targetSub.amount || 0;
-          if (!merchantUser.roleWallets) merchantUser.roleWallets = {};
-          if (!merchantUser.roleWallets.merchant) merchantUser.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
-          merchantUser.roleWallets.merchant.credit = (merchantUser.roleWallets.merchant.credit || 0) + refundAmt;
-          if ((merchantUser.activeRole || merchantUser.role) === 'merchant') {
-            merchantUser.credit = merchantUser.roleWallets.merchant.credit;
-          }
+          const { wallet: refundedWallet } = creditWalletCents(db, {
+            userId: merchantUser.id,
+            role: 'merchant',
+            amountCents: toCents(refundAmt),
+            category: 'REFUND',
+            referenceId: `REF-${targetSub.id}`,
+            idempotencyKey: `sub_refund_${targetSub.id}`,
+            note: `Refunded KSh ${refundAmt} store credit due to declined subscription`,
+            actorId: user.id,
+          });
 
           if (!db.storeCreditLedger) db.storeCreditLedger = [];
           db.storeCreditLedger.unshift({
             id: db.nextIds.ledger++,
             userId: merchantUser.id,
             amount: refundAmt,
-            balanceAfter: merchantUser.roleWallets.merchant.credit,
+            balanceAfter: refundedWallet.balanceCents / 100,
             type: 'refund_credit' as any,
             referenceId: `REF-${targetSub.id}`,
             note: `Refunded KSh ${refundAmt} store credit due to declined subscription`,
@@ -1236,7 +1329,7 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
           });
         } else if (targetSub.paymentMethod === 'wallet_coins') {
           const refundCoins = targetSub.amount || 0;
-          const adminUser = db.users.find((u) => u.role === 'admin') || db.users[0];
+          const adminUser = findPlatformAdminUser(db) || db.users[0];
           if (adminUser) adminUser.coins = Math.max(0, (adminUser.coins || 0) - refundCoins);
           merchantUser.coins = (merchantUser.coins || 0) + refundCoins;
 
@@ -1311,7 +1404,7 @@ prompt2Router.post('/admin/merchant-subscriptions/set-enterprise-price', async (
 // Admin lists and toggles Featured Products (KES 30/day)
 prompt2Router.get('/admin/featured-products', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
   const featured = db.products.filter((p) => p.isFeatured);
@@ -1322,7 +1415,7 @@ prompt2Router.get('/admin/featured-products', async (req: Request, res: Response
 
 prompt2Router.post('/admin/featured-products/:id/toggle', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const pid = Number(req.params.id);
   const db = await getDatabase();

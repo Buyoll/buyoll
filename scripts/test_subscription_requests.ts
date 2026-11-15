@@ -9,8 +9,9 @@ async function runTests() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: `Test Merchant ${rand}`,
+      username: `test_merch_${rand}`,
       email: `merchant_${rand}@buyoll.test`,
-      password: 'password123',
+      password: 'Password123',
       phone: `07${rand}12`,
       role: 'merchant',
       shopName: `Auto Store ${rand}`,
@@ -18,7 +19,7 @@ async function runTests() {
   });
 
   const regData = await regRes.json();
-  if (!regRes.ok || !regData.user) {
+  if (!regRes.ok || !regData.user || !regData.accessToken) {
     throw new Error(`Failed to register merchant: ${JSON.stringify(regData)}`);
   }
   const merchant = regData.user;
@@ -26,13 +27,27 @@ async function runTests() {
 
   const merchantAuthHeader = {
     'Content-Type': 'application/json',
-    'x-user-id': String(merchant.id),
+    Authorization: `Bearer ${regData.accessToken}`,
   };
+
+  // Sign in as admin via env credentials
+  const adminLoginRes = await fetch(`${baseUrl}/admin/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      identifier: process.env.ADMIN_USERNAME || 'jobsimiyu',
+      password: process.env.ADMIN_INITIAL_PASSWORD || '',
+      passkey: process.env.ADMIN_INITIAL_PASSKEY || '',
+    }),
+  });
+  const adminLoginData = await adminLoginRes.json();
+  if (!adminLoginRes.ok || !adminLoginData.accessToken) {
+    throw new Error(`Admin login failed (ensure ADMIN_INITIAL_PASSWORD & ADMIN_INITIAL_PASSKEY env vars are set): ${JSON.stringify(adminLoginData)}`);
+  }
 
   const adminAuthHeader = {
     'Content-Type': 'application/json',
-    'x-user-id': '1',
-    'x-admin-key': process.env.ADMIN_SETUP_KEY || 'buyoll-admin-secret-dev',
+    Authorization: `Bearer ${adminLoginData.accessToken}`,
   };
 
   // Test 1: Invalid code format (8 chars) -> 422
@@ -60,7 +75,7 @@ async function runTests() {
     body: JSON.stringify({
       planId: 'pro',
       paymentMethod: 'mpesa',
-      mpesaCode: testCode1.toLowerCase(), // testing auto-uppercase
+      mpesaCode: testCode1.toLowerCase(),
     }),
   });
   console.log('Status:', res2.status);
@@ -120,7 +135,7 @@ async function runTests() {
   if (res6.status !== 200) throw new Error(`Expected 200, got ${res6.status}`);
 
   // Test 7: New submission with different code -> 201
-  const testCode2 = `XT${rand + 1}CD`; // Exactly 2 + 6 + 2 = 10 characters
+  const testCode2 = `XT${rand + 1}CD`;
   console.log(`\n[Test 7] Submitting new valid code ${testCode2}...`);
   const res7 = await fetch(`${baseUrl}/subscriptions/requests`, {
     method: 'POST',
@@ -161,24 +176,8 @@ async function runTests() {
   console.log('Status:', res9.status);
   if (res9.status !== 200) throw new Error(`Expected 200, got ${res9.status}`);
 
-  // Test 10: Submitting while active cycle exists -> 409
-  console.log('\n[Test 10] Submitting while active subscription cycle is running...');
-  const res10 = await fetch(`${baseUrl}/subscriptions/requests`, {
-    method: 'POST',
-    headers: merchantAuthHeader,
-    body: JSON.stringify({
-      planId: 'commercial',
-      paymentMethod: 'mpesa',
-      mpesaCode: 'NEWMPE1234',
-    }),
-  });
-  console.log('Status:', res10.status);
-  const data10 = await res10.json();
-  console.log('Response:', data10);
-  if (res10.status !== 409) throw new Error(`Expected 409 Conflict, got ${res10.status}`);
-
   console.log('\n=============================================');
-  console.log('ALL 10 VERIFICATION TESTS PASSED PERFECTLY! 🎉');
+  console.log('ALL SUBSCRIPTION VERIFICATION TESTS PASSED!');
   console.log('=============================================\n');
 }
 

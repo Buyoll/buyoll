@@ -6,6 +6,7 @@ import { ShieldAlert } from 'lucide-react';
 interface RoleGuardProps {
   allow: UserRole[];
   currentUser: User | null;
+  authLoading?: boolean;
   onNavigate: (view: string, arg?: any) => void;
   onNotify?: (type: 'success' | 'error' | 'info', message: string) => void;
   onLogout?: () => void;
@@ -15,25 +16,41 @@ interface RoleGuardProps {
 export const RoleGuard: React.FC<RoleGuardProps> = ({
   allow,
   currentUser,
+  authLoading = false,
   onNavigate,
   onNotify,
   onLogout,
   children,
 }) => {
   const activeRole = getUserActiveRole(currentUser);
-  const isAllowed = allow.includes(activeRole);
+  const isAllowed = !!currentUser && allow.includes(activeRole);
   const hasRedirected = useRef(false);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!isAllowed && !hasRedirected.current) {
       hasRedirected.current = true;
       const target = getRoleHomeRoute(activeRole);
       if (onNotify) {
-        onNotify('info', `Role Isolation: You are signed in as a ${activeRole}. To access this area, please log out and sign in with the required account.`);
+        onNotify(
+          'info',
+          currentUser
+            ? `Role Isolation: You are signed in as a ${activeRole}. To access this area, please log out and sign in with the required account.`
+            : 'Please sign in to access this area.'
+        );
       }
       onNavigate(target.view);
     }
-  }, [isAllowed, activeRole, onNavigate, onNotify]);
+  }, [authLoading, isAllowed, activeRole, currentUser, onNavigate, onNotify]);
+
+  if (authLoading) {
+    return (
+      <div className="max-w-md mx-auto my-20 p-8 text-center">
+        <div className="w-8 h-8 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Verifying session...</p>
+      </div>
+    );
+  }
 
   if (!isAllowed) {
     const requiredRoleName = allow.map(r => r.toUpperCase()).join(' or ');

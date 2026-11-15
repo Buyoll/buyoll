@@ -40,7 +40,7 @@ export const Footer: React.FC<FooterProps> = ({
       desc: 'A WhatsApp-like betting platform.',
     },
     {
-      name: 'Airbus',
+      name: 'Buyoll Stays',
       tag: 'Hospitality & Stays',
       desc: 'A video-based short-stay rental platform.',
     },
