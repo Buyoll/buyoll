@@ -1709,7 +1709,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     {subModalError.canRetry && (
                       <button
                         type="button"
-                        onClick={handleSubscriptionPay}
+                        onClick={() => handleSubscriptionPay(false)}
                         className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-md flex items-center gap-1 cursor-pointer shrink-0"
                       >
                         <RotateCcw className="w-3 h-3" />

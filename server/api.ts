@@ -51,6 +51,7 @@ import {
   debitWalletCents,
   ensureWallet,
   getWalletBalanceCents,
+  normalizeRoleValue,
 } from './wallet_service.js';
 
 export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
@@ -847,8 +848,11 @@ apiRouter.post('/merchant/subscribe', async (req: Request, res: Response) => {
 // Vendor product creation (Staged as draft inside My Groups until merchant creates group(s) and clicks Post)
 apiRouter.post('/products', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   const isMerchantActor = user.role === 'merchant' || user.activeRole === 'merchant';
-  if (!user || (!isMerchantActor && user.role !== 'admin')) {
+  if (!isMerchantActor && user.role !== 'admin') {
     return res.status(403).json({ error: 'Only verified merchants or admins can create products' });
   }
 
@@ -986,8 +990,11 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 // PUBLISH STAGED PRODUCT TO ANNOUNCEMENTS (Requires active non-expired sub + >= 1 group)
 apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   const isMerchantActor = user.role === 'merchant' || user.activeRole === 'merchant';
-  if (!user || (!isMerchantActor && user.role !== 'admin')) {
+  if (!isMerchantActor && user.role !== 'admin') {
     return res.status(403).json({ error: 'Only merchants or admins can publish products' });
   }
 
@@ -3889,8 +3896,8 @@ apiRouter.post('/admin/account/update', async (req: Request, res: Response) => {
       name: dbUser.name,
       phone: dbUser.phone,
     });
-    if (!strength.ok) {
-      return res.status(400).json({ error: strength.errors[0] || 'Password does not meet security requirements.' });
+    if (!strength.valid) {
+      return res.status(400).json({ error: strength.error || 'Password does not meet security requirements.' });
     }
     dbUser.password = await hashPwd(String(newPassword));
     dbUser.lastPasswordChangedAt = Date.now();
@@ -4129,7 +4136,7 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
             dep.processedBy = user.name;
             const targetUser = db.users.find((u) => u.id === dep.userId);
             if (targetUser) {
-              const depRole = dep.role || targetUser.activeRole || targetUser.role || 'member';
+              const depRole = normalizeRoleValue(dep.role || targetUser.activeRole || targetUser.role);
               const { wallet: creditedWallet } = creditWalletCents(db, {
                 userId: targetUser.id,
                 role: depRole,
@@ -5429,7 +5436,7 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
       if (notes) deposit.notes = notes;
 
       const payment = (db.payments || []).find((p) => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
-      const depRole = deposit.role || targetUser.activeRole || targetUser.role || 'member';
+      const depRole = normalizeRoleValue(deposit.role || targetUser.activeRole || targetUser.role);
 
       if (action === 'approve') {
         deposit.status = 'approved';

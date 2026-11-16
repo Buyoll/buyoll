@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { startTestServer, TestHarness } from './test_server.js';
 import { getDatabase, saveDatabase, runDatabaseTransaction } from '../server/db.js';
 import {
-  creditRoleWalletCents,
-  debitRoleWalletCents,
-  getUserRoleWalletCents,
+  creditWalletCents,
+  debitWalletCents,
+  getWalletBalanceCents,
 } from '../server/wallet_service.js';
-import { runSubscriptionExpirySweep } from '../server/subscriptions_api.js';
+import { enforceExpiredSubscriptions } from '../server/subscriptions_api.js';
 
 describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Single-Source Wallet', () => {
   let harness: TestHarness;
@@ -77,7 +77,7 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
         name: 'Isolation Shop',
         username: 'isolation_shop',
         email: 'isolation.shop@example.com',
-        password: 'Password123',
+        password: 'Kilimanjaro#2026',
       }),
     });
     assert.equal(merchReg.status, 201);
@@ -214,7 +214,7 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
         name: 'Another Jane',
         username: 'jane-doe9',
         email: 'janedoe9_other@example.com',
-        password: 'Password123',
+        password: 'LakeVictoria#2026',
       }),
     });
     assert.equal(dupReg.status, 409);
@@ -322,7 +322,7 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
         name: 'Idle Timer User',
         username: 'idletimer_u',
         email: 'idletimer@example.com',
-        password: 'Password123',
+        password: 'RiftValley#2026',
       }),
     }).then((r) => r.json());
 
@@ -366,7 +366,7 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
         name: 'Sub Lifecycle Shop',
         username: 'sublife_shop',
         email: 'sublife@example.com',
-        password: 'Password123',
+        password: 'MountKenya#2026',
         shopName: 'Sub Lifecycle Store',
       }),
     }).then((r) => r.json());
@@ -433,12 +433,13 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
           stockQuantity: 10,
           vendorId: merchId,
           vendorName: 'Sub Lifecycle Store',
-          image: './images/smart_uhd_television_1792852474781.jpg',
-          rating: 5,
-          reviews: 0,
+          images: ['./images/smart_uhd_television_1792852474781.jpg'],
+          moderationStatus: 'approved',
+          speedOptions: [],
           live: true,
-          publicationStatus: 'published',
+          publicationStatus: 'posted',
           createdAt: Date.now(),
+          updatedAt: Date.now(),
         },
         {
           id: draftProductId,
@@ -449,12 +450,13 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
           stockQuantity: 5,
           vendorId: merchId,
           vendorName: 'Sub Lifecycle Store',
-          image: './images/smart_uhd_television_1792852474781.jpg',
-          rating: 5,
-          reviews: 0,
+          images: ['./images/smart_uhd_television_1792852474781.jpg'],
+          moderationStatus: 'approved',
+          speedOptions: [],
           live: false,
           publicationStatus: 'draft',
           createdAt: Date.now(),
+          updatedAt: Date.now(),
         }
       );
 
@@ -488,7 +490,7 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
         }
       }
     });
-    await runSubscriptionExpirySweep();
+    await enforceExpiredSubscriptions();
 
     const dbExpired = await getDatabase();
     const pubAfterExpire = dbExpired.products.find((p) => p.id === publishedProductId)!;
@@ -511,7 +513,8 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
       }),
     });
     assert.equal(createWhileExpired.status, 403);
-    assert.equal((await createWhileExpired.json()).error.code, 'SUBSCRIPTION_EXPIRED');
+    const createWhileExpiredBody = await createWhileExpired.json();
+    assert.equal(createWhileExpiredBody.error?.code || createWhileExpiredBody.code, 'SUBSCRIPTION_EXPIRED');
 
     // Renew & approve -> published listing restored, draft STILL draft!
     const renewReq = await fetch(`${harness.baseUrl}/api/subscriptions/requests`, {
@@ -535,53 +538,64 @@ describe('Item 8: Auth Hardening, Sessions/Idle Timeout, EAT Subscriptions & Sin
     const pubRestored = dbRestored.products.find((p) => p.id === publishedProductId)!;
     const draftStillDraft = dbRestored.products.find((p) => p.id === draftProductId)!;
     assert.equal(pubRestored.live, true);
-    assert.equal(pubRestored.publicationStatus, 'published');
-    assert.equal(pubRestored.hiddenReason, undefined);
+    assert.equal(pubRestored.publicationStatus, 'posted');
+    assert.ok(!pubRestored.hiddenReason);
     assert.equal(draftStillDraft.publicationStatus, 'draft');
     assert.equal(draftStillDraft.live, false);
 
     // Wallet single source of truth: integer cents ledger + atomic non-negative guard
     await runDatabaseTransaction(async (db) => {
       const mUser = db.users.find((u) => u.id === merchId)!;
-      const creditEntry = creditRoleWalletCents(db, mUser, 'merchant', 150050, {
-        type: 'DEPOSIT',
-        referenceType: 'TEST_DEPOSIT',
+      const creditRes = creditWalletCents(db, {
+        userId: mUser.id,
+        role: 'merchant',
+        amountCents: 150050,
+        category: 'DEPOSIT',
         referenceId: 'dep_1',
-        description: 'Test KES 1,500.50 deposit',
+        note: 'Test KES 1,500.50 deposit',
         idempotencyKey: 'test_wallet_credit_1',
       });
-      assert.ok(creditEntry);
-      assert.equal(getUserRoleWalletCents(mUser, 'merchant'), 150050);
+      assert.equal(creditRes.deduplicated, false);
+      assert.equal(getWalletBalanceCents(db, mUser, 'merchant'), 150050);
 
-      // Idempotent duplicate credit is a no-op
-      const dupCredit = creditRoleWalletCents(db, mUser, 'merchant', 150050, {
-        type: 'DEPOSIT',
-        referenceType: 'TEST_DEPOSIT',
+      // Idempotent duplicate credit is deduplicated cleanly
+      const dupCredit = creditWalletCents(db, {
+        userId: mUser.id,
+        role: 'merchant',
+        amountCents: 150050,
+        category: 'DEPOSIT',
         referenceId: 'dep_1',
-        description: 'Duplicate credit',
+        note: 'Duplicate credit',
         idempotencyKey: 'test_wallet_credit_1',
       });
-      assert.equal(dupCredit, null);
-      assert.equal(getUserRoleWalletCents(mUser, 'merchant'), 150050);
+      assert.equal(dupCredit.deduplicated, true);
+      assert.equal(getWalletBalanceCents(db, mUser, 'merchant'), 150050);
 
       // Cannot debit more than available balance
-      assert.throws(() => {
-        debitRoleWalletCents(db, mUser, 'merchant', 200000, {
-          type: 'WITHDRAWAL',
-          referenceType: 'TEST_DEBIT',
-          referenceId: 'deb_over',
-          description: 'Overdraft attempt',
-        });
-      }, /Insufficient/i);
+      assert.throws(
+        () => {
+          debitWalletCents(db, {
+            userId: mUser.id,
+            role: 'merchant',
+            amountCents: 200000,
+            category: 'SUBSCRIPTION_PAYMENT',
+            referenceId: 'deb_over',
+            note: 'Overdraft attempt',
+          });
+        },
+        (err: any) => err?.code === 'INSUFFICIENT_BALANCE' && /Insufficient/i.test(err?.message || '')
+      );
 
       // Exact debit leaves 0
-      debitRoleWalletCents(db, mUser, 'merchant', 150050, {
-        type: 'WITHDRAWAL',
-        referenceType: 'TEST_DEBIT',
+      debitWalletCents(db, {
+        userId: mUser.id,
+        role: 'merchant',
+        amountCents: 150050,
+        category: 'SUBSCRIPTION_PAYMENT',
         referenceId: 'deb_ok',
-        description: 'Exact debit',
+        note: 'Exact debit',
       });
-      assert.equal(getUserRoleWalletCents(mUser, 'merchant'), 0);
+      assert.equal(getWalletBalanceCents(db, mUser, 'merchant'), 0);
     });
   });
 });

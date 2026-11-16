@@ -5,7 +5,7 @@ import path from 'path';
 import { startTestServer, TestHarness } from './test_server.js';
 import { PUBLIC_DIR } from '../server/config.js';
 import { getDatabase, saveDatabase } from '../server/db.js';
-import { setUserRoleWalletCents } from '../server/wallet_service.js';
+import { creditWalletCents } from '../server/wallet_service.js';
 
 describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group Products', () => {
   let harness: TestHarness;
@@ -64,7 +64,19 @@ describe('Item 2: Yearly Billing, Avatars, Profile Sync, Draft Isolation & Group
     // Fund merchant 2 wallet atomically via wallet_service (single source of truth in cents)
     const db = await getDatabase();
     const merchant = db.users.find((u) => u.id === 2)!;
-    setUserRoleWalletCents(db, merchant, 'merchant', 2000000); // 20,000 KES = 2,000,000 cents
+    db.wallets = (db.wallets || []).filter((w) => !(w.userId === 2 && w.role === 'merchant'));
+    db.walletLedger = (db.walletLedger || []).filter((l) => !(l.userId === 2 && l.role === 'merchant'));
+    if (merchant.roleWallets?.merchant) {
+      merchant.roleWallets.merchant.credit = 0;
+    }
+    creditWalletCents(db, {
+      userId: 2,
+      role: 'merchant',
+      amountCents: 2000000, // 20,000 KES = 2,000,000 cents
+      category: 'DEPOSIT',
+      idempotencyKey: 'test_seed_merchant_2',
+      note: 'Test merchant wallet deposit',
+    });
     merchant.merchantSubscriptionStatus = 'inactive';
     merchant.merchantSubscriptionExpiresAt = undefined;
     db.merchantSubscriptions = [];

@@ -380,6 +380,28 @@ export function createDbSession(
   return session;
 }
 
+export function invalidateUserOtherSessions(
+  db: DatabaseSchema,
+  userId: number,
+  keepSessionId?: string,
+  reason = 'CREDENTIAL_ROTATION'
+): number {
+  const now = Date.now();
+  let count = 0;
+  for (const s of db.sessions || []) {
+    if (s.userId === userId && !s.revokedAt && (!keepSessionId || s.id !== keepSessionId)) {
+      s.revokedAt = now;
+      s.revokeReason = reason;
+      count++;
+    }
+  }
+  const user = (db.users || []).find((u) => u.id === userId);
+  if (user) {
+    user.tokenVersion = (user.tokenVersion || 1) + 1;
+  }
+  return count;
+}
+
 export function issueAuthTokensForUser(
   db: DatabaseSchema,
   user: User,

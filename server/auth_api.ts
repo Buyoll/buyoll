@@ -98,6 +98,33 @@ function clearBucket(key: string): void {
   loginAttemptsByKey.delete(key);
 }
 
+function clearUserLoginBuckets(user: User): void {
+  const candidates = new Set<string>();
+  if (user.username) {
+    candidates.add(normalizeUsername(user.username));
+    candidates.add(user.username.toLowerCase());
+  }
+  if (user.usernameNormalized) candidates.add(user.usernameNormalized);
+  if (user.email) {
+    candidates.add(user.email.toLowerCase());
+    candidates.add(normalizeUsername(user.email));
+  }
+  if (user.phone) {
+    candidates.add(user.phone.toLowerCase());
+    candidates.add(normalizeUsername(user.phone));
+  }
+  for (const key of Array.from(loginAttemptsByKey.keys())) {
+    const firstColon = key.indexOf(':');
+    const lastColon = key.lastIndexOf(':');
+    if (firstColon > 0 && lastColon > firstColon) {
+      const idPart = key.slice(firstColon + 1, lastColon);
+      if (candidates.has(idPart)) {
+        loginAttemptsByKey.delete(key);
+      }
+    }
+  }
+}
+
 function generateCode(length = 4): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let result = '';
@@ -1005,6 +1032,7 @@ authRouter.post('/admin/settings/security/dismiss', async (req: Request, res: Re
   }
   return res.json({
     success: true,
+    showSecurityBanner: Boolean(result.user!.mustChangeCredentials),
     securityBannerDismissedAt: result.user!.securityBannerDismissedAt || null,
     securityBannerSnoozedUntil: result.user!.securityBannerSnoozedUntil || null,
   });
@@ -1396,6 +1424,7 @@ authRouter.post('/admin/auth/forgot/reset', async (req: Request, res: Response) 
     adminUser.lockedUntil = undefined;
     adminUser.mustChangeCredentials = false;
     adminUser.tokenVersion = (adminUser.tokenVersion || 1) + 1;
+    clearUserLoginBuckets(adminUser);
 
     for (const s of db.sessions || []) {
       if (s.userId === adminUser.id && !s.revokedAt) {
@@ -1643,6 +1672,7 @@ authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Respons
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
+    clearUserLoginBuckets(user);
 
     for (const s of db.sessions || []) {
       if (s.userId === user.id && !s.revokedAt) {
@@ -1839,6 +1869,7 @@ authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
+    clearUserLoginBuckets(user);
     for (const s of db.sessions || []) {
       if (s.userId === user.id && !s.revokedAt) {
         s.revokedAt = now;

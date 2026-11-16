@@ -688,16 +688,28 @@ async function processAtomicLoanFunding(authUser: User, loanId: number, explicit
     const feeKes = fromCents(feeCents);
     const netKes = fromCents(netCents);
 
-    const { wallet: updatedLenderWallet } = debitWalletCents(db, {
-      userId: lender.id,
-      role: 'lender',
-      amountCents: principalCents,
-      category: 'LOAN_FUNDING',
-      referenceId: `LOAN_FUND_${loan.id}`,
-      idempotencyKey: `loan_fund_debit_${loan.id}`,
-      note: `Funded loan #${loan.id} for ${requester.name} in Group #${resolvedGroupId} (Principal: KSh ${principalKes.toLocaleString()}, 1% platform fee: KSh ${feeKes.toLocaleString()})`,
-      actorId: lender.id,
-    });
+    let updatedLenderWallet;
+    try {
+      const debitRes = debitWalletCents(db, {
+        userId: lender.id,
+        role: 'lender',
+        amountCents: principalCents,
+        category: 'LOAN_FUNDING',
+        referenceId: `LOAN_FUND_${loan.id}`,
+        idempotencyKey: `loan_fund_debit_${loan.id}`,
+        note: `Funded loan #${loan.id} for ${requester.name} in Group #${resolvedGroupId} (Principal: KSh ${principalKes.toLocaleString()}, 1% platform fee: KSh ${feeKes.toLocaleString()})`,
+        actorId: lender.id,
+      });
+      updatedLenderWallet = debitRes.wallet;
+    } catch (err: any) {
+      if (err?.code === 'INSUFFICIENT_BALANCE') {
+        throw Object.assign(new Error(err.message || 'Insufficient available lender wallet balance.'), {
+          status: 400,
+          code: 'INSUFFICIENT_FUNDS',
+        });
+      }
+      throw err;
+    }
     const nextLenderBalance = fromCents(updatedLenderWallet.balanceCents);
 
     const platformAdmin = findPlatformAdminUser(db);

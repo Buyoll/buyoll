@@ -111,7 +111,7 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
         name: 'Bob Otieno',
         username: 'bob_otieno',
         email: 'bob@example.com',
-        password: 'BobPassword#2026',
+        password: 'NairobiMarket#2026',
       }),
     });
     assert.equal(regBob.status, 201, await regBob.clone().text());
@@ -146,7 +146,7 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
     const lockedRes = await fetch(`${harness.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: 'bob_otieno', password: 'BobPassword#2026' }),
+      body: JSON.stringify({ identifier: 'bob_otieno', password: 'NairobiMarket#2026' }),
     });
     assert.equal(lockedRes.status, 429);
     assert.equal((await lockedRes.json()).error.code, 'ACCOUNT_LOCKED');
@@ -172,7 +172,7 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
     const resetRes = await fetch(`${harness.baseUrl}/api/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: devResetToken, newPassword: 'BobNewPassword#2026' }),
+      body: JSON.stringify({ token: devResetToken, newPassword: 'EldoretHarvest#2026' }),
     });
     assert.equal(resetRes.status, 200);
 
@@ -188,7 +188,7 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
     const loginNew = await fetch(`${harness.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: 'bob_otieno', password: 'BobNewPassword#2026' }),
+      body: JSON.stringify({ identifier: 'bob_otieno', password: 'EldoretHarvest#2026' }),
     });
     assert.equal(loginNew.status, 200);
   });
@@ -201,7 +201,7 @@ describe('Item 5: Robust Authentication (Sign Up, Login, Lockout, Refresh Rotati
         name: 'Carol Mutua',
         username: 'carol_m',
         email: 'carol@example.com',
-        password: 'CarolPassword#2026',
+        password: 'MombasaHarbor#2026',
       }),
     }).then((r) => r.json());
 

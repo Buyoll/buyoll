@@ -866,6 +866,8 @@ export interface SubscriptionRequest {
   mpesaCode?: string;
   status: 'pending' | 'approved' | 'rejected';
   adminId?: number;
+  approvedBy?: number;
+  approvedAt?: number;
   reviewedAt?: number;
   rejectionReason?: string;
   createdAt: number;
