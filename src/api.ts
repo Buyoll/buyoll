@@ -29,10 +29,33 @@ import {
   GroupCallerMembership,
   GroupLenderAuthorization,
 } from './types.ts';
+import {
+  getFallbackAnnouncements,
+  getFallbackGroup,
+  getFallbackGroups,
+  getFallbackHeroAnnouncementCards,
+  getFallbackMerchant,
+  getFallbackProduct,
+  getFallbackProducts,
+  getFallbackSearchProducts,
+  getFallbackSubscriptionTiers,
+} from './data/publicCatalogFallback.ts';
+
 const USER_STORAGE_KEY = 'alibaird_current_user';
 
 export const SESSION_EXPIRED_EVENT = 'buyoll:session-expired';
 export const ACCESS_TOKEN_KEY = 'buyoll_access_token';
+
+export const API_BASE = (
+  (typeof import.meta !== 'undefined' &&
+    ((import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.VITE_API_BASE_URL)) ||
+  '/api'
+).replace(/\/+$/, '');
+
+function getAssetBaseUrl(): string {
+  const raw = (typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL) || '/';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+}
 
 export function getAccessToken(): string | null {
   try {
@@ -59,22 +82,24 @@ export function setAccessToken(token: string | null, remember = true): void {
   } catch {}
 }
 
-// Helper to resolve image paths reliably on subpaths, uploads, and root domains
+// Helper to resolve image paths reliably on subpaths (e.g. /buyoll/), uploads, and root domains
 export function resolveImageUrl(url?: string): string {
-  if (!url) return './images/cookware_set.jpg';
+  const base = getAssetBaseUrl();
+  if (!url) return `${base}images/cookware_set.jpg`;
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
     return url;
   }
   if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
     return url.startsWith('/') ? url : `/${url}`;
   }
-  const clean = url.replace(/^\/+/, '');
-  if (clean.includes('buyoll_logo') || clean.includes('logo')) return './buyoll_logo.png';
-  if (clean.includes('solar_power')) return './images/solar_power.jpg';
-  if (clean.includes('stainless_cookware') || clean.includes('cookware')) return './images/cookware_set.jpg';
-  if (clean.includes('smart_uhd') || clean.includes('smart_tv')) return './images/smart_tv.jpg';
-  if (clean.includes('executive') || clean.includes('office_chair')) return './images/office_chair.jpg';
-  return './' + clean;
+  const clean = url.replace(/^\.\//, '').replace(/^\/+/, '');
+  if (clean.startsWith('assets/')) return `${base}${clean}`;
+  if (clean.includes('buyoll_logo') || clean.includes('logo')) return `${base}buyoll_logo.png`;
+  if (clean.includes('solar_power')) return `${base}images/solar_power.jpg`;
+  if (clean.includes('stainless_cookware') || clean.includes('cookware')) return `${base}images/cookware_set.jpg`;
+  if (clean.includes('smart_uhd') || clean.includes('smart_tv')) return `${base}images/smart_tv.jpg`;
+  if (clean.includes('executive') || clean.includes('office_chair')) return `${base}images/office_chair.jpg`;
+  return `${base}${clean}`;
 }
 
 export function getStoredUser(): User | null {
@@ -112,7 +137,7 @@ async function tryRefreshTokens(): Promise<boolean> {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const activeRole = getActiveRoleHeader();
       if (activeRole) headers['x-buyoll-role'] = activeRole;
-      const res = await fetch('/api/auth/refresh', {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers,
@@ -150,7 +175,7 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried
     headers.set('x-buyoll-role', activeRole);
   }
 
-  const res = await fetch(`/api${endpoint}`, {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
     credentials: 'include',
     ...options,
     headers,
@@ -158,7 +183,10 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error(`Unexpected response from server (${res.status})`);
+    const nonJsonErr = new Error(`Unexpected response from server (${res.status})`) as any;
+    nonJsonErr.status = res.status;
+    nonJsonErr.isNonJsonResponse = true;
+    throw nonJsonErr;
   }
 
   if (res.status === 401) {
@@ -211,6 +239,31 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried
     throw error;
   }
   return data as T;
+}
+
+/**
+ * Wraps public read-only GET endpoints so static deployments without an Express /api server
+ * (e.g. GitHub Pages 404 HTML or Vercel SPA rewrite returning index.html) gracefully display
+ * public catalog, featured deals, newly posted items, and announcements while preserving
+ * all real backend JSON responses and backend error semantics when /api is active.
+ */
+async function fetchPublicWithFallback<T>(
+  endpoint: string,
+  fallbackFn: () => T,
+  options: RequestInit = {}
+): Promise<T> {
+  try {
+    return await fetchApi<T>(endpoint, options);
+  } catch (err: any) {
+    const isStaticHostOrOffline =
+      err?.isNonJsonResponse === true ||
+      err instanceof TypeError ||
+      (typeof err?.status !== 'number' && String(err?.message || '').includes('Unexpected response from server'));
+    if (isStaticHostOrOffline) {
+      return fallbackFn();
+    }
+    throw err;
+  }
 }
 
 // -------------------------------------------------------------
@@ -523,11 +576,26 @@ export const api = {
     if (params?.status) q.set('status', params.status);
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.offset) q.set('offset', String(params.offset));
-    return await fetchApi<{ products: Product[]; total?: number; limit?: number; offset?: number }>(`/products?${q.toString()}`);
+    const qs = q.toString();
+    return await fetchPublicWithFallback<{ products: Product[]; total?: number; limit?: number; offset?: number }>(
+      `/products${qs ? `?${qs}` : ''}`,
+      () => getFallbackProducts(params)
+    );
   },
 
   async getProduct(id: number): Promise<{ product: Product; groups: ChamaGroup[] }> {
-    return await fetchApi<{ product: Product; groups: ChamaGroup[] }>(`/products/${id}`);
+    return await fetchPublicWithFallback<{ product: Product; groups: ChamaGroup[] }>(
+      `/products/${id}`,
+      () => {
+        const found = getFallbackProduct(id);
+        if (!found) {
+          const err = new Error('Product not found') as any;
+          err.status = 404;
+          throw err;
+        }
+        return found;
+      }
+    );
   },
 
   async createProduct(data: Partial<Product>): Promise<{ product: Product; message?: string }> {
@@ -583,11 +651,26 @@ export const api = {
     const q = new URLSearchParams();
     if (params?.productId) q.set('productId', String(params.productId));
     if (params?.status) q.set('status', params.status);
-    return await fetchApi<{ groups: ChamaGroup[] }>(`/groups?${q.toString()}`);
+    const qs = q.toString();
+    return await fetchPublicWithFallback<{ groups: ChamaGroup[] }>(
+      `/groups${qs ? `?${qs}` : ''}`,
+      () => getFallbackGroups(params)
+    );
   },
 
   async getGroup(id: number): Promise<{ group: ChamaGroup; membership?: GroupCallerMembership }> {
-    return await fetchApi<{ group: ChamaGroup; membership?: GroupCallerMembership }>(`/groups/${id}`);
+    return await fetchPublicWithFallback<{ group: ChamaGroup; membership?: GroupCallerMembership }>(
+      `/groups/${id}`,
+      () => {
+        const found = getFallbackGroup(id);
+        if (!found) {
+          const err = new Error('Group not found') as any;
+          err.status = 404;
+          throw err;
+        }
+        return found;
+      }
+    );
   },
 
   async createGroup(data: {
@@ -826,7 +909,10 @@ export const api = {
 
   // Search
   async searchProducts(query: string): Promise<{ products: Product[]; query: string; total: number }> {
-    return await fetchApi<any>(`/search?q=${encodeURIComponent(query)}`);
+    return await fetchPublicWithFallback<any>(
+      `/search?q=${encodeURIComponent(query)}`,
+      () => getFallbackSearchProducts(query)
+    );
   },
 
   // Peer-to-Peer Loans
@@ -983,7 +1069,18 @@ export const api = {
   },
 
   async getMerchant(merchantId: number): Promise<{ merchant: User }> {
-    return await fetchApi<any>(`/merchants/${merchantId}`);
+    return await fetchPublicWithFallback<any>(
+      `/merchants/${merchantId}`,
+      () => {
+        const found = getFallbackMerchant(merchantId);
+        if (!found) {
+          const err = new Error('Merchant not found.') as any;
+          err.status = 404;
+          throw err;
+        }
+        return found;
+      }
+    );
   },
 
   // PROMPT 3: Daily payment & arrears
@@ -1215,8 +1312,9 @@ export const api = {
     if (params?.pinnedOnly) q.set('pinnedOnly', 'true');
     if (params?.limit) q.set('limit', String(params.limit));
     const qs = q.toString();
-    return await fetchApi<{ announcements: Announcement[]; total?: number }>(
-      `/announcements${qs ? `?${qs}` : ''}`
+    return await fetchPublicWithFallback<{ announcements: Announcement[]; total?: number }>(
+      `/announcements${qs ? `?${qs}` : ''}`,
+      () => getFallbackAnnouncements(params)
     );
   },
 
@@ -1512,11 +1610,10 @@ export const api = {
   // PART C & D: MERCHANT SUBSCRIPTION & UPGRADE
   // -------------------------------------------------------------------
   async getSubscriptionTiers(): Promise<{ tiers: MerchantSubscriptionTier[] }> {
-    try {
-      return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/subscription-tiers');
-    } catch {
-      return await fetchApi<{ tiers: MerchantSubscriptionTier[] }>('/merchant/subscription-tiers');
-    }
+    return await fetchPublicWithFallback<{ tiers: MerchantSubscriptionTier[] }>(
+      '/subscription-tiers',
+      () => getFallbackSubscriptionTiers()
+    );
   },
 
   async adminUpdateSubscriptionTier(
@@ -1987,7 +2084,10 @@ export const api = {
   // FEATURE B: 3 HERO PLATFORM ANNOUNCEMENT CARDS
   // -------------------------------------------------------------
   async getHeroAnnouncementCards(): Promise<{ announcements: import('./types.ts').PlatformAnnouncementSlot[]; cards: import('./types.ts').PlatformAnnouncementSlot[] }> {
-    return await fetchApi<{ announcements: import('./types.ts').PlatformAnnouncementSlot[]; cards: import('./types.ts').PlatformAnnouncementSlot[] }>('/announcement-cards');
+    return await fetchPublicWithFallback<{
+      announcements: import('./types.ts').PlatformAnnouncementSlot[];
+      cards: import('./types.ts').PlatformAnnouncementSlot[];
+    }>('/announcement-cards', () => getFallbackHeroAnnouncementCards());
   },
 
   async getAdminHeroAnnouncementCards(): Promise<{ cards: import('./types.ts').PlatformAnnouncementSlot[] }> {

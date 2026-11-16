@@ -52,7 +52,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
             border: '1px solid #E2E8F0'
           }}>
             <img
-              src="./buyoll_logo.png"
+              src={`${((import.meta as any).env?.BASE_URL || '/').replace(/\/?$/, '/')}buyoll_logo.png`}
               alt="Buyoll"
               style={{ height: '44px', width: 'auto', margin: '0 auto 16px', display: 'block' }}
             />

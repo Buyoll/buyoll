@@ -285,7 +285,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   if (!target.src.endsWith('Buyoll_Shopping_Cart_Logo_23c2cc30.png')) {
-                    target.src = './assets/aistudio/Buyoll_Shopping_Cart_Logo_23c2cc30.png';
+                    target.src = resolveImageUrl('assets/aistudio/Buyoll_Shopping_Cart_Logo_23c2cc30.png');
                   }
                 }}
               />

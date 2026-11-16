@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types.ts';
-import { api } from '../api.ts';
+import { api, resolveImageUrl } from '../api.ts';
 import { X, Eye, EyeOff, AtSign, Phone, KeyRound, ArrowLeft, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 export interface RoleConfig {
@@ -839,7 +839,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <form className="ax-form ax-login" onSubmit={handleLoginSubmit} aria-hidden={active}>
               <div className="flex items-center justify-center gap-2 mb-1">
                 <img
-                  src="./buyoll_logo.png"
+                  src={resolveImageUrl('buyoll_logo.png')}
                   alt="Buyoll"
                   className="h-8 w-auto object-contain"
                   onError={(e) => {
