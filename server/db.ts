@@ -62,6 +62,7 @@ export function getActiveDbFile(): string {
 
 export function resetDatabaseCacheForTest(customDbFile?: string): void {
   dbCache = null;
+  dbInitPromise = null;
   writeLock = Promise.resolve();
   if (customDbFile) {
     activeDbFile = path.resolve(customDbFile);
@@ -137,6 +138,7 @@ export interface DatabaseSchema {
 }
 
 let dbCache: DatabaseSchema | null = null;
+let dbInitPromise: Promise<DatabaseSchema> | null = null;
 let writeLock: Promise<void> = Promise.resolve();
 
 function generateCode(length = 6): string {
@@ -792,6 +794,15 @@ function getInitialDatabase(): DatabaseSchema {
 
 export async function getDatabase(): Promise<DatabaseSchema> {
   if (dbCache) return dbCache;
+  if (dbInitPromise) return dbInitPromise;
+  dbInitPromise = loadOrInitializeDatabase().finally(() => {
+    dbInitPromise = null;
+  });
+  return dbInitPromise;
+}
+
+async function loadOrInitializeDatabase(): Promise<DatabaseSchema> {
+  if (dbCache) return dbCache;
 
   try {
     const dbFile = getActiveDbFile();
@@ -1081,7 +1092,7 @@ export async function getDatabase(): Promise<DatabaseSchema> {
 
     const mig = await runPendingMigrations(dbCache!);
     if (mig.dirty || mig.applied.length > 0) {
-      await saveDatabase(dbCache!);
+      await writeDatabaseFileAtomic(dbCache!);
     }
     return dbCache!;
   } catch {
@@ -1109,23 +1120,27 @@ export async function getDatabase(): Promise<DatabaseSchema> {
     if (!initial.nextIds.coinLedger) initial.nextIds.coinLedger = 1;
     if (!initial.nextIds.moderation) initial.nextIds.moderation = 1;
     await runPendingMigrations(initial);
-    await saveDatabase(initial);
+    await writeDatabaseFileAtomic(initial);
     dbCache = initial;
     return dbCache;
   }
 }
 
-export async function saveDatabase(data: DatabaseSchema): Promise<void> {
-  dbCache = data;
+async function writeDatabaseFileAtomic(data: DatabaseSchema): Promise<void> {
   const dbFile = getActiveDbFile();
   const dataDir = path.dirname(dbFile);
+  await fs.mkdir(dataDir, { recursive: true });
+  const tempFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await fs.writeFile(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+  await fs.rename(tempFile, dbFile);
+}
+
+export async function saveDatabase(data: DatabaseSchema): Promise<void> {
+  dbCache = data;
   writeLock = writeLock
     .catch(() => {})
     .then(async () => {
-      await fs.mkdir(dataDir, { recursive: true });
-      const tempFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-      await fs.writeFile(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-      await fs.rename(tempFile, dbFile);
+      await writeDatabaseFileAtomic(data);
     });
   return writeLock;
 }
@@ -1161,12 +1176,7 @@ export async function runDatabaseTransaction<T>(
           const db = await getDatabase();
           const result = await operation(db);
           dbCache = db;
-          const dbFile = getActiveDbFile();
-          const dataDir = path.dirname(dbFile);
-          await fs.mkdir(dataDir, { recursive: true });
-          const tempFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-          await fs.writeFile(tempFile, JSON.stringify(db, null, 2), 'utf-8');
-          await fs.rename(tempFile, dbFile);
+          await writeDatabaseFileAtomic(db);
           resolve(result);
         } catch (err) {
           reject(err);

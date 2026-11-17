@@ -1,6 +1,4 @@
 import { FRONTEND_URL } from './config.js';
-import { DatabaseSchema } from './db.js';
-import { sendSecurityEmail } from './auth_utils.js';
 
 export interface EmailMessage {
   to: string;
@@ -52,58 +50,6 @@ class ResendEmailProvider implements EmailProvider {
   }
 }
 
-class SendGridEmailProvider implements EmailProvider {
-  readonly name = 'sendgrid';
-  constructor(private readonly apiKey: string) {}
-  async sendEmail(msg: EmailMessage): Promise<void> {
-    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: msg.to }] }],
-        from: { email: getEmailFrom().replace(/^.*<([^>]+)>.*$/, '$1') },
-        subject: msg.subject,
-        content: [
-          { type: 'text/plain', value: msg.text },
-          ...(msg.html ? [{ type: 'text/html', value: msg.html }] : []),
-        ],
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`SendGrid email delivery failed (${res.status})`);
-    }
-  }
-}
-
-class MailgunEmailProvider implements EmailProvider {
-  readonly name = 'mailgun';
-  constructor(private readonly apiKey: string, private readonly domain: string) {}
-  async sendEmail(msg: EmailMessage): Promise<void> {
-    const form = new URLSearchParams({
-      from: getEmailFrom(),
-      to: msg.to,
-      subject: msg.subject,
-      text: msg.text,
-    });
-    if (msg.html) form.set('html', msg.html);
-    const auth = Buffer.from(`api:${this.apiKey}`).toString('base64');
-    const res = await fetch(`https://api.mailgun.net/v3/${this.domain}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: form.toString(),
-    });
-    if (!res.ok) {
-      throw new Error(`Mailgun email delivery failed (${res.status})`);
-    }
-  }
-}
-
 class ConsoleEmailProvider implements EmailProvider {
   readonly name = 'console';
   async sendEmail(msg: EmailMessage): Promise<void> {
@@ -146,37 +92,6 @@ class AfricasTalkingSmsProvider implements SmsProvider {
   }
 }
 
-class TwilioSmsProvider implements SmsProvider {
-  readonly name = 'twilio';
-  constructor(
-    private readonly sid: string,
-    private readonly token: string,
-    private readonly fromNumber: string
-  ) {}
-  async sendSms(msg: SmsMessage): Promise<void> {
-    const form = new URLSearchParams({
-      To: msg.to,
-      From: this.fromNumber,
-      Body: msg.body,
-    });
-    const auth = Buffer.from(`${this.sid}:${this.token}`).toString('base64');
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${this.sid}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form.toString(),
-      }
-    );
-    if (!res.ok) {
-      throw new Error(`Twilio SMS delivery failed (${res.status})`);
-    }
-  }
-}
-
 class ConsoleSmsProvider implements SmsProvider {
   readonly name = 'console';
   async sendSms(msg: SmsMessage): Promise<void> {
@@ -190,12 +105,6 @@ export function getEmailProvider(): EmailProvider {
   if (process.env.RESEND_API_KEY) {
     return new ResendEmailProvider(process.env.RESEND_API_KEY);
   }
-  if (process.env.SENDGRID_API_KEY) {
-    return new SendGridEmailProvider(process.env.SENDGRID_API_KEY);
-  }
-  if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
-    return new MailgunEmailProvider(process.env.MAILGUN_API_KEY, process.env.MAILGUN_DOMAIN);
-  }
   return new ConsoleEmailProvider();
 }
 
@@ -205,13 +114,6 @@ export function getSmsProvider(): SmsProvider {
       process.env.AFRICASTALKING_API_KEY,
       process.env.AFRICASTALKING_USERNAME,
       process.env.AFRICASTALKING_SENDER_ID
-    );
-  }
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
-    return new TwilioSmsProvider(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN,
-      process.env.TWILIO_FROM_NUMBER
     );
   }
   return new ConsoleSmsProvider();
