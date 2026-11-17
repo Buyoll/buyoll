@@ -439,7 +439,7 @@ groupMembershipRouter.post('/groups/:id/join', async (req: Request, res: Respons
         groupId: group.id,
         userId: dbUser.id,
         userName: dbUser.name,
-        userPhone: dbUser.phone,
+        userPhone: dbUser.phone || undefined,
         userAvatar: dbUser.avatar || dbUser.avatarUrl,
         note: note ? String(note).trim().slice(0, 300) : undefined,
         desiredSlot: slotNumber ? Number(slotNumber) : undefined,

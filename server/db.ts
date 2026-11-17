@@ -46,9 +46,13 @@ import { runPendingMigrations, MigrationRecord } from './migrations.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_DATA_DIR = path.resolve(__dirname, '../data');
+const IS_VERCEL = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const BUNDLED_DB_FILE = path.resolve(DEFAULT_DATA_DIR, 'alibaird_db.json');
 let activeDbFile = process.env.BUYOLL_DB_FILE
   ? path.resolve(process.env.BUYOLL_DB_FILE)
-  : path.resolve(DEFAULT_DATA_DIR, 'alibaird_db.json');
+  : IS_VERCEL
+  ? '/tmp/buyoll_db.json'
+  : BUNDLED_DB_FILE;
 
 export function getActiveDbFile(): string {
   return process.env.BUYOLL_DB_FILE
@@ -792,7 +796,17 @@ export async function getDatabase(): Promise<DatabaseSchema> {
   try {
     const dbFile = getActiveDbFile();
     await fs.mkdir(path.dirname(dbFile), { recursive: true });
-    const raw = await fs.readFile(dbFile, 'utf-8');
+    let raw: string;
+    try {
+      raw = await fs.readFile(dbFile, 'utf-8');
+    } catch (readErr) {
+      if (IS_VERCEL && dbFile !== BUNDLED_DB_FILE) {
+        raw = await fs.readFile(BUNDLED_DB_FILE, 'utf-8');
+        await fs.writeFile(dbFile, raw, 'utf-8').catch(() => {});
+      } else {
+        throw readErr;
+      }
+    }
     dbCache = JSON.parse(raw);
     if (!dbCache!.peerLoans) dbCache!.peerLoans = [];
     if (!dbCache!.helpChat) dbCache!.helpChat = [];

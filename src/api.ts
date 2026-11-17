@@ -175,15 +175,29 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried
     headers.set('x-buyoll-role', activeRole);
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    credentials: 'include',
-    ...options,
-    headers,
-  });
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${normalizedEndpoint}`, {
+      credentials: 'include',
+      ...options,
+      headers,
+    });
+  } catch {
+    const netErr = new Error('Unable to reach the Buyoll server. Please check your internet connection and try again.') as any;
+    netErr.isNetworkError = true;
+    throw netErr;
+  }
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    const nonJsonErr = new Error(`Unexpected response from server (${res.status})`) as any;
+    const friendlyMessage =
+      res.status === 405
+        ? 'The authentication service could not process this request (HTTP 405). Please refresh and try again.'
+        : res.status >= 500
+        ? `Server temporarily unavailable (${res.status}). Please try again shortly.`
+        : `Unexpected response from server (${res.status}). Please try again.`;
+    const nonJsonErr = new Error(friendlyMessage) as any;
     nonJsonErr.status = res.status;
     nonJsonErr.isNonJsonResponse = true;
     throw nonJsonErr;
@@ -255,11 +269,12 @@ async function fetchPublicWithFallback<T>(
   try {
     return await fetchApi<T>(endpoint, options);
   } catch (err: any) {
-    const isStaticHostOrOffline =
+    const isStaticOrOffline =
       err?.isNonJsonResponse === true ||
+      err?.isNetworkError === true ||
       err instanceof TypeError ||
       (typeof err?.status !== 'number' && String(err?.message || '').includes('Unexpected response from server'));
-    if (isStaticHostOrOffline) {
+    if (isStaticOrOffline) {
       return fallbackFn();
     }
     throw err;
@@ -342,6 +357,7 @@ export const api = {
     username?: string;
     email: string;
     password: string;
+    confirmPassword?: string;
     phone?: string;
     shopName?: string;
     shopDescription?: string;
@@ -491,10 +507,26 @@ export const api = {
     });
   },
 
-  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+  async forgotUsername(contact: string): Promise<{ success: boolean; message: string }> {
+    return await fetchApi<{ success: boolean; message: string }>('/auth/forgot-username', {
+      method: 'POST',
+      body: JSON.stringify({ contact }),
+    });
+  },
+
+  async resetPassword(
+    tokenOrPayload:
+      | string
+      | { token?: string; identifier?: string; code?: string; newPassword: string; confirmPassword?: string },
+    newPasswordArg?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const body =
+      typeof tokenOrPayload === 'string'
+        ? { token: tokenOrPayload, newPassword: newPasswordArg }
+        : tokenOrPayload;
     return await fetchApi<{ success: boolean; message: string }>('/auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify({ token, newPassword }),
+      body: JSON.stringify(body),
     });
   },
 

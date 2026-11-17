@@ -1,8 +1,10 @@
+import crypto from 'crypto';
 import { DatabaseSchema, logAudit } from './db.js';
 import { fromCents, LOAN_PLATFORM_FEE_RATE, SUPPORT_EMAIL, toCents } from './config.js';
 import {
   hashPasskey,
   hashPassword,
+  normalizeEastAfricanPhone,
   normalizeUsername,
   normalizeUsernameSeed,
   sendSecurityEmail,
@@ -646,6 +648,135 @@ export const MIGRATIONS: MigrationDefinition[] = [
     down(db) {
       delete (db as any).wallets;
       delete (db as any).walletLedger;
+      return true;
+    },
+  },
+  {
+    id: '010_auth_hardening_e164_phone_and_resets',
+    name: 'Backfill UUIDs, display/lowercase usernames, E.164 nullable phone normalization, verification flags, and audit legacy credential issues without deleting data',
+    up(db) {
+      let changed = false;
+      if (!db.passwordResets) {
+        db.passwordResets = [];
+        changed = true;
+      }
+
+      const now = Date.now();
+      const emailCounts = new Map<string, number>();
+      const usernameCounts = new Map<string, number>();
+      const phoneCounts = new Map<string, number>();
+
+      for (const u of db.users || []) {
+        if (!u.uuid) {
+          u.uuid = crypto.randomUUID();
+          changed = true;
+        }
+        if (u.username) {
+          const display = (u.usernameDisplay || u.username).trim();
+          const lower = display.toLowerCase();
+          if (!u.usernameDisplay) {
+            u.usernameDisplay = display;
+            changed = true;
+          }
+          if (u.usernameLower !== lower) {
+            u.usernameLower = lower;
+            changed = true;
+          }
+        }
+        if (!u.updatedAt) {
+          u.updatedAt = u.lastActive || u.createdAt || now;
+          changed = true;
+        }
+        if (typeof u.emailVerified !== 'boolean') {
+          u.emailVerified = Boolean(u.emailVerifiedAt);
+          changed = true;
+        }
+        if (typeof u.phoneVerified !== 'boolean') {
+          u.phoneVerified = false;
+          changed = true;
+        }
+        if (u.failedLoginCount === undefined) {
+          u.failedLoginCount = 0;
+          changed = true;
+        }
+        if (u.lockedUntil === undefined) {
+          u.lockedUntil = null;
+          changed = true;
+        }
+
+        // Normalize phone into E.164 while keeping blank/absent phone as null
+        const rawPhone = typeof u.phone === 'string' ? u.phone.trim() : '';
+        if (!rawPhone) {
+          if (u.phone !== null) {
+            u.phone = null;
+            changed = true;
+          }
+          if (u.phoneNormalized !== null) {
+            u.phoneNormalized = null;
+            changed = true;
+          }
+        } else {
+          const normRes = normalizeEastAfricanPhone(rawPhone);
+          const targetNorm = normRes.valid && normRes.normalized ? normRes.normalized : rawPhone;
+          if (normRes.valid && normRes.normalized && u.phone !== normRes.normalized) {
+            u.phone = normRes.normalized;
+            changed = true;
+          }
+          if (u.phoneNormalized !== targetNorm) {
+            u.phoneNormalized = targetNorm;
+            changed = true;
+          }
+        }
+
+        // Flag any non-hashed plain-text password on active accounts without deleting data
+        if (u.password && typeof u.password === 'string' && !u.password.startsWith('$argon2') && !u.password.includes(':')) {
+          if (!u.mustResetPassword) {
+            u.mustResetPassword = true;
+            u.mustChangeCredentials = true;
+            changed = true;
+          }
+        }
+
+        if (!u.isDisabled) {
+          if (u.email) {
+            const eKey = u.email.trim().toLowerCase();
+            emailCounts.set(eKey, (emailCounts.get(eKey) || 0) + 1);
+          }
+          if (u.usernameLower) {
+            usernameCounts.set(u.usernameLower, (usernameCounts.get(u.usernameLower) || 0) + 1);
+          }
+          if (u.phoneNormalized) {
+            phoneCounts.set(u.phoneNormalized, (phoneCounts.get(u.phoneNormalized) || 0) + 1);
+          }
+        }
+      }
+
+      const dupEmails = Array.from(emailCounts.entries()).filter(([, c]) => c > 1).map(([k]) => k);
+      const dupUsernames = Array.from(usernameCounts.entries()).filter(([, c]) => c > 1).map(([k]) => k);
+      const dupPhones = Array.from(phoneCounts.entries()).filter(([, c]) => c > 1).map(([k]) => k);
+      if (dupEmails.length > 0 || dupUsernames.length > 0 || dupPhones.length > 0) {
+        logAudit(
+          db,
+          0,
+          'System Migration 010',
+          'MIGRATION_DUPLICATE_IDENTITY_NOTICE',
+          `Detected duplicate legacy identities without deletion (emails=${dupEmails.length}, usernames=${dupUsernames.length}, phones=${dupPhones.length}).`
+        );
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      for (const u of db.users || []) {
+        delete u.uuid;
+        delete u.usernameDisplay;
+        delete u.usernameLower;
+        delete u.phoneNormalized;
+        delete u.emailVerified;
+        delete u.phoneVerified;
+        delete u.mustResetPassword;
+      }
       return true;
     },
   },

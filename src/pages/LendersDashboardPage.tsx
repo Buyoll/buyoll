@@ -746,7 +746,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
                 Call Phone ({contactTarget.phone})
               </a>
               <a
-                href={`https://wa.me/${contactTarget.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${contactTarget.name}, reaching out regarding Buyoll Group "${contactTarget.groupName}".`)}`}
+                href={`https://wa.me/${(contactTarget.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${contactTarget.name}, reaching out regarding Buyoll Group "${contactTarget.groupName}".`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2.5 bg-[#25D366] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl text-center shadow-xs"

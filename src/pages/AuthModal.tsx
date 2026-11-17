@@ -79,12 +79,30 @@ const LockIcon = () => (
   </svg>
 );
 
-function validatePasswordRule(pw: string): string | null {
+function validatePasswordRule(
+  pw: string,
+  identity?: { username?: string; email?: string; phone?: string }
+): string | null {
   if (!pw || pw.length < 8) {
     return 'Password must be at least 8 characters long.';
   }
   if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
     return 'Password must include at least one letter and one number.';
+  }
+  if (identity) {
+    const pwLower = pw.toLowerCase();
+    const un = (identity.username || '').trim().toLowerCase();
+    const em = (identity.email || '').trim().toLowerCase();
+    const emLocal = em.split('@')[0] || '';
+    const phDigits = (identity.phone || '').replace(/\D/g, '');
+    if (
+      (un.length >= 3 && (pwLower === un || pwLower.includes(un))) ||
+      (em.length >= 4 && pwLower.includes(em)) ||
+      (emLocal.length >= 3 && pwLower.includes(emLocal)) ||
+      (phDigits.length >= 6 && pwLower.includes(phDigits))
+    ) {
+      return 'Password cannot equal or contain your username, email, or phone number.';
+    }
   }
   return null;
 }
@@ -159,6 +177,7 @@ interface AuthModalProps {
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
   initialRole?: RoleKey;
   portalMode?: boolean;
+  initialResetToken?: string | null;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -167,10 +186,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onNotify,
   initialRole = 'member',
   portalMode = false,
+  initialResetToken = null,
 }) => {
   const effectiveInitialRole: RoleKey = portalMode ? 'admin' : initialRole === 'admin' ? 'member' : initialRole;
   const [role, setRole] = useState<RoleKey>(effectiveInitialRole);
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(initialResetToken ? 'forgot' : 'login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -190,28 +210,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     email: '',
     phone: '',
     password: '',
+    confirmPassword: '',
   });
 
   const [showLoginPw, setShowLoginPw] = useState(false);
   const [showLoginPasskey, setShowLoginPasskey] = useState(false);
   const [showRegPw, setShowRegPw] = useState(false);
+  const [showRegConfirmPw, setShowRegConfirmPw] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
+  const [showResetConfirmPw, setShowResetConfirmPw] = useState(false);
   const [showResetPasskey, setShowResetPasskey] = useState(false);
 
   const [usernameStatus, setUsernameStatus] = useState<{ checking: boolean; available?: boolean; message?: string }>({
     checking: false,
   });
 
-  // Forgot & Reset OTP state (Password, Username, or Admin Recovery)
+  // Forgot & Reset state (Password, Username, or Admin OTP Recovery)
   const [forgotType, setForgotType] = useState<'forgot_password' | 'forgot_username'>('forgot_password');
-  const [forgotStep, setForgotStep] = useState<'request' | 'verify' | 'reset'>('request');
+  const [forgotStep, setForgotStep] = useState<'request' | 'verify' | 'reset' | 'sent'>(
+    initialResetToken ? 'reset' : 'request'
+  );
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotOtp, setForgotOtp] = useState('');
-  const [verificationToken, setVerificationToken] = useState('');
+  const [verificationToken, setVerificationToken] = useState(initialResetToken || '');
   const [resetNewPw, setResetNewPw] = useState('');
+  const [resetConfirmPw, setResetConfirmPw] = useState('');
   const [resetNewPasskey, setResetNewPasskey] = useState('');
-  const [resetNewUsername, setResetNewUsername] = useState('');
-  const [recoveredUsername, setRecoveredUsername] = useState('');
 
   useEffect(() => {
     if (portalMode) {
@@ -221,6 +245,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   }, [portalMode]);
 
   useEffect(() => {
+    if (initialResetToken) {
+      setMode('forgot');
+      setForgotType('forgot_password');
+      setForgotStep('reset');
+      setVerificationToken(initialResetToken);
+    }
+  }, [initialResetToken]);
+
+  useEffect(() => {
     const clean = reg.username.trim();
     if (mode !== 'register' || !clean) {
       setUsernameStatus({ checking: false });
@@ -228,6 +261,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     if (clean.length < 3 || clean.length > 30) {
       setUsernameStatus({ checking: false, available: false, message: 'Username must be 3–30 characters.' });
+      return;
+    }
+    if (!/^[a-zA-Z0-9._]+$/.test(clean)) {
+      setUsernameStatus({
+        checking: false,
+        available: false,
+        message: 'Use only letters, numbers, dots (.), or underscores (_).',
+      });
       return;
     }
     const timer = setTimeout(() => {
@@ -282,9 +323,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setForgotOtp('');
       setVerificationToken('');
       setResetNewPw('');
+      setResetConfirmPw('');
       setResetNewPasskey('');
-      setResetNewUsername('');
-      setRecoveredUsername('');
     }
     setMode(m);
   };
@@ -296,7 +336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setFieldErrors({});
 
     if (!login.identifier.trim()) {
-      setFieldErrors({ identifier: portalMode ? 'Please enter your admin username or email.' : 'Please enter your username, email, or phone number.' });
+      setFieldErrors({ identifier: portalMode ? 'Please enter your admin username or email.' : 'Please enter your username, email or phone number.' });
       return;
     }
 
@@ -343,7 +383,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (!portalMode && (err?.fields?.showRecoveryPrompt === 'true' || nextFails >= 3)) {
         setShowRecoveryPrompt(true);
       }
-      setError(err?.message || 'Login failed. Please verify your credentials.');
+      setError(err?.message || 'Invalid credentials. Please check your details and try again.');
     } finally {
       setBusy(false);
     }
@@ -362,19 +402,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const cleanName = reg.name.trim();
     const cleanUn = reg.username.trim();
     const cleanEmail = reg.email.trim().toLowerCase();
+    const cleanPhone = reg.phone.trim();
 
-    if (cleanName.length < 2) errs.name = 'Name must be at least 2 characters.';
+    if (cleanName.length < 2 || cleanName.length > 100) {
+      errs.name = 'Full name must be between 2 and 100 characters.';
+    }
     if (!cleanUn || cleanUn.length < 3 || cleanUn.length > 30) {
       errs.username = 'Username must be 3–30 characters.';
+    } else if (!/^[a-zA-Z0-9._]+$/.test(cleanUn)) {
+      errs.username = 'Use only letters, numbers, dots (.), or underscores (_).';
     } else if (usernameStatus.available === false) {
       errs.username = usernameStatus.message || 'That username is not available. Please choose a different one.';
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       errs.email = 'Please enter a valid email address.';
     }
-    const pwErr = validatePasswordRule(reg.password);
+    const pwErr = validatePasswordRule(reg.password, {
+      username: cleanUn,
+      email: cleanEmail,
+      phone: cleanPhone,
+    });
     if (pwErr) {
       errs.password = pwErr;
+    }
+    if (!reg.confirmPassword || reg.confirmPassword !== reg.password) {
+      errs.confirmPassword = 'Passwords do not match.';
     }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -391,8 +443,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         name: cleanName,
         username: cleanUn,
         email: cleanEmail,
-        phone: reg.phone.trim() || undefined,
+        phone: cleanPhone || undefined,
         password: reg.password,
+        confirmPassword: reg.confirmPassword,
         shopName: role === 'merchant' ? cleanName : undefined,
         referredBy: referrer || undefined,
         rememberMe: true,
@@ -429,15 +482,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     setBusy(true);
     try {
-      const res = portalMode
-        ? await api.adminForgotStart({ identifier: forgotIdentifier.trim() })
-        : await api.forgotStart({ type: forgotType, identifier: forgotIdentifier.trim() });
-      setNotice(
-        res.devOtp
-          ? `${res.message} Verification OTP: ${res.devOtp}`
-          : res.message || 'Verification code sent. Enter the 6-digit OTP below.'
-      );
-      setForgotStep('verify');
+      if (portalMode) {
+        const res = await api.adminForgotStart({ identifier: forgotIdentifier.trim() });
+        setNotice(res.message || 'If the administrator details match our records, a 6-digit code was sent.');
+        setForgotStep('verify');
+      } else if (forgotType === 'forgot_username') {
+        const res = await api.forgotUsername(forgotIdentifier.trim());
+        setNotice(res.message || "If an account exists for that contact, we've sent your username to your registered email or phone.");
+        setForgotStep('sent');
+      } else {
+        const res = await api.forgotPassword(forgotIdentifier.trim());
+        setNotice(res.message || "If an account exists for that contact, we've sent reset instructions.");
+        setForgotStep('reset');
+      }
     } catch (err: any) {
       setError(err?.message || 'Unable to process recovery request.');
     } finally {
@@ -455,34 +512,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     setBusy(true);
     try {
-      if (portalMode) {
-        const res = await api.adminForgotVerify({
-          identifier: forgotIdentifier.trim(),
-          otp: forgotOtp.trim(),
-        });
-        setVerificationToken(res.verificationToken);
-        setNotice('OTP verified. Set your new administrator password and/or passkey.');
-        setForgotStep('reset');
-      } else {
-        const res = await api.forgotVerify({
-          type: forgotType,
-          identifier: forgotIdentifier.trim(),
-          otp: forgotOtp.trim(),
-        });
-        if (forgotType === 'forgot_username' && res.sentExisting && res.username) {
-          setRecoveredUsername(res.username);
-          setLogin((prev) => ({ ...prev, identifier: res.username || prev.identifier }));
-          setNotice(res.message || `Your username is: ${res.username}`);
-        } else if (res.verificationToken) {
-          setVerificationToken(res.verificationToken);
-          setNotice(
-            forgotType === 'forgot_username'
-              ? 'Verified! Choose a new username below.'
-              : 'OTP verified. Choose your new strong password below.'
-          );
-          setForgotStep('reset');
-        }
-      }
+      const res = await api.adminForgotVerify({
+        identifier: forgotIdentifier.trim(),
+        otp: forgotOtp.trim(),
+      });
+      setVerificationToken(res.verificationToken);
+      setNotice('OTP verified. Set your new administrator password and/or passkey.');
+      setForgotStep('reset');
     } catch (err: any) {
       setError(err?.message || 'Invalid or expired OTP code.');
     } finally {
@@ -511,15 +547,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setError('Security passkey must be at least 8 characters.');
         return;
       }
-    } else if (forgotType === 'forgot_password') {
+    } else {
+      const tokenVal = verificationToken.trim();
+      const codeVal = forgotOtp.trim();
+      if (!tokenVal && !codeVal) {
+        setError('Enter the 6-digit verification code sent to you, or use the reset link.');
+        return;
+      }
       const pwErr = validatePasswordRule(resetNewPw);
       if (pwErr) {
         setError(pwErr);
         return;
       }
-    } else if (forgotType === 'forgot_username') {
-      if (!resetNewUsername.trim() || resetNewUsername.trim().length < 3) {
-        setError('Please enter a valid username (min 3 characters).');
+      if (resetConfirmPw !== resetNewPw) {
+        setError('Passwords do not match.');
         return;
       }
     }
@@ -534,33 +575,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         });
         setMode('login');
         setNotice(res.message || 'Administrator credentials updated. Sign in with your new credentials.');
-      } else if (forgotType === 'forgot_password') {
-        const res = await api.forgotResetPassword({
-          verificationToken,
-          newPassword: resetNewPw,
-        });
-        setMode('login');
-        setFailedAttempts(0);
-        setShowRecoveryPrompt(false);
-        setNotice(res.message || 'Password updated! You can now sign in.');
       } else {
-        const res = await api.forgotResetUsername({
-          verificationToken,
-          newUsername: resetNewUsername.trim(),
+        const res = await api.resetPassword({
+          token: verificationToken.trim() || undefined,
+          identifier: forgotIdentifier.trim() || undefined,
+          code: forgotOtp.trim() || undefined,
+          newPassword: resetNewPw,
+          confirmPassword: resetConfirmPw,
         });
-        setLogin((prev) => ({ ...prev, identifier: res.username }));
         setMode('login');
         setFailedAttempts(0);
         setShowRecoveryPrompt(false);
-        setNotice(res.message || `Username updated to ${res.username}. Sign in below.`);
+        setNotice(res.message || 'Your password has been updated. You can now log in with your new password.');
       }
       setForgotOtp('');
       setVerificationToken('');
       setResetNewPw('');
+      setResetConfirmPw('');
       setResetNewPasskey('');
-      setResetNewUsername('');
     } catch (err: any) {
-      setError(err?.message || 'Failed to complete reset.');
+      setError(err?.message || 'Failed to complete password reset.');
     } finally {
       setBusy(false);
     }
@@ -667,15 +701,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   ? portalMode
                     ? 'Enter your admin username or email to receive a 6-digit recovery code.'
                     : forgotType === 'forgot_username'
-                    ? 'Enter your registered email or phone number to receive a 6-digit verification code.'
-                    : 'Enter your username, email, or phone to receive a 6-digit verification code.'
+                    ? 'Enter your registered email or phone number. We will send your username to that contact.'
+                    : 'Enter your username, email, or phone to receive reset instructions (valid for 15 minutes).'
+                  : forgotStep === 'sent'
+                  ? 'Check your registered email or SMS inbox for your Buyoll username.'
                   : forgotStep === 'verify'
                   ? 'Enter the 6-digit verification code sent to your contact.'
                   : portalMode
                   ? 'Choose a new administrator password and/or security passkey.'
-                  : forgotType === 'forgot_username'
-                  ? 'Choose a new username for your account.'
-                  : 'Create a strong new password (at least 8 chars, 1 letter, 1 number).'}
+                  : 'Enter the 6-digit code (or use your reset link) and set a strong new password.'}
               </p>
 
               {forgotStep === 'request' && (
@@ -694,41 +728,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     onChange={(e) => setForgotIdentifier(e.target.value)}
                   />
                   <button className="ax-btn mt-2" disabled={busy} type="submit">
-                    {busy ? 'Sending OTP…' : 'Send Verification Code'}
+                    {busy
+                      ? 'Sending…'
+                      : forgotType === 'forgot_username'
+                      ? 'Send My Username'
+                      : 'Send Reset Instructions'}
                   </button>
                 </>
               )}
 
+              {forgotStep === 'sent' && (
+                <button
+                  type="button"
+                  onClick={() => switchMode('login')}
+                  className="ax-btn mt-2"
+                >
+                  Back to Sign In
+                </button>
+              )}
+
               {forgotStep === 'verify' && (
                 <>
-                  {recoveredUsername ? (
-                    <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-center space-y-2">
-                      <p className="text-xs text-emerald-900 dark:text-emerald-200">
-                        Your registered username is:
-                      </p>
-                      <p className="text-sm font-mono font-bold text-[#ff6600]">@{recoveredUsername}</p>
-                      <button
-                        type="button"
-                        onClick={() => switchMode('login')}
-                        className="ax-btn mt-2"
-                      >
-                        Continue to Log In
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <Field
-                        id="f-otp"
-                        label="6-Digit Verification Code"
-                        icon={<KeyRound className="w-4 h-4" />}
-                        value={forgotOtp}
-                        onChange={(e) => setForgotOtp(e.target.value)}
-                      />
-                      <button className="ax-btn mt-2" disabled={busy} type="submit">
-                        {busy ? 'Verifying…' : 'Verify Code'}
-                      </button>
-                    </>
-                  )}
+                  <Field
+                    id="f-otp"
+                    label="6-Digit Verification Code"
+                    icon={<KeyRound className="w-4 h-4" />}
+                    value={forgotOtp}
+                    onChange={(e) => setForgotOtp(e.target.value)}
+                  />
+                  <button className="ax-btn mt-2" disabled={busy} type="submit">
+                    {busy ? 'Verifying…' : 'Verify Code'}
+                  </button>
                 </>
               )}
 
@@ -775,13 +805,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         }
                       />
                     </>
-                  ) : forgotType === 'forgot_password' ? (
+                  ) : (
                     <>
+                      {!verificationToken && (
+                        <Field
+                          id="f-reset-code"
+                          label="6-Digit Verification Code"
+                          icon={<KeyRound className="w-4 h-4" />}
+                          value={forgotOtp}
+                          onChange={(e) => setForgotOtp(e.target.value)}
+                        />
+                      )}
                       <Field
                         id="f-newpw"
                         label="New Password (min 8 chars, letter + number)"
                         type={showResetPw ? 'text' : 'password'}
                         icon={<LockIcon />}
+                        autoComplete="new-password"
                         value={resetNewPw}
                         onChange={(e) => setResetNewPw(e.target.value)}
                         rightToggle={
@@ -808,18 +848,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           </p>
                         </div>
                       )}
+                      <Field
+                        id="f-confirmpw"
+                        label="Confirm New Password"
+                        type={showResetConfirmPw ? 'text' : 'password'}
+                        icon={<LockIcon />}
+                        autoComplete="new-password"
+                        value={resetConfirmPw}
+                        onChange={(e) => setResetConfirmPw(e.target.value)}
+                        rightToggle={
+                          <button
+                            type="button"
+                            onClick={() => setShowResetConfirmPw((s) => !s)}
+                            aria-label={showResetConfirmPw ? 'Hide confirm password' : 'Show confirm password'}
+                            className="cursor-pointer hover:text-[#ff6600]"
+                          >
+                            {showResetConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        }
+                      />
                     </>
-                  ) : (
-                    <Field
-                      id="f-newun"
-                      label="New Username"
-                      icon={<AtSign className="w-4 h-4" />}
-                      value={resetNewUsername}
-                      onChange={(e) => setResetNewUsername(e.target.value.replace(/\s+/g, ''))}
-                    />
                   )}
                   <button className="ax-btn mt-2" disabled={busy} type="submit">
-                    {busy ? 'Saving…' : 'Save & Continue'}
+                    {busy ? 'Saving…' : 'Update Password'}
                   </button>
                 </>
               )}
@@ -854,7 +905,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
                 <Field
                   id="l-id"
-                  label={portalMode ? 'Username or Email' : 'Username, Email, or Phone'}
+                  label={portalMode ? 'Username or Email' : 'Username, email or phone number'}
                   type="text"
                   icon={<MailIcon />}
                   autoComplete="username"
@@ -1107,6 +1158,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </p>
                 </div>
               )}
+              <Field
+                id="r-confirm-pw"
+                label="Confirm password"
+                type={showRegConfirmPw ? 'text' : 'password'}
+                icon={<LockIcon />}
+                autoComplete="new-password"
+                value={reg.confirmPassword}
+                errorText={fieldErrors.confirmPassword}
+                onChange={(e) => setReg({ ...reg, confirmPassword: e.target.value })}
+                rightToggle={
+                  <button
+                    type="button"
+                    onClick={() => setShowRegConfirmPw((s) => !s)}
+                    aria-label={showRegConfirmPw ? 'Hide confirm password' : 'Show confirm password'}
+                    className="cursor-pointer hover:text-[#ff6600]"
+                  >
+                    {showRegConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                }
+              />
             </div>
 
             <div className="ax-anim" style={{ '--li': 4 } as React.CSSProperties}>

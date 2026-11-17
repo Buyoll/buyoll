@@ -1566,7 +1566,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   onClick={() => {
                     setEditingAddressId(null);
                     setAddrFullName(currentUser.name);
-                    setAddrPhone(currentUser.phone);
+                    setAddrPhone(currentUser.phone || '');
                     setAddrCounty('Nairobi');
                     setAddrCity('');
                     setAddrStreet('');

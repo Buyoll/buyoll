@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDatabase, logAudit, runDatabaseTransaction, saveDatabase } from './db.js';
 import {
   ALL_ROLE_COOKIES,
+  canonicalizeUsernameInput,
   clearAuthCookies,
   clearRoleSessionCookie,
   computePasswordHmac,
@@ -15,8 +16,11 @@ import {
   hashPasskey,
   hashPassword,
   isPasswordReusedGlobally,
+  isValidStrictUsername,
   isValidUsername,
   issueAuthTokensForUser,
+  looksLikePhoneNumber,
+  normalizeEastAfricanPhone,
   normalizeUsername,
   normalizeUsernameSeed,
   resolveAuthenticatedSession,
@@ -26,10 +30,12 @@ import {
   setAuthCookies,
   setRoleSessionCookie,
   verifyAccessToken,
+  verifyDummyPassword,
   verifyPasskey,
   verifyPassword,
   verifySessionCookieValue,
 } from './auth_utils.js';
+import { buildResetLink, dispatchContactNotification } from './messaging.js';
 import { sendApiError, sendZodError } from './errors.js';
 import {
   ADMIN_LOCKOUT_MS,
@@ -38,6 +44,7 @@ import {
   OTP_MAX_ATTEMPTS,
   OTP_TTL_MS,
   RECENT_REAUTH_WINDOW_MS,
+  RESET_TOKEN_TTL_MS,
   SESSION_IDLE_TIMEOUT_MS,
   SUPPORT_EMAIL,
 } from './config.js';
@@ -48,8 +55,62 @@ export const authRouter = Router();
 
 const NON_ADMIN_SOFT_PROMPT_THRESHOLD = 3;
 const NON_ADMIN_MAX_ATTEMPTS = 5;
+const IP_LOGIN_MAX_ATTEMPTS = 30;
 const LOCKOUT_MS = 15 * 60 * 1000;
-const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+const RECOVERY_WINDOW_MS = 60 * 60 * 1000;
+const RECOVERY_MAX_PER_CONTACT = 3;
+const RECOVERY_MAX_PER_IP = 20;
+
+const IS_TEST_MODE = (): boolean =>
+  process.env.BUYOLL_TEST_MODE === '1' || process.env.NODE_ENV === 'test';
+
+const slidingWindows = new Map<string, number[]>();
+
+function pruneWindow(key: string, windowMs: number, now = Date.now()): number[] {
+  const cutoff = now - windowMs;
+  const arr = (slidingWindows.get(key) || []).filter((ts) => ts > cutoff);
+  if (arr.length > 0) {
+    slidingWindows.set(key, arr);
+  } else {
+    slidingWindows.delete(key);
+  }
+  return arr;
+}
+
+function isSlidingWindowLimited(
+  key: string,
+  maxCount: number,
+  windowMs: number
+): { limited: boolean; waitMinutes: number } {
+  const now = Date.now();
+  const arr = pruneWindow(key, windowMs, now);
+  if (arr.length >= maxCount) {
+    const oldest = arr[0] || now;
+    const waitMinutes = Math.max(1, Math.ceil((oldest + windowMs - now) / 60000));
+    return { limited: true, waitMinutes };
+  }
+  return { limited: false, waitMinutes: 0 };
+}
+
+function recordSlidingFailure(key: string, windowMs: number): void {
+  const now = Date.now();
+  const arr = pruneWindow(key, windowMs, now);
+  arr.push(now);
+  slidingWindows.set(key, arr);
+}
+
+function checkAndRecordSlidingWindow(
+  key: string,
+  maxCount: number,
+  windowMs: number
+): { allowed: boolean; waitMinutes: number } {
+  const check = isSlidingWindowLimited(key, maxCount, windowMs);
+  if (check.limited) {
+    return { allowed: false, waitMinutes: check.waitMinutes };
+  }
+  recordSlidingFailure(key, windowMs);
+  return { allowed: true, waitMinutes: 0 };
+}
 
 interface FailedAttemptBucket {
   count: number;
@@ -105,10 +166,12 @@ function clearUserLoginBuckets(user: User): void {
     candidates.add(user.username.toLowerCase());
   }
   if (user.usernameNormalized) candidates.add(user.usernameNormalized);
+  if (user.usernameLower) candidates.add(user.usernameLower);
   if (user.email) {
     candidates.add(user.email.toLowerCase());
     candidates.add(normalizeUsername(user.email));
   }
+  if (user.phoneNormalized) candidates.add(user.phoneNormalized.toLowerCase());
   if (user.phone) {
     candidates.add(user.phone.toLowerCase());
     candidates.add(normalizeUsername(user.phone));
@@ -186,11 +249,16 @@ function syncUserRoleAndWallet(user: User): void {
 }
 
 const registerSchema = z.object({
-  name: z.string().trim().min(2, 'Name must be at least 2 characters.').max(80, 'Name must be 80 characters or fewer.'),
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Full name must be at least 2 characters.')
+    .max(100, 'Full name must be 100 characters or fewer.'),
   username: z.string().optional(),
   email: z.string().trim().email('Please provide a valid email address.').max(120),
   password: z.string().min(8, 'Password must be at least 8 characters long.').max(128),
-  phone: z.string().trim().max(30).optional(),
+  confirmPassword: z.string().optional(),
+  phone: z.union([z.string().trim().max(30), z.null()]).optional(),
   role: z.enum(['member', 'merchant', 'lender', 'admin']).optional(),
   shopName: z.string().trim().max(100).optional(),
   shopDescription: z.string().trim().max(500).optional(),
@@ -211,29 +279,48 @@ const loginSchema = z.object({
 });
 
 // ======================================================================
-// USERNAME AVAILABILITY (Normalized uniqueness check)
+// USERNAME AVAILABILITY (Normalized uniqueness + strict char check)
 // ======================================================================
 async function handleUsernameAvailable(req: Request, res: Response) {
   const raw = String(req.query.u || req.query.username || '').trim();
-  const valid = isValidUsername(raw);
+  const norm = normalizeUsername(raw);
+  const lower = canonicalizeUsernameInput(raw);
+  const db = await getDatabase();
+
+  // Check collision first so legacy/punctuation-equivalent conflicts report conflict cleanly
+  const taken =
+    norm.length >= 3 &&
+    (db.users || []).some(
+      (u) =>
+        (u.usernameLower && u.usernameLower === lower) ||
+        (u.usernameNormalized && u.usernameNormalized === norm) ||
+        (u.username && normalizeUsername(u.username) === norm)
+    );
+
+  if (taken) {
+    return res.json({
+      valid: false,
+      available: false,
+      normalized: norm,
+      message: 'That username is not available. Please choose a different one.',
+    });
+  }
+
+  const valid = isValidStrictUsername(raw);
   if (!valid) {
     return res.json({
       valid: false,
       available: false,
-      normalized: normalizeUsername(raw),
-      message: 'Use 3–30 characters: letters, numbers, dots (.), underscores (_), or hyphens (-).',
+      normalized: norm,
+      message: 'Use 3–30 characters: letters, numbers, dots (.), or underscores (_).',
     });
   }
-  const norm = normalizeUsername(raw);
-  const db = await getDatabase();
-  const taken = (db.users || []).some(
-    (u) => (u.usernameNormalized && u.usernameNormalized === norm) || (u.username && normalizeUsername(u.username) === norm)
-  );
+
   return res.json({
     valid: true,
-    available: !taken,
+    available: true,
     normalized: norm,
-    message: taken ? 'That username is not available. Please choose a different one.' : 'Username is available.',
+    message: 'Username is available.',
   });
 }
 
@@ -352,33 +439,30 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
 
   const cleanRole: UserRole =
     input.role === 'merchant' || input.role === 'lender' ? input.role : 'member';
-  const cleanEmail = input.email.toLowerCase();
-  const cleanPhone = input.phone ? input.phone.trim() : '';
+  const cleanEmail = input.email.trim().toLowerCase();
 
-  if (cleanPhone && cleanPhone.replace(/\D/g, '').length < 7) {
-    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Phone number appears invalid.', {
-      phone: 'Enter a valid phone number (at least 7 digits).',
+  // Confirm password check when supplied
+  if (input.confirmPassword !== undefined && input.confirmPassword !== input.password) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Passwords do not match.', {
+      confirmPassword: 'Passwords do not match.',
     });
   }
 
-  if (input.username !== undefined) {
-    if (!isValidUsername(input.username)) {
-      return sendApiError(
-        res,
-        422,
-        'INVALID_USERNAME',
-        'Username must be 3–30 characters (letters, numbers, dots, underscores, or hyphens).',
-        { username: 'Use 3–30 letters, numbers, ".", "_", or "-".' }
-      );
-    }
+  // Normalize optional phone to East African E.164 (nullable)
+  const phoneParse = normalizeEastAfricanPhone(input.phone ?? null);
+  if (!phoneParse.valid) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', phoneParse.error || 'Phone number appears invalid.', {
+      phone: phoneParse.error || 'Enter a valid East African or international phone number.',
+    });
   }
+  const normalizedPhone = phoneParse.normalized;
 
   // Evaluate password strength WITHOUT trimming password
   const pwEval = evaluatePasswordStrength(input.password, {
     username: input.username,
     name: input.name,
     email: cleanEmail,
-    phone: cleanPhone,
+    phone: normalizedPhone || input.phone || undefined,
   });
   if (!pwEval.valid) {
     return sendApiError(res, 422, 'WEAK_PASSWORD', pwEval.error!, { password: pwEval.error! });
@@ -399,7 +483,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       };
     }
 
-    if (db.users.some((u) => !u.isDisabled && u.email && u.email.toLowerCase() === cleanEmail)) {
+    if (db.users.some((u) => !u.isDisabled && u.email && u.email.trim().toLowerCase() === cleanEmail)) {
       return {
         error: {
           status: 409,
@@ -410,35 +494,53 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       };
     }
 
-    if (cleanPhone && db.users.some((u) => !u.isDisabled && u.phone && u.phone.trim() === cleanPhone)) {
+    if (
+      normalizedPhone &&
+      db.users.some((u) => {
+        if (u.isDisabled) return false;
+        if (u.phoneNormalized && u.phoneNormalized === normalizedPhone) return true;
+        if (!u.phone) return false;
+        const p = normalizeEastAfricanPhone(u.phone);
+        return p.valid && p.normalized === normalizedPhone;
+      })
+    ) {
       return {
         error: {
           status: 409,
           code: 'PHONE_TAKEN',
-          message: 'This phone number is already associated with an account.',
+          message: 'This phone number is already registered to another account.',
           fields: { phone: 'This phone number is already registered.' },
         },
       };
     }
 
-    const maxExistingId = db.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
-    if (db.nextIds.user <= maxExistingId) {
-      db.nextIds.user = maxExistingId + 1;
-    }
-    const newId = db.nextIds.user++;
-
     let finalUsername: string;
+    let usernameDisplay: string;
     let finalNorm: string;
     if (input.username !== undefined) {
-      finalUsername = input.username.normalize('NFKC').trim().toLowerCase();
+      const displayRaw = input.username.normalize('NFKC').trim();
+      finalUsername = displayRaw.toLowerCase();
+      usernameDisplay = displayRaw;
       finalNorm = normalizeUsername(finalUsername);
+
+      if (finalUsername.length < 3 || finalUsername.length > 30) {
+        return {
+          error: {
+            status: 422,
+            code: 'INVALID_USERNAME',
+            message: 'Username must be 3–30 characters.',
+            fields: { username: 'Use 3–30 characters.' },
+          },
+        };
+      }
+
       const conflict = db.users.some(
         (u) =>
+          (u.usernameLower && u.usernameLower === finalUsername) ||
           (u.usernameNormalized && u.usernameNormalized === finalNorm) ||
           (u.username && normalizeUsername(u.username) === finalNorm)
       );
       if (conflict) {
-        db.nextIds.user--;
         return {
           error: {
             status: 409,
@@ -448,16 +550,36 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
           },
         };
       }
+
+      if (!isValidStrictUsername(displayRaw)) {
+        return {
+          error: {
+            status: 422,
+            code: 'INVALID_USERNAME',
+            message: 'Username must be 3–30 characters using letters, numbers, dots (.), or underscores (_).',
+            fields: { username: 'Use only letters, numbers, "." or "_" (3–30 chars).' },
+          },
+        };
+      }
     } else {
-      const seed = normalizeUsernameSeed(cleanEmail.split('@')[0] || input.name, newId);
+      const seedBase = cleanEmail.split('@')[0] || input.name;
+      const candidateSeed = normalizeUsernameSeed(seedBase, (db.nextIds.user || 1));
       const takenNorms = new Set(
         db.users.map((u) => u.usernameNormalized || normalizeUsername(u.username || '')).filter(Boolean)
       );
-      finalUsername = takenNorms.has(normalizeUsername(seed)) ? `${seed.slice(0, 22)}_${newId}` : seed;
+      finalUsername = takenNorms.has(normalizeUsername(candidateSeed))
+        ? `${candidateSeed.slice(0, 22)}_${db.nextIds.user || Date.now().toString().slice(-4)}`
+        : candidateSeed;
+      usernameDisplay = finalUsername;
       finalNorm = normalizeUsername(finalUsername);
     }
 
-    const autoPhone = cleanPhone || '07' + crypto.randomInt(10000000, 99999999).toString();
+    const maxExistingId = db.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+    if (db.nextIds.user <= maxExistingId) {
+      db.nextIds.user = maxExistingId + 1;
+    }
+    const newId = db.nextIds.user++;
+
     const prefix = cleanRole === 'merchant' ? 'BYL-V' : cleanRole === 'lender' ? 'BYL-L' : 'BYL-M';
     const platformId = `${prefix}-${(10000 + newId).toString()}`;
     const startingCoins = cleanRole === 'member' ? 100 : cleanRole === 'merchant' ? 200 : 300;
@@ -466,11 +588,15 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
 
     const newUser: User = {
       id: newId,
+      uuid: crypto.randomUUID(),
       name: input.name,
       username: finalUsername,
+      usernameDisplay,
+      usernameLower: finalUsername,
       usernameNormalized: finalNorm,
       email: cleanEmail,
-      phone: autoPhone,
+      phone: normalizedPhone,
+      phoneNormalized: normalizedPhone,
       password: passwordHash,
       passwordHmac,
       role: cleanRole,
@@ -483,6 +609,8 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       shopDescription: cleanRole === 'merchant' ? input.shopDescription || 'Verified seller on Buyoll' : undefined,
       lenderType: cleanRole === 'lender' ? input.lenderType : undefined,
       verified: false,
+      emailVerified: false,
+      phoneVerified: false,
       merchantSubscriptionStatus: cleanRole === 'merchant' ? 'inactive' : undefined,
       credit: 0,
       nonWithdrawableBalance: 0,
@@ -490,8 +618,8 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       coins: startingCoins,
       points: startingPoints,
       failedLoginCount: 0,
+      lockedUntil: null,
       tokenVersion: 1,
-      emailVerifiedAt: now,
       roleWallets: {
         [cleanRole]: {
           credit: 0,
@@ -502,6 +630,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       },
       lastActive: now,
       createdAt: now,
+      updatedAt: now,
     };
 
     db.users.push(newUser);
@@ -568,8 +697,8 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
   const clientIp = getClientIp(req);
 
   if (!cleanLookup) {
-    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your username.', {
-      identifier: 'Username is required.',
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your username, email, or phone number.', {
+      identifier: 'Username, email, or phone number is required.',
     });
   }
   if (!password) {
@@ -583,9 +712,18 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
     });
   }
 
+  const isEmailLookup = cleanLookup.includes('@');
+  const isPhoneLookup = !isEmailLookup && looksLikePhoneNumber(cleanLookup);
+  const normalizedPhoneLookup = isPhoneLookup ? normalizeEastAfricanPhone(cleanLookup).normalized : null;
   const lookupNorm = normalizeUsername(cleanLookup);
   const lookupLower = cleanLookup.toLowerCase();
-  const attemptBucketKey = `${isAdminLogin ? 'admin' : 'user'}:${lookupNorm || lookupLower}:${clientIp}`;
+  const bucketId = isEmailLookup
+    ? lookupLower
+    : normalizedPhoneLookup
+    ? normalizedPhoneLookup.toLowerCase()
+    : lookupNorm || lookupLower;
+  const attemptBucketKey = `${isAdminLogin ? 'admin' : 'user'}:${bucketId}:${clientIp}`;
+  const ipFailureKey = `login_ip_fail:${clientIp}`;
 
   const bucketStatus = getBucketStatus(attemptBucketKey);
   if (bucketStatus.locked) {
@@ -596,25 +734,51 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
       `Too many failed login attempts. Try again in ${bucketStatus.waitMinutes} minute(s).`
     );
   }
+  const ipRateStatus = isSlidingWindowLimited(ipFailureKey, IP_LOGIN_MAX_ATTEMPTS, LOCKOUT_MS);
+  if (ipRateStatus.limited) {
+    return sendApiError(
+      res,
+      429,
+      'RATE_LIMITED',
+      `Too many failed login attempts from your network. Try again in ${ipRateStatus.waitMinutes} minute(s).`
+    );
+  }
 
   const outcome = await runDatabaseTransaction(async (db) => {
     const now = Date.now();
     const user = (db.users || []).find((u) => {
       if (isAdminLogin) {
         return (
+          (u.usernameLower && u.usernameLower === lookupLower) ||
           (u.usernameNormalized && u.usernameNormalized === lookupNorm) ||
-          (u.username && normalizeUsername(u.username) === lookupNorm)
+          (u.username && normalizeUsername(u.username) === lookupNorm) ||
+          (isEmailLookup && u.email && u.email.toLowerCase() === lookupLower)
         );
       }
+      if (isEmailLookup) {
+        return Boolean(u.email && u.email.trim().toLowerCase() === lookupLower);
+      }
+      if (isPhoneLookup) {
+        if (normalizedPhoneLookup) {
+          if (u.phoneNormalized && u.phoneNormalized === normalizedPhoneLookup) return true;
+          if (u.phone) {
+            const p = normalizeEastAfricanPhone(u.phone);
+            if (p.valid && p.normalized === normalizedPhoneLookup) return true;
+          }
+        }
+        return Boolean(u.phone && u.phone.toLowerCase() === lookupLower);
+      }
       return (
+        (u.usernameLower && u.usernameLower === lookupLower) ||
         (u.usernameNormalized && u.usernameNormalized === lookupNorm) ||
-        (u.username && normalizeUsername(u.username) === lookupNorm) ||
-        (u.email && u.email.toLowerCase() === lookupLower) ||
-        (u.phone && u.phone.toLowerCase() === lookupLower)
+        (u.username && normalizeUsername(u.username) === lookupNorm)
       );
     });
 
     if (!user || user.isDisabled) {
+      await verifyDummyPassword(password);
+      recordSlidingFailure(ipFailureKey, LOCKOUT_MS);
+
       if (isAdminLogin) {
         const failInfo = recordBucketFailure(attemptBucketKey, ADMIN_MAX_FAILED_ATTEMPTS, ADMIN_LOCKOUT_MS);
         if (failInfo.justLocked) {
@@ -622,24 +786,28 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
           sendSecurityEmail(db, {
             to: activeAdmin?.email || SUPPORT_EMAIL,
             subject: 'Security Alert: Multiple Failed Admin Sign-In Attempts',
-            body: `Three consecutive failed administrator sign-in attempts were detected for username "${cleanLookup}" from IP ${clientIp}. Login has been locked for 15 minutes.`,
+            body: `Three consecutive failed administrator sign-in attempts were detected from IP ${clientIp}. Login has been locked for 15 minutes.`,
             kind: 'security_alert',
             userId: activeAdmin?.id,
-            meta: { ip: clientIp, attemptedUsername: cleanLookup },
+            meta: { ip: clientIp },
           });
-          logAudit(db, 0, 'System', 'AUTH_ADMIN_LOCKED', `Locked admin login attempts for "${cleanLookup}" from IP ${clientIp}.`);
+          logAudit(db, 0, 'System', 'AUTH_ADMIN_LOCKED', `Locked admin login attempts from IP ${clientIp}.`);
           return {
             status: 429,
             code: 'ACCOUNT_LOCKED',
             message: 'Too many failed administrator login attempts. Account locked for 15 minutes.',
           };
         }
-        return { status: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials.' };
+        return {
+          status: 401,
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid credentials. Please check your details and try again.',
+        };
       }
 
       const failInfo = recordBucketFailure(attemptBucketKey, NON_ADMIN_MAX_ATTEMPTS, LOCKOUT_MS);
       if (failInfo.justLocked) {
-        logAudit(db, 0, 'System', 'AUTH_LOGIN_LOCKED', `Rate-limited login attempts for "${lookupLower}" (${clientIp}).`);
+        logAudit(db, 0, 'System', 'AUTH_LOGIN_LOCKED', `Rate-limited login attempts (${clientIp}).`);
         return {
           status: 429,
           code: 'ACCOUNT_LOCKED',
@@ -650,7 +818,7 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
       return {
         status: 401,
         code: 'INVALID_CREDENTIALS',
-        message: 'Invalid username or password.',
+        message: 'Invalid credentials. Please check your details and try again.',
         fields: failInfo.count >= NON_ADMIN_SOFT_PROMPT_THRESHOLD ? { showRecoveryPrompt: 'true' } : undefined,
       };
     }
@@ -686,6 +854,7 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
       if (!hasAdminRole || !pwOk || !pkOk) {
         user.failedLoginCount = (user.failedLoginCount || 0) + 1;
         recordBucketFailure(attemptBucketKey, ADMIN_MAX_FAILED_ATTEMPTS, ADMIN_LOCKOUT_MS);
+        recordSlidingFailure(ipFailureKey, LOCKOUT_MS);
         if (user.failedLoginCount >= ADMIN_MAX_FAILED_ATTEMPTS) {
           user.lockedUntil = now + ADMIN_LOCKOUT_MS;
           sendSecurityEmail(db, {
@@ -716,7 +885,11 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
           'AUTH_ADMIN_LOGIN_FAILED',
           `Failed admin login attempt #${user.failedLoginCount} from ${clientIp}.`
         );
-        return { status: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials.' };
+        return {
+          status: 401,
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid credentials. Please check your details and try again.',
+        };
       }
     } else {
       // Non-admin password check
@@ -731,6 +904,7 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
       if (!pwOk) {
         user.failedLoginCount = (user.failedLoginCount || 0) + 1;
         recordBucketFailure(attemptBucketKey, NON_ADMIN_MAX_ATTEMPTS, LOCKOUT_MS);
+        recordSlidingFailure(ipFailureKey, LOCKOUT_MS);
         if (user.failedLoginCount >= NON_ADMIN_MAX_ATTEMPTS) {
           user.lockedUntil = now + LOCKOUT_MS;
           logAudit(db, user.id, user.name, 'AUTH_LOGIN_LOCKED', `Account locked for 15 minutes after ${user.failedLoginCount} failed login attempts.`);
@@ -745,7 +919,7 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
         return {
           status: 401,
           code: 'INVALID_CREDENTIALS',
-          message: 'Invalid username or password.',
+          message: 'Invalid credentials. Please check your details and try again.',
           fields:
             user.failedLoginCount >= NON_ADMIN_SOFT_PROMPT_THRESHOLD
               ? { showRecoveryPrompt: 'true', failedCount: String(user.failedLoginCount) }
@@ -785,11 +959,13 @@ async function handleLogin(req: Request, res: Response, forcedAdmin = false) {
     user.role = activeRole;
     user.activeRole = activeRole;
     user.failedLoginCount = 0;
-    user.lockedUntil = undefined;
+    user.lockedUntil = null;
     user.lastActive = now;
+    user.updatedAt = now;
     syncUserRoleAndWallet(user);
     ensureWallet(db, user, activeRole);
     clearBucket(attemptBucketKey);
+    clearUserLoginBuckets(user);
 
     const tokens = issueAuthTokensForUser(db, user, parsed.data.rememberMe ?? true, req, activeRole);
     logAudit(db, user.id, user.name, 'AUTH_LOGIN_SUCCESS', `Signed in as ${activeRole} (@${user.username || user.id}).`);
@@ -1315,7 +1491,7 @@ authRouter.post('/admin/auth/forgot/start', async (req: Request, res: Response) 
     success: true,
     message: 'If the administrator details match our records, a 6-digit verification code has been sent to the registered email.',
   };
-  if (process.env.NODE_ENV !== 'production' && devOtp) {
+  if (IS_TEST_MODE() && devOtp) {
     payload.devOtp = devOtp;
   }
   return res.json(payload);
@@ -1421,7 +1597,7 @@ authRouter.post('/admin/auth/forgot/reset', async (req: Request, res: Response) 
 
     challenge.consumedAt = now;
     adminUser.failedLoginCount = 0;
-    adminUser.lockedUntil = undefined;
+    adminUser.lockedUntil = null;
     adminUser.mustChangeCredentials = false;
     adminUser.tokenVersion = (adminUser.tokenVersion || 1) + 1;
     clearUserLoginBuckets(adminUser);
@@ -1458,8 +1634,41 @@ authRouter.post('/admin/auth/forgot/reset', async (req: Request, res: Response) 
   });
 });
 
+// Helper to match non-admin user by email, E.164/local phone, or username
+function findRecoveryTargetUser(db: any, identifier: string, allowUsername: boolean): User | undefined {
+  const clean = identifier.trim();
+  const lower = clean.toLowerCase();
+  const isEmail = clean.includes('@');
+  const isPhone = !isEmail && looksLikePhoneNumber(clean);
+  const normPhone = isPhone ? normalizeEastAfricanPhone(clean).normalized : null;
+  const normUn = normalizeUsername(clean);
+
+  return (db.users || []).find((u: User) => {
+    if (u.isDisabled || u.role === 'admin') return false;
+    if (isEmail) {
+      return Boolean(u.email && u.email.trim().toLowerCase() === lower);
+    }
+    if (isPhone) {
+      if (normPhone) {
+        if (u.phoneNormalized && u.phoneNormalized === normPhone) return true;
+        if (u.phone) {
+          const p = normalizeEastAfricanPhone(u.phone);
+          if (p.valid && p.normalized === normPhone) return true;
+        }
+      }
+      return Boolean(u.phone && u.phone.trim() === clean);
+    }
+    if (!allowUsername) return false;
+    return (
+      (u.usernameLower && u.usernameLower === lower) ||
+      (u.usernameNormalized && u.usernameNormalized === normUn) ||
+      (u.username && normalizeUsername(u.username) === normUn)
+    );
+  });
+}
+
 // ======================================================================
-// USER FORGOT PASSWORD / FORGOT USERNAME OTP FLOWS (Sections 3.4 & 3.5)
+// USER FORGOT PASSWORD / FORGOT USERNAME FLOWS (15-min hashed tokens + SMS/Email)
 // ======================================================================
 authRouter.post('/auth/forgot/start', async (req: Request, res: Response) => {
   const purpose: 'forgot_password' | 'forgot_username' =
@@ -1478,22 +1687,21 @@ authRouter.post('/auth/forgot/start', async (req: Request, res: Response) => {
     );
   }
 
-  const lower = identifier.toLowerCase();
-  const norm = normalizeUsername(identifier);
+  const clientIp = getClientIp(req);
+  const normPhone = looksLikePhoneNumber(identifier) ? normalizeEastAfricanPhone(identifier).normalized : null;
+  const contactKey = (normPhone || identifier).toLowerCase();
+
+  const ipCheck = checkAndRecordSlidingWindow(`rec_ip:${clientIp}`, RECOVERY_MAX_PER_IP, RECOVERY_WINDOW_MS);
+  if (!ipCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many recovery requests. Try again in ${ipCheck.waitMinutes} minute(s).`);
+  }
+  const contactCheck = checkAndRecordSlidingWindow(`rec_${purpose}:${contactKey}`, RECOVERY_MAX_PER_CONTACT, RECOVERY_WINDOW_MS);
+  if (!contactCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many recovery attempts for this contact. Try again in ${contactCheck.waitMinutes} minute(s).`);
+  }
 
   const outcome = await runDatabaseTransaction(async (db) => {
-    const user = (db.users || []).find((u) => {
-      if (u.isDisabled || u.role === 'admin') return false;
-      if (purpose === 'forgot_username') {
-        return (u.email && u.email.toLowerCase() === lower) || (u.phone && u.phone.trim() === identifier);
-      }
-      return (
-        (u.usernameNormalized && u.usernameNormalized === norm) ||
-        (u.username && normalizeUsername(u.username) === norm) ||
-        (u.email && u.email.toLowerCase() === lower) ||
-        (u.phone && u.phone.trim() === identifier)
-      );
-    });
+    const user = findRecoveryTargetUser(db, identifier, purpose === 'forgot_password');
     if (!user) return null;
 
     if (!db.otpChallenges) db.otpChallenges = [];
@@ -1509,7 +1717,7 @@ authRouter.post('/auth/forgot/start', async (req: Request, res: Response) => {
       id: `otp_${now}_${crypto.randomBytes(4).toString('hex')}`,
       purpose,
       userId: user.id,
-      contact: user.email || user.phone,
+      contact: user.email || user.phoneNormalized || user.phone || contactKey,
       codeHash: hashOpaqueToken(otp),
       expiresAt: now + OTP_TTL_MS,
       attempts: 0,
@@ -1522,26 +1730,47 @@ authRouter.post('/auth/forgot/start', async (req: Request, res: Response) => {
     db.otpChallenges.unshift(challenge);
     if (db.otpChallenges.length > 300) db.otpChallenges = db.otpChallenges.slice(0, 300);
 
-    sendSecurityEmail(db, {
-      to: user.email || user.phone,
-      subject: purpose === 'forgot_username' ? 'Buyoll Username Recovery Code' : 'Buyoll Password Reset Code',
-      body: `Your 6-digit Buyoll verification code is ${otp}. It expires in 10 minutes.`,
-      kind: 'otp',
-      userId: user.id,
-      meta: { purpose, challengeId: challenge.id },
-    });
+    const subject = purpose === 'forgot_username' ? 'Buyoll Username Recovery Code' : 'Buyoll Password Reset Code';
+    const msgBody = `Your 6-digit Buyoll verification code is ${otp}. It expires in 15 minutes.`;
+
+    if (user.email || user.phone) {
+      sendSecurityEmail(db, {
+        to: user.email || user.phone!,
+        subject,
+        body: msgBody,
+        kind: 'otp',
+        userId: user.id,
+        meta: { purpose, challengeId: challenge.id },
+      });
+    }
 
     logAudit(db, user.id, user.name, 'AUTH_RECOVERY_OTP_ISSUED', `Issued ${purpose} OTP for user #${user.id}.`);
-    return { otp, challengeId: challenge.id };
+    return {
+      otp,
+      challengeId: challenge.id,
+      email: user.email,
+      phone: user.phoneNormalized || user.phone,
+      preferSms: looksLikePhoneNumber(identifier),
+    };
   });
+
+  if (outcome) {
+    await dispatchContactNotification({
+      email: outcome.email,
+      phone: outcome.phone,
+      preferChannel: outcome.preferSms ? 'sms' : 'email',
+      subject: purpose === 'forgot_username' ? 'Buyoll Username Recovery Code' : 'Buyoll Password Reset Code',
+      body: `Your 6-digit Buyoll verification code is ${outcome.otp}. It expires in 15 minutes.`,
+    });
+  }
 
   const payload: Record<string, any> = {
     success: true,
     purpose,
     mode: FORGOT_USERNAME_MODE,
-    message: 'If an account matches those details, a 6-digit verification code has been sent.',
+    message: "If an account exists for that contact, we've sent verification instructions.",
   };
-  if (process.env.NODE_ENV !== 'production' && outcome?.otp) {
+  if (IS_TEST_MODE() && outcome?.otp) {
     payload.devOtp = outcome.otp;
     payload.challengeId = outcome.challengeId;
   }
@@ -1559,22 +1788,8 @@ authRouter.post('/auth/forgot/verify', async (req: Request, res: Response) => {
     return sendApiError(res, 422, 'VALIDATION_ERROR', 'Identifier and 6-digit OTP code are required.');
   }
 
-  const lower = identifier.toLowerCase();
-  const norm = normalizeUsername(identifier);
-
   const outcome = await runDatabaseTransaction(async (db) => {
-    const user = (db.users || []).find((u) => {
-      if (u.isDisabled || u.role === 'admin') return false;
-      if (purpose === 'forgot_username') {
-        return (u.email && u.email.toLowerCase() === lower) || (u.phone && u.phone.trim() === identifier);
-      }
-      return (
-        (u.usernameNormalized && u.usernameNormalized === norm) ||
-        (u.username && normalizeUsername(u.username) === norm) ||
-        (u.email && u.email.toLowerCase() === lower) ||
-        (u.phone && u.phone.trim() === identifier)
-      );
-    });
+    const user = findRecoveryTargetUser(db, identifier, purpose === 'forgot_password');
     if (!user) return { status: 400, code: 'INVALID_OTP', message: 'Invalid or expired verification code.' };
 
     const now = Date.now();
@@ -1603,10 +1818,11 @@ authRouter.post('/auth/forgot/verify', async (req: Request, res: Response) => {
 
     if (purpose === 'forgot_username' && FORGOT_USERNAME_MODE === 'send_existing') {
       challenge.consumedAt = now;
+      const usernameToDeliver = user.usernameDisplay || user.username || '';
       sendSecurityEmail(db, {
-        to: user.email || user.phone,
+        to: user.email || user.phone || '',
         subject: 'Your Buyoll Username Reminder',
-        body: `Your Buyoll username is: ${user.username}`,
+        body: `Your Buyoll username is: ${usernameToDeliver}`,
         kind: 'otp',
         userId: user.id,
       });
@@ -1614,8 +1830,11 @@ authRouter.post('/auth/forgot/verify', async (req: Request, res: Response) => {
         status: 200,
         mode: 'send_existing',
         sentExisting: true,
-        username: process.env.NODE_ENV !== 'production' ? user.username : undefined,
-        message: 'Your username has been sent to your verified contact.',
+        email: user.email,
+        phone: user.phoneNormalized || user.phone,
+        deliverUsername: usernameToDeliver,
+        username: IS_TEST_MODE() ? user.username : undefined,
+        message: 'If an account exists for that contact, your username has been sent to your registered email or phone.',
       };
     }
 
@@ -1629,7 +1848,17 @@ authRouter.post('/auth/forgot/verify', async (req: Request, res: Response) => {
   if (outcome.status !== 200) {
     return sendApiError(res, outcome.status, outcome.code!, outcome.message!);
   }
-  return res.json({ success: true, ...outcome });
+  if ((outcome as any).deliverUsername) {
+    await dispatchContactNotification({
+      email: (outcome as any).email,
+      phone: (outcome as any).phone,
+      preferChannel: looksLikePhoneNumber(identifier) ? 'sms' : 'email',
+      subject: 'Your Buyoll Username Reminder',
+      body: `Your Buyoll username is: ${(outcome as any).deliverUsername}`,
+    });
+  }
+  const { deliverUsername: _du, email: _em, phone: _ph, ...safeOutcome } = outcome as any;
+  return res.json({ success: true, ...safeOutcome });
 });
 
 authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Response) => {
@@ -1656,7 +1885,7 @@ authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Respons
       username: user.username,
       name: user.name,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone || undefined,
     });
     if (!pwEval.valid) {
       return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error!, fields: { newPassword: pwEval.error! } };
@@ -1669,8 +1898,10 @@ authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Respons
     user.password = await hashPassword(String(newPassword));
     user.passwordHmac = computePasswordHmac(String(newPassword));
     user.lastPasswordChangedAt = now;
+    user.updatedAt = now;
+    user.mustResetPassword = false;
     user.failedLoginCount = 0;
-    user.lockedUntil = undefined;
+    user.lockedUntil = null;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
     clearUserLoginBuckets(user);
 
@@ -1688,18 +1919,24 @@ authRouter.post('/auth/forgot/reset-password', async (req: Request, res: Respons
       sendSecurityEmail(db, {
         to: user.email,
         subject: 'Your Buyoll Password Was Reset',
-        body: `Your Buyoll password for @${user.username} was reset successfully.`,
+        body: `Your Buyoll password for @${user.username} was changed on ${new Date(now).toISOString()}. If this wasn't you, contact support immediately.`,
         kind: 'credential_changed',
         userId: user.id,
       });
     }
     logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_COMPLETED', 'Password reset via OTP verification.');
-    return { status: 200 };
+    return { status: 200, email: user.email, phone: user.phoneNormalized || user.phone, username: user.username };
   });
 
   if (result.status !== 200) {
     return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
   }
+  await dispatchContactNotification({
+    email: result.email,
+    phone: result.phone,
+    subject: 'Your Buyoll Password Was Changed',
+    body: `Your Buyoll password for @${result.username} was changed successfully. All active sessions were signed out.`,
+  });
   return res.json({
     success: true,
     message: 'Your password has been updated. You can now log in with your new password.',
@@ -1712,17 +1949,18 @@ authRouter.post('/auth/forgot/reset-username', async (req: Request, res: Respons
   if (!token || !newUsernameRaw) {
     return sendApiError(res, 422, 'VALIDATION_ERROR', 'Verification token and new username are required.');
   }
-  if (!isValidUsername(newUsernameRaw)) {
+  if (!isValidStrictUsername(newUsernameRaw)) {
     return sendApiError(
       res,
       422,
       'INVALID_USERNAME',
-      'Username must be 3–30 characters (letters, numbers, dots, underscores, or hyphens).',
-      { newUsername: 'Use 3–30 letters, numbers, ".", "_", or "-".' }
+      'Username must be 3–30 characters (letters, numbers, dots, or underscores).',
+      { newUsername: 'Use 3–30 letters, numbers, ".", or "_".' }
     );
   }
 
-  const cleanUsername = newUsernameRaw.normalize('NFKC').trim().toLowerCase();
+  const displayCopy = newUsernameRaw.normalize('NFKC').trim();
+  const cleanUsername = displayCopy.toLowerCase();
   const norm = normalizeUsername(cleanUsername);
   const tokenHash = hashOpaqueToken(token);
 
@@ -1740,7 +1978,8 @@ authRouter.post('/auth/forgot/reset-username', async (req: Request, res: Respons
     const conflict = db.users.some(
       (u) =>
         u.id !== user.id &&
-        ((u.usernameNormalized && u.usernameNormalized === norm) ||
+        ((u.usernameLower && u.usernameLower === cleanUsername) ||
+          (u.usernameNormalized && u.usernameNormalized === norm) ||
           (u.username && normalizeUsername(u.username) === norm))
     );
     if (conflict) {
@@ -1755,7 +1994,10 @@ authRouter.post('/auth/forgot/reset-username', async (req: Request, res: Respons
     const oldUsername = user.username;
     challenge.consumedAt = now;
     user.username = cleanUsername;
+    user.usernameDisplay = displayCopy;
+    user.usernameLower = cleanUsername;
     user.usernameNormalized = norm;
+    user.updatedAt = now;
     if (user.email) {
       sendSecurityEmail(db, {
         to: user.email,
@@ -1780,28 +2022,37 @@ authRouter.post('/auth/forgot/reset-username', async (req: Request, res: Respons
 });
 
 // ======================================================================
-// COMPATIBILITY ALIASES FOR EXISTING RESET & CHANGE-PASSWORD ENDPOINTS
+// DIRECT FORGOT PASSWORD, RESET PASSWORD (15-min LINK + CODE), & FORGOT USERNAME
 // ======================================================================
 const forgotLegacySchema = z.object({
-  identifier: z.string().trim().min(2, 'Please enter your email address or username.'),
+  identifier: z.string().trim().min(2, 'Please enter your email address, phone number, or username.').optional(),
+  contact: z.string().trim().min(2).optional(),
 });
 
 authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => {
-  const parsed = forgotLegacySchema.safeParse(req.body);
+  const parsed = forgotLegacySchema.safeParse(req.body || {});
   if (!parsed.success) return sendZodError(res, parsed.error, 422);
 
-  const lookup = parsed.data.identifier.trim().toLowerCase();
-  const norm = normalizeUsername(lookup);
-  const rawResetToken = await runDatabaseTransaction(async (db) => {
-    const user = db.users.find(
-      (u) =>
-        !u.isDisabled &&
-        u.role !== 'admin' &&
-        ((u.email && u.email.toLowerCase() === lookup) ||
-          (u.usernameNormalized && u.usernameNormalized === norm) ||
-          (u.username && normalizeUsername(u.username) === norm) ||
-          (u.phone && u.phone.toLowerCase() === lookup))
-    );
+  const rawContact = (parsed.data.identifier || parsed.data.contact || '').trim();
+  if (!rawContact) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your email address, phone number, or username.');
+  }
+
+  const clientIp = getClientIp(req);
+  const normPhone = looksLikePhoneNumber(rawContact) ? normalizeEastAfricanPhone(rawContact).normalized : null;
+  const contactKey = (normPhone || rawContact).toLowerCase();
+
+  const ipCheck = checkAndRecordSlidingWindow(`rec_ip:${clientIp}`, RECOVERY_MAX_PER_IP, RECOVERY_WINDOW_MS);
+  if (!ipCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many reset requests. Please try again in ${ipCheck.waitMinutes} minute(s).`);
+  }
+  const contactCheck = checkAndRecordSlidingWindow(`rec_fp:${contactKey}`, RECOVERY_MAX_PER_CONTACT, RECOVERY_WINDOW_MS);
+  if (!contactCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many password reset requests for this contact. Please try again in ${contactCheck.waitMinutes} minute(s).`);
+  }
+
+  const issued = await runDatabaseTransaction(async (db) => {
+    const user = findRecoveryTargetUser(db, rawContact, true);
     if (!user) return null;
 
     if (!db.passwordResets) db.passwordResets = [];
@@ -1810,45 +2061,112 @@ authRouter.post('/auth/forgot-password', async (req: Request, res: Response) => 
       if (r.userId === user.id && !r.usedAt) r.usedAt = now;
     }
 
-    const raw = crypto.randomBytes(24).toString('hex');
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const otpCode = generateNumericOtp(6);
     db.passwordResets.unshift({
       id: `pr_${now}_${crypto.randomBytes(3).toString('hex')}`,
       userId: user.id,
-      tokenHash: hashOpaqueToken(raw),
+      tokenHash: hashOpaqueToken(rawToken),
+      codeHash: hashOpaqueToken(otpCode),
+      contact: user.email || user.phoneNormalized || user.phone || contactKey,
       expiresAt: now + RESET_TOKEN_TTL_MS,
       usedAt: null,
       createdAt: now,
     });
     if (db.passwordResets.length > 200) db.passwordResets = db.passwordResets.slice(0, 200);
-    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_REQUESTED', `Password reset token issued for @${user.username || user.email}.`);
-    return raw;
+
+    const resetUrl = buildResetLink(rawToken);
+    if (user.email || user.phone) {
+      sendSecurityEmail(db, {
+        to: user.email || user.phone!,
+        subject: 'Buyoll Password Reset Instructions',
+        body: `Use code ${otpCode} or open ${resetUrl} to reset your password. This link and code expire in 15 minutes.`,
+        kind: 'otp',
+        userId: user.id,
+      });
+    }
+    logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_REQUESTED', `Password reset token issued for user #${user.id}.`);
+    return {
+      rawToken,
+      otpCode,
+      resetUrl,
+      email: user.email,
+      phone: user.phoneNormalized || user.phone,
+      preferSms: looksLikePhoneNumber(rawContact),
+    };
   });
+
+  if (issued) {
+    await dispatchContactNotification({
+      email: issued.email,
+      phone: issued.phone,
+      preferChannel: issued.preferSms ? 'sms' : 'email',
+      subject: 'Buyoll Password Reset Instructions',
+      body: `Your Buyoll password reset code is ${issued.otpCode} (valid for 15 minutes). Or open: ${issued.resetUrl}`,
+    });
+  }
 
   const payload: Record<string, any> = {
     success: true,
-    message: 'If an account matches those details, a password reset code has been generated.',
+    message: "If an account exists for that contact, we've sent reset instructions.",
   };
-  if (process.env.NODE_ENV !== 'production' && rawResetToken) {
-    payload.devResetToken = rawResetToken;
+  if (IS_TEST_MODE() && issued) {
+    payload.devResetToken = issued.rawToken;
+    payload.devOtp = issued.otpCode;
   }
   return res.json(payload);
 });
 
-const resetLegacySchema = z.object({
-  token: z.string().trim().min(16, 'Invalid or malformed reset token.'),
+const resetPasswordSchema = z.object({
+  token: z.string().trim().optional(),
+  identifier: z.string().trim().optional(),
+  contact: z.string().trim().optional(),
+  code: z.string().trim().optional(),
+  otp: z.string().trim().optional(),
   newPassword: z.string().min(8, 'Password must be at least 8 characters long.').max(128),
+  confirmPassword: z.string().optional(),
 });
 
 authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
-  const parsed = resetLegacySchema.safeParse(req.body);
+  const parsed = resetPasswordSchema.safeParse(req.body || {});
   if (!parsed.success) return sendZodError(res, parsed.error, 422);
 
-  const tokenHash = hashOpaqueToken(parsed.data.token.trim());
+  if (parsed.data.confirmPassword !== undefined && parsed.data.confirmPassword !== parsed.data.newPassword) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Passwords do not match.', {
+      confirmPassword: 'Passwords do not match.',
+    });
+  }
+
+  const rawToken = (parsed.data.token || '').trim();
+  const rawCode = (parsed.data.code || parsed.data.otp || '').trim();
+  const rawContact = (parsed.data.identifier || parsed.data.contact || '').trim();
+
+  if (!rawToken && !rawCode) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Provide a valid reset token or 6-digit verification code.');
+  }
+  if (rawToken && rawToken.length < 16) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Invalid or malformed reset token.');
+  }
+
   const result = await runDatabaseTransaction(async (db) => {
     const now = Date.now();
-    const rec = (db.passwordResets || []).find((r) => r.tokenHash === tokenHash);
+    let rec: any = null;
+    if (rawToken) {
+      const tokenHash = hashOpaqueToken(rawToken);
+      rec = (db.passwordResets || []).find((r) => r.tokenHash === tokenHash);
+    } else if (rawCode) {
+      const codeHash = hashOpaqueToken(rawCode);
+      const targetUser = rawContact ? findRecoveryTargetUser(db, rawContact, true) : undefined;
+      rec = (db.passwordResets || []).find(
+        (r) =>
+          r.codeHash === codeHash &&
+          !r.usedAt &&
+          (!targetUser || r.userId === targetUser.id)
+      );
+    }
+
     if (!rec || rec.usedAt || rec.expiresAt < now) {
-      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'This password reset token is invalid or has expired.' };
+      return { status: 400, code: 'INVALID_RESET_TOKEN', message: 'This password reset link or code is invalid or has expired.' };
     }
     const user = db.users.find((u) => u.id === rec.userId && !u.isDisabled);
     if (!user) return { status: 404, code: 'USER_NOT_FOUND', message: 'Associated user account could not be found.' };
@@ -1857,19 +2175,23 @@ authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
       username: user.username,
       name: user.name,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone || undefined,
     });
     if (!pwEval.valid) {
-      return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error! };
+      return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error!, fields: { newPassword: pwEval.error! } };
     }
 
     rec.usedAt = now;
     user.password = await hashPassword(parsed.data.newPassword);
     user.passwordHmac = computePasswordHmac(parsed.data.newPassword);
+    user.lastPasswordChangedAt = now;
+    user.updatedAt = now;
+    user.mustResetPassword = false;
     user.failedLoginCount = 0;
-    user.lockedUntil = undefined;
+    user.lockedUntil = null;
     user.tokenVersion = (user.tokenVersion || 1) + 1;
     clearUserLoginBuckets(user);
+
     for (const s of db.sessions || []) {
       if (s.userId === user.id && !s.revokedAt) {
         s.revokedAt = now;
@@ -1879,14 +2201,94 @@ authRouter.post('/auth/reset-password', async (req: Request, res: Response) => {
     for (const rt of db.refreshTokens || []) {
       if (rt.userId === user.id && !rt.revokedAt) rt.revokedAt = now;
     }
+
+    if (user.email) {
+      sendSecurityEmail(db, {
+        to: user.email,
+        subject: 'Your Buyoll Password Was Changed',
+        body: `Your Buyoll password for @${user.username} was changed successfully. All active sessions have been signed out.`,
+        kind: 'credential_changed',
+        userId: user.id,
+      });
+    }
     logAudit(db, user.id, user.name, 'AUTH_PASSWORD_RESET_COMPLETED', 'Password reset and prior sessions invalidated.');
-    return { status: 200 };
+    return { status: 200, email: user.email, phone: user.phoneNormalized || user.phone, username: user.username };
   });
 
   if (result.status !== 200) {
-    return sendApiError(res, result.status, result.code!, result.message!);
+    return sendApiError(res, result.status, result.code!, result.message!, (result as any).fields);
   }
+
+  await dispatchContactNotification({
+    email: result.email,
+    phone: result.phone,
+    subject: 'Your Buyoll Password Was Changed',
+    body: `Your Buyoll password for @${result.username} was changed on ${new Date().toISOString()}. If this wasn't you, contact support immediately.`,
+  });
+
   return res.json({ success: true, message: 'Your password has been updated. You can now log in with your new password.' });
+});
+
+authRouter.post('/auth/forgot-username', async (req: Request, res: Response) => {
+  const rawContact = String(req.body?.contact || req.body?.identifier || '').trim();
+  if (!rawContact) {
+    return sendApiError(res, 422, 'VALIDATION_ERROR', 'Please enter your registered email address or phone number.', {
+      contact: 'Email or phone number is required.',
+    });
+  }
+
+  const clientIp = getClientIp(req);
+  const normPhone = looksLikePhoneNumber(rawContact) ? normalizeEastAfricanPhone(rawContact).normalized : null;
+  const contactKey = (normPhone || rawContact).toLowerCase();
+
+  const ipCheck = checkAndRecordSlidingWindow(`rec_ip:${clientIp}`, RECOVERY_MAX_PER_IP, RECOVERY_WINDOW_MS);
+  if (!ipCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many recovery requests. Please try again in ${ipCheck.waitMinutes} minute(s).`);
+  }
+  const contactCheck = checkAndRecordSlidingWindow(`rec_fu:${contactKey}`, RECOVERY_MAX_PER_CONTACT, RECOVERY_WINDOW_MS);
+  if (!contactCheck.allowed) {
+    return sendApiError(res, 429, 'RATE_LIMITED', `Too many username recovery requests for this contact. Try again in ${contactCheck.waitMinutes} minute(s).`);
+  }
+
+  const lookup = await runDatabaseTransaction(async (db) => {
+    const user = findRecoveryTargetUser(db, rawContact, false);
+    if (!user) return null;
+    const usernameValue = user.usernameDisplay || user.username || '';
+    if (!usernameValue) return null;
+
+    if (user.email || user.phone) {
+      sendSecurityEmail(db, {
+        to: user.email || user.phone!,
+        subject: 'Your Buyoll Username',
+        body: `Your registered Buyoll username is: ${usernameValue}`,
+        kind: 'otp',
+        userId: user.id,
+      });
+    }
+    logAudit(db, user.id, user.name, 'AUTH_USERNAME_REMINDER_SENT', `Username reminder dispatched to registered contact.`);
+    return {
+      usernameValue,
+      email: user.email,
+      phone: user.phoneNormalized || user.phone,
+      preferSms: looksLikePhoneNumber(rawContact),
+    };
+  });
+
+  if (lookup) {
+    await dispatchContactNotification({
+      email: lookup.email,
+      phone: lookup.phone,
+      preferChannel: lookup.preferSms ? 'sms' : 'email',
+      subject: 'Your Buyoll Username Reminder',
+      body: `Hello! Your registered Buyoll username is: ${lookup.usernameValue}`,
+    });
+  }
+
+  // Strictly neutral response — NEVER expose the username in API JSON or browser UI
+  return res.json({
+    success: true,
+    message: "If an account exists for that contact, we've sent your username to your registered email or phone.",
+  });
 });
 
 const changePasswordSchema = z.object({
@@ -1919,7 +2321,7 @@ authRouter.post('/auth/change-password', async (req: Request, res: Response) => 
       username: user.username,
       name: user.name,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone || undefined,
     });
     if (!pwEval.valid) {
       return { status: 422, code: 'WEAK_PASSWORD', message: pwEval.error!, fields: { newPassword: pwEval.error! } };

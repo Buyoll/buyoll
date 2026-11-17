@@ -223,21 +223,21 @@ groupLoansRouter.post('/groups/:id/lenders', ensureNumericGroupId, async (req: R
         record.authorizedByName = actor.name;
         record.revokedAt = null;
         record.userName = targetUser.name;
-        record.userPhone = targetUser.phone;
+        record.userPhone = targetUser.phone || undefined;
       } else {
         record = {
           id: `gl_${groupId}_${targetUser.id}`,
           groupId,
           userId: targetUser.id,
           userName: targetUser.name,
-          userPhone: targetUser.phone,
+          userPhone: targetUser.phone || undefined,
           authorizedBy: actor.id,
           authorizedByName: actor.name,
           status: 'ACTIVE',
           createdAt: now,
           revokedAt: null,
         };
-        db.groupLenders.push(record);
+        db.groupLenders.push(record!);
       }
 
       if (!group.lenderId) {
@@ -273,14 +273,14 @@ groupLoansRouter.post('/groups/:id/lenders', ensureNumericGroupId, async (req: R
     emitPlatformEvent('group.loan.updated', {
       groupId,
       action: 'lender_authorized',
-      lenderId: result.lender.userId,
+      lenderId: result.lender!.userId,
     });
 
     return res.status(201).json({
-      lender: result.lender,
+      lender: result.lender!,
       lenders: result.lenders,
       group: result.group,
-      message: `${result.lender.userName} is now authorized as a lender for this group.`,
+      message: `${result.lender!.userName} is now authorized as a lender for this group.`,
     });
   } catch (err: any) {
     return sendApiError(res, err.status || 500, err.code || 'INTERNAL_ERROR', err.message || 'Failed to authorize lender.');
@@ -488,7 +488,7 @@ async function handleCreateLoanRequest(req: Request, res: Response, next: NextFu
         slotNumber: slot.slotNumber,
         requesterId: actor.id,
         requesterName: actor.name,
-        requesterPhone: actor.phone,
+        requesterPhone: actor.phone || undefined,
         borrowerId: actor.id,
         borrowerName: actor.name,
         borrowerCode,

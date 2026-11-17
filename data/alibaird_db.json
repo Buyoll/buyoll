@@ -1,19 +1,68 @@
 {
   "users": [
     {
+      "id": 31,
+      "name": "Job Simiyu",
+      "username": "jobsimiyu",
+      "usernameNormalized": "jobsimiyu",
+      "email": "jobsimiyu8@gmail.com",
+      "phone": "+254700000001",
+      "password": "$argon2id$v=19$m=65536,t=3,p=1$OexuboKdpGPZv24tkjuSzw$91Ej9b2lZrXwfq6s2tr26pUw/18pE3NEwiKd6ByPrP4",
+      "adminPasskeyHash": "$argon2id$v=19$m=65536,t=3,p=1$Oj4lq1o8KAR0AuUr11HynQ$wsJ+EOLuOLKY4c0I8ghofCdvv8fxWSM3PdH8iQRrMhE",
+      "role": "admin",
+      "roles": [
+        "admin"
+      ],
+      "activeRole": "admin",
+      "platformId": "BYL-A-10031",
+      "verified": true,
+      "isDisabled": false,
+      "isSuspended": false,
+      "credit": 0,
+      "coins": 500,
+      "points": 500,
+      "failedLoginCount": 0,
+      "tokenVersion": 1,
+      "mustChangeCredentials": false,
+      "lastPasswordChangedAt": null,
+      "lastPasskeyChangedAt": null,
+      "securityBannerDismissedAt": null,
+      "securityBannerSnoozedUntil": null,
+      "roleWallets": {
+        "admin": {
+          "credit": 0,
+          "coins": 500,
+          "points": 500,
+          "balance": 0
+        }
+      },
+      "lastActive": 1794894910838,
+      "createdAt": 1794894910838,
+      "uuid": "2e846121-7634-4d38-a708-c6a149de6eaa",
+      "usernameDisplay": "jobsimiyu",
+      "usernameLower": "jobsimiyu",
+      "updatedAt": 1794894910838,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254700000001",
+      "restrictedLoanBalance": 0,
+      "nonWithdrawableBalance": 0
+    },
+    {
       "id": 1,
       "name": "Buyoll Primary Administrator",
-      "phone": "0700000000",
+      "phone": "+254700000000",
       "email": "buyoll@customerservive.com",
-      "role": "admin",
+      "role": "member",
       "credit": 0,
       "coins": 200,
       "points": 500,
       "lastActive": 1793980467816,
       "createdAt": 1790261094021,
-      "activeRole": "admin",
+      "activeRole": "member",
       "roles": [
-        "admin"
+        "member"
       ],
       "platformId": "BYL-A-10001",
       "roleWallets": {
@@ -21,20 +70,41 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 500
+          "points": 500,
+          "balance": 0
+        },
+        "member": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 200,
+          "points": 500,
+          "balance": 0
         }
       },
       "password": "8f2bb5ad1a1d5c3376efbd35f17e06a2:c0aa5ef23b441c7095008353f8defa1763fee6dcfa64cfb80dc51d0a129b346183e3c819e42fac903f6fd4e141360ca53eb61826691f8337eaf01f2abe17f990",
       "username": "cityandcountyre",
       "failedLoginCount": 0,
-      "tokenVersion": 1,
+      "tokenVersion": 2,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "cityandcountyre",
+      "isDisabled": true,
+      "isSuspended": true,
+      "disabledAt": 1794894910838,
+      "disabledReason": "LEGACY_ADMIN_REPLACED",
+      "uuid": "459d96ad-51d8-4e76-82af-bcf763acd101",
+      "usernameDisplay": "cityandcountyre",
+      "usernameLower": "cityandcountyre",
+      "updatedAt": 1793980467816,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254700000000"
     },
     {
       "id": 2,
       "name": "Buyoll Direct Electronics & Home",
-      "phone": "0722000000",
+      "phone": "+254722000000",
       "email": "direct@buyoll.com",
       "role": "merchant",
       "shopName": "(Buyoll Verified)",
@@ -57,7 +127,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 100,
-          "points": 250
+          "points": 250,
+          "balance": 0
         }
       },
       "activeSubscription": null,
@@ -65,12 +136,21 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "direct",
+      "uuid": "53c726f4-2a35-47a3-812b-b38dbfbd6ce3",
+      "usernameDisplay": "direct",
+      "usernameLower": "direct",
+      "updatedAt": 1792853094021,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254722000000"
     },
     {
       "id": 3,
       "name": "Samuel Mwangi",
-      "phone": "0712345678",
+      "phone": "+254712345678",
       "role": "member",
       "credit": 1500,
       "coins": 50,
@@ -87,19 +167,29 @@
           "credit": 1500,
           "nonWithdrawableBalance": 0,
           "coins": 50,
-          "points": 120
+          "points": 120,
+          "balance": 1500
         }
       },
       "username": "samuelmwangi",
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "samuelmwangi",
+      "uuid": "c75b86a1-ecca-49b3-b2ba-e80b9d1cac2d",
+      "usernameDisplay": "samuelmwangi",
+      "usernameLower": "samuelmwangi",
+      "updatedAt": 1793634881286,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254712345678"
     },
     {
       "id": 4,
       "name": "Faith Chebet",
-      "phone": "0723456789",
+      "phone": "+254723456789",
       "role": "member",
       "credit": 2040,
       "coins": 40,
@@ -116,19 +206,29 @@
           "credit": 2040,
           "nonWithdrawableBalance": 0,
           "coins": 40,
-          "points": 80
+          "points": 80,
+          "balance": 2040
         }
       },
       "username": "faithchebet",
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "faithchebet",
+      "uuid": "b397c726-ef1a-490e-b6e2-a56464737da4",
+      "usernameDisplay": "faithchebet",
+      "usernameLower": "faithchebet",
+      "updatedAt": 1792853094021,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254723456789"
     },
     {
       "id": 30,
       "name": "Grace Wambui (3rd-Party Chama Lender)",
-      "phone": "0711223344",
+      "phone": "+254711223344",
       "email": "grace.lender@buyoll.com",
       "role": "lender",
       "credit": 120000,
@@ -146,20 +246,30 @@
           "credit": 120000,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 450
+          "points": 450,
+          "balance": 120000
         }
       },
       "username": "grace.lender",
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "gracelender",
+      "uuid": "9907c08f-e629-41fb-b784-64e833cc5137",
+      "usernameDisplay": "grace.lender",
+      "usernameLower": "grace.lender",
+      "updatedAt": 1792940798885,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254711223344"
     },
     {
       "id": 11,
       "name": "New Store Merchant",
       "email": "newstore@buyoll.com",
-      "phone": "0769710560",
+      "phone": "+254769710560",
       "password": "password123",
       "role": "member",
       "roles": [
@@ -175,7 +285,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 100,
-          "points": 25
+          "points": 25,
+          "balance": 0
         }
       },
       "lastActive": 1793805194245,
@@ -184,13 +295,24 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "newstore",
+      "uuid": "85a88252-3249-402f-bbd8-f4c73cf41b80",
+      "usernameDisplay": "newstore",
+      "usernameLower": "newstore",
+      "updatedAt": 1793805194245,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254769710560",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 12,
       "name": "Amani Electronics",
       "email": "amani.merchant@buyoll.com",
-      "phone": "0751761018",
+      "phone": "+254751761018",
       "password": "password123",
       "role": "merchant",
       "roles": [
@@ -210,7 +332,8 @@
           "credit": 1000,
           "nonWithdrawableBalance": 0,
           "coins": 500,
-          "points": 50
+          "points": 50,
+          "balance": 1000
         }
       },
       "lastActive": 1793805215674,
@@ -222,13 +345,24 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "amanimerchant",
+      "uuid": "9f614fce-3cf2-460a-afc5-92e5f5941a90",
+      "usernameDisplay": "amani.merchant",
+      "usernameLower": "amani.merchant",
+      "updatedAt": 1793805215674,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254751761018",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 13,
       "name": "Apex Microfinance",
       "email": "apex.lender@buyoll.com",
-      "phone": "0712457318",
+      "phone": "+254712457318",
       "password": "password123",
       "role": "lender",
       "roles": [
@@ -245,7 +379,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 300,
-          "points": 50
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1793805219548,
@@ -254,19 +389,30 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "apexlender",
+      "uuid": "44d6f279-ee9b-4ef7-87f0-4b45d2c5055c",
+      "usernameDisplay": "apex.lender",
+      "usernameLower": "apex.lender",
+      "updatedAt": 1793805219548,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254712457318",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 14,
       "name": "System Admin Two",
       "email": "admin2@buyoll.com",
-      "phone": "0712086312",
+      "phone": "+254712086312",
       "password": "password123",
-      "role": "admin",
+      "role": "member",
       "roles": [
-        "admin"
+        "member"
       ],
-      "activeRole": "admin",
+      "activeRole": "member",
       "platformId": "BYL-A-10014",
       "verified": true,
       "credit": 0,
@@ -277,22 +423,45 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 500,
-          "points": 50
+          "points": 50,
+          "balance": 0
+        },
+        "member": {
+          "credit": 0,
+          "nonWithdrawableBalance": 0,
+          "coins": 500,
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1793805223668,
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 1,
+      "tokenVersion": 3,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "admin2",
+      "isDisabled": true,
+      "isSuspended": true,
+      "disabledAt": 1794894910838,
+      "disabledReason": "LEGACY_ADMIN_REPLACED",
+      "uuid": "ff509dcc-f901-46bd-8990-26500fca4ab8",
+      "usernameDisplay": "admin2",
+      "usernameLower": "admin2",
+      "updatedAt": 1793805223668,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254712086312",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 15,
       "name": "Test Merchant 824364",
       "email": "merchant_824364@buyoll.test",
-      "phone": "0782436412",
+      "phone": "+254782436412",
       "password": "password123",
       "role": "merchant",
       "roles": [
@@ -312,7 +481,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 50
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1794160394628,
@@ -321,13 +491,24 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "merchant824364",
+      "uuid": "845a4545-f8fc-48d9-8e88-b6c03a218159",
+      "usernameDisplay": "merchant_824364",
+      "usernameLower": "merchant_824364",
+      "updatedAt": 1794160394628,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254782436412",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 16,
       "name": "Test Merchant 458582",
       "email": "merchant_458582@buyoll.test",
-      "phone": "0745858212",
+      "phone": "+254745858212",
       "password": "password123",
       "role": "merchant",
       "roles": [
@@ -347,7 +528,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 50
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1794160410569,
@@ -356,13 +538,24 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "merchant458582",
+      "uuid": "57dc4646-180c-4c68-b620-fd1b551cebd2",
+      "usernameDisplay": "merchant_458582",
+      "usernameLower": "merchant_458582",
+      "updatedAt": 1794160410569,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254745858212",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 17,
       "name": "Test Merchant 673122",
       "email": "merchant_673122@buyoll.test",
-      "phone": "0767312212",
+      "phone": "+254767312212",
       "password": "password123",
       "role": "merchant",
       "roles": [
@@ -382,7 +575,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 50
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1794160462617,
@@ -394,13 +588,24 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "merchant673122",
+      "uuid": "52f464a7-d973-4256-a723-f2820ffa2db3",
+      "usernameDisplay": "merchant_673122",
+      "usernameLower": "merchant_673122",
+      "updatedAt": 1794160462617,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254767312212",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     },
     {
       "id": 18,
       "name": "Test Merchant 717119",
       "email": "merchant_717119@buyoll.test",
-      "phone": "0771711912",
+      "phone": "+254771711912",
       "password": "password123",
       "role": "merchant",
       "roles": [
@@ -420,7 +625,8 @@
           "credit": 0,
           "nonWithdrawableBalance": 0,
           "coins": 200,
-          "points": 50
+          "points": 50,
+          "balance": 0
         }
       },
       "lastActive": 1794160493499,
@@ -432,7 +638,18 @@
       "failedLoginCount": 0,
       "tokenVersion": 1,
       "restrictedLoanBalance": 0,
-      "nonWithdrawableBalance": 0
+      "nonWithdrawableBalance": 0,
+      "usernameNormalized": "merchant717119",
+      "uuid": "1c5d53d1-6add-407b-bf98-eab45d902f1e",
+      "usernameDisplay": "merchant_717119",
+      "usernameLower": "merchant_717119",
+      "updatedAt": 1794160493499,
+      "emailVerified": false,
+      "phoneVerified": false,
+      "lockedUntil": null,
+      "phoneNormalized": "+254771711912",
+      "mustResetPassword": true,
+      "mustChangeCredentials": true
     }
   ],
   "products": [
@@ -491,7 +708,8 @@
       ],
       "createdAt": 1792421094021,
       "updatedAt": 1792421094021,
-      "status": "PUBLISHED"
+      "status": "PUBLISHED",
+      "hiddenReason": null
     },
     {
       "id": 2,
@@ -548,7 +766,8 @@
       ],
       "createdAt": 1792507494021,
       "updatedAt": 1792853117377,
-      "status": "PUBLISHED"
+      "status": "PUBLISHED",
+      "hiddenReason": null
     },
     {
       "id": 3,
@@ -605,7 +824,8 @@
       ],
       "createdAt": 1792593894021,
       "updatedAt": 1792593894021,
-      "status": "PUBLISHED"
+      "status": "PUBLISHED",
+      "hiddenReason": null
     },
     {
       "id": 4,
@@ -662,7 +882,8 @@
       ],
       "createdAt": 1792680294021,
       "updatedAt": 1792680294021,
-      "status": "PUBLISHED"
+      "status": "PUBLISHED",
+      "hiddenReason": null
     }
   ],
   "groups": [
@@ -1234,6 +1455,14 @@
   ],
   "auditLogs": [
     {
+      "id": 66,
+      "timestamp": 1794894911268,
+      "actorId": 31,
+      "actorName": "Job Simiyu",
+      "action": "ADMIN_REPLACED_BY_MIGRATION",
+      "details": "Seeded platform administrator @jobsimiyu and disabled prior admin accounts."
+    },
+    {
       "id": 65,
       "timestamp": 1794160493574,
       "actorId": 1,
@@ -1699,14 +1928,14 @@
     }
   ],
   "nextIds": {
-    "user": 31,
+    "user": 32,
     "product": 20,
     "group": 201,
     "defaultRecord": 2,
     "refundRequest": 1,
     "payment": 21,
     "ledger": 7,
-    "audit": 66,
+    "audit": 67,
     "peerLoan": 1,
     "coinLedger": 1,
     "moderation": 1,
@@ -2620,6 +2849,26 @@
       "id": "006_support_email_sync",
       "name": "Sync seed administrator and default support email references to SUPPORT_EMAIL",
       "appliedAt": 1794739236094
+    },
+    {
+      "id": "007_role_normalization_and_terminology_cleanup",
+      "name": "Normalize legacy buyer role references to member, compute usernameNormalized, and initialize security/session stores",
+      "appliedAt": 1794894910838
+    },
+    {
+      "id": "008_admin_replacement_and_security_fields",
+      "name": "Disable legacy admin accounts, strip prior admin rights, and seed active argon2id platform admin from environment variables",
+      "appliedAt": 1794894911268
+    },
+    {
+      "id": "009_wallets_and_integer_ledger",
+      "name": "Create canonical wallets and integer-cents walletLedger preserving all existing balances",
+      "appliedAt": 1794894911269
+    },
+    {
+      "id": "010_auth_hardening_e164_phone_and_resets",
+      "name": "Backfill UUIDs, display/lowercase usernames, E.164 nullable phone normalization, verification flags, and audit legacy credential issues without deleting data",
+      "appliedAt": 1794894911271
     }
   ],
   "announcementDismissals": [],
@@ -2628,5 +2877,203 @@
   "passwordResets": [],
   "groupJoinRequests": [],
   "groupLenders": [],
-  "platformFees": []
+  "platformFees": [],
+  "sessions": [],
+  "otpChallenges": [],
+  "subscriptionActivationNotices": [],
+  "emailOutbox": [
+    {
+      "id": "mail_1794894911268_f6d9e281",
+      "to": "jobsimiyu8@gmail.com",
+      "subject": "Buyoll Administrator Account Initialized",
+      "body": "Hello Job Simiyu, your Buyoll administrator account (@jobsimiyu) has been initialized.",
+      "kind": "security_alert",
+      "userId": 31,
+      "createdAt": 1794894911268
+    }
+  ],
+  "wallets": [
+    {
+      "id": "wal_31_admin",
+      "userId": 31,
+      "role": "admin",
+      "balanceCents": 0,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_1_member",
+      "userId": 1,
+      "role": "member",
+      "balanceCents": 0,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_1_admin",
+      "userId": 1,
+      "role": "admin",
+      "balanceCents": 0,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_2_merchant",
+      "userId": 2,
+      "role": "merchant",
+      "balanceCents": 0,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_3_member",
+      "userId": 3,
+      "role": "member",
+      "balanceCents": 150000,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_4_member",
+      "userId": 4,
+      "role": "member",
+      "balanceCents": 204000,
+      "createdAt": 1794894911268,
+      "updatedAt": 1794894911268
+    },
+    {
+      "id": "wal_30_lender",
+      "userId": 30,
+      "role": "lender",
+      "balanceCents": 12000000,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_11_member",
+      "userId": 11,
+      "role": "member",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_12_merchant",
+      "userId": 12,
+      "role": "merchant",
+      "balanceCents": 100000,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_13_lender",
+      "userId": 13,
+      "role": "lender",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_14_member",
+      "userId": 14,
+      "role": "member",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_14_admin",
+      "userId": 14,
+      "role": "admin",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_15_merchant",
+      "userId": 15,
+      "role": "merchant",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_16_merchant",
+      "userId": 16,
+      "role": "merchant",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_17_merchant",
+      "userId": 17,
+      "role": "merchant",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    },
+    {
+      "id": "wal_18_merchant",
+      "userId": 18,
+      "role": "merchant",
+      "balanceCents": 0,
+      "createdAt": 1794894911269,
+      "updatedAt": 1794894911269
+    }
+  ],
+  "walletLedger": [
+    {
+      "id": "wled_1794894911268_5faa5d65",
+      "walletId": "wal_3_member",
+      "userId": 3,
+      "role": "member",
+      "direction": "CREDIT",
+      "amountCents": 150000,
+      "balanceAfterCents": 150000,
+      "category": "MIGRATION_OPENING_BALANCE",
+      "idempotencyKey": "opening_wal_3_member",
+      "note": "Opening wallet balance for member role",
+      "createdAt": 1794894911268
+    },
+    {
+      "id": "wled_1794894911268_af954cd4",
+      "walletId": "wal_4_member",
+      "userId": 4,
+      "role": "member",
+      "direction": "CREDIT",
+      "amountCents": 204000,
+      "balanceAfterCents": 204000,
+      "category": "MIGRATION_OPENING_BALANCE",
+      "idempotencyKey": "opening_wal_4_member",
+      "note": "Opening wallet balance for member role",
+      "createdAt": 1794894911268
+    },
+    {
+      "id": "wled_1794894911269_7e926d76",
+      "walletId": "wal_30_lender",
+      "userId": 30,
+      "role": "lender",
+      "direction": "CREDIT",
+      "amountCents": 12000000,
+      "balanceAfterCents": 12000000,
+      "category": "MIGRATION_OPENING_BALANCE",
+      "idempotencyKey": "opening_wal_30_lender",
+      "note": "Opening wallet balance for lender role",
+      "createdAt": 1794894911269
+    },
+    {
+      "id": "wled_1794894911269_e7123441",
+      "walletId": "wal_12_merchant",
+      "userId": 12,
+      "role": "merchant",
+      "direction": "CREDIT",
+      "amountCents": 100000,
+      "balanceAfterCents": 100000,
+      "category": "MIGRATION_OPENING_BALANCE",
+      "idempotencyKey": "opening_wal_12_merchant",
+      "note": "Opening wallet balance for merchant role",
+      "createdAt": 1794894911269
+    }
+  ]
 }

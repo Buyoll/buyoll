@@ -44,11 +44,17 @@ const rawSweepMs = Number(process.env.SUBSCRIPTION_EXPIRY_SWEEP_MS ?? String(5 *
 export const SUBSCRIPTION_EXPIRY_SWEEP_MS =
   Number.isFinite(rawSweepMs) && rawSweepMs >= 10000 ? rawSweepMs : 5 * 60 * 1000;
 
-export const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const OTP_TTL_MS = 15 * 60 * 1000; // 15 minutes
+export const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 export const OTP_MAX_ATTEMPTS = 5;
 export const ADMIN_MAX_FAILED_ATTEMPTS = 3;
 export const ADMIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 export const RECENT_REAUTH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+export const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.APP_URL || '').replace(/\/+$/, '');
+export const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 export const PUBLIC_DIR = path.resolve(__dirname, '../public');
 export const UPLOADS_DIR = path.resolve(PUBLIC_DIR, 'uploads');

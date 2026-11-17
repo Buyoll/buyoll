@@ -55,6 +55,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authInitialRole, setAuthInitialRole] = useState<'member' | 'merchant' | 'lender'>('member');
+  const [resetTokenFromUrl, setResetTokenFromUrl] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [helpCategory, setHelpCategory] = useState<string>('inquiry');
 
@@ -343,7 +344,7 @@ export default function App() {
     window.addEventListener('popstate', syncRouteFromUrl);
     window.addEventListener('hashchange', syncRouteFromUrl);
 
-    // 4. Capture referral code if opened via /join?ref=... or ?ref=...
+    // 4. Capture referral code (?ref=...) or password reset link (?reset_token=...)
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const refParam = params.get('ref');
@@ -352,6 +353,20 @@ export default function App() {
           localStorage.setItem('buyoll_referrer', refParam);
         } catch {
           // Ignore
+        }
+      }
+      const rtParam = params.get('reset_token');
+      if (rtParam && rtParam.trim().length >= 16) {
+        setResetTokenFromUrl(rtParam.trim());
+        setIsAuthOpen(true);
+        if (window.history && window.history.replaceState) {
+          params.delete('reset_token');
+          const cleanQs = params.toString();
+          window.history.replaceState(
+            null,
+            '',
+            `${window.location.pathname}${cleanQs ? `?${cleanQs}` : ''}${window.location.hash}`
+          );
         }
       }
     }
@@ -762,10 +777,15 @@ export default function App() {
       {isAuthOpen && (
         <AuthModal
           initialRole={authInitialRole}
-          onClose={() => setIsAuthOpen(false)}
+          initialResetToken={resetTokenFromUrl}
+          onClose={() => {
+            setIsAuthOpen(false);
+            setResetTokenFromUrl(null);
+          }}
           onSuccess={(user, targetRoute) => {
             onProfileUpdate(user);
             setIsAuthOpen(false);
+            setResetTokenFromUrl(null);
             if (pendingTargetView) {
               const nextView = pendingTargetView;
               const nextArg = pendingTargetArg;

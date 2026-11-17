@@ -93,7 +93,7 @@ export const Footer: React.FC<FooterProps> = ({
                   </svg>
                 </summary>
                 <p className="mt-3 text-sm text-[#4B5563] dark:text-[#9CA3AF] leading-relaxed max-w-[420px]">
-                  Buyoll connects shoppers, merchants and members across Kenya through product discovery, configurable group-contribution Group systems (from 10 members down to a 1-member Lipa Mdogomdogo), gradual payment arrangements, non-withdrawable shopping wallets and merchant-sponsored promotional incentives.
+                  Buyoll connects shoppers, merchants, and lenders across East Africa, enabling product discovery, group contributions through 1–10 member Lipa Mdogomdogo groups, flexible instalment payments, and merchant-sponsored promotions.
                 </p>
               </details>
             </div>

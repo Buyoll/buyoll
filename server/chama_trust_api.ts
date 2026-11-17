@@ -238,7 +238,7 @@ chamaTrustRouter.post('/groups', async (req: Request, res: Response, next) => {
     groupId: newGroup.id,
     userEmail,
     userName: user.name,
-    phone: user.phone,
+    phone: user.phone || '',
     role: 'moderator',
     status: 'active',
     memberCode: creatorCode,

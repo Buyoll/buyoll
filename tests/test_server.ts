@@ -6,6 +6,11 @@ import os from 'os';
 import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from '../server/api.js';
+import {
+  createApiNotFoundOrMethodHandler,
+  globalJsonErrorHandler,
+  securityAndCorsMiddleware,
+} from '../server/http_middleware.js';
 import { resetDatabaseCacheForTest, getDatabase, runDatabaseTransaction } from '../server/db.js';
 import { PUBLIC_DIR } from '../server/config.js';
 import { createDbSession, createAccessToken } from '../server/auth_utils.js';
@@ -26,6 +31,7 @@ export interface TestHarness {
 }
 
 export async function startTestServer(): Promise<TestHarness> {
+  process.env.BUYOLL_TEST_MODE = '1';
   if (!process.env.ADMIN_USERNAME) process.env.ADMIN_USERNAME = 'testadmin';
   if (!process.env.ADMIN_FULL_NAME) process.env.ADMIN_FULL_NAME = 'Test Platform Admin';
   if (!process.env.ADMIN_EMAIL) process.env.ADMIN_EMAIL = 'testadmin@buyoll.test';
@@ -45,11 +51,14 @@ export async function startTestServer(): Promise<TestHarness> {
   await getDatabase();
 
   const app = express();
+  app.use(securityAndCorsMiddleware);
   app.use(cookieParser());
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   app.use('/api', apiRouter);
+  app.use('/api', createApiNotFoundOrMethodHandler(apiRouter));
   app.use(express.static(PUBLIC_DIR));
+  app.use(globalJsonErrorHandler);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {

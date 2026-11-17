@@ -45,8 +45,10 @@ export interface PaymentReceivingDetails {
 
 export interface User {
   id: number;
+  uuid?: string;
   name: string;
-  phone: string;
+  phone?: string | null;
+  phoneNormalized?: string | null;
   email?: string;
   password?: string;
   role: UserRole;
@@ -90,12 +92,14 @@ export interface User {
   verification_status?: 'pending' | 'approved';
   preferences?: UserPreferences;
   username?: string;
+  usernameDisplay?: string;
+  usernameLower?: string;
   usernameNormalized?: string;
   avatarUpdatedAt?: number;
   restrictedLoanBalance?: number;
   restrictedLoanByGroup?: Record<number, number>;
   failedLoginCount?: number;
-  lockedUntil?: number;
+  lockedUntil?: number | null;
   tokenVersion?: number;
   isDisabled?: boolean;
   disabledAt?: number | null;
@@ -107,10 +111,14 @@ export interface User {
   securityBannerSnoozedUntil?: number | null;
   passwordHmac?: string;
   mustChangeCredentials?: boolean;
+  mustResetPassword?: boolean;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   emailVerifiedAt?: number;
   phoneVerifiedAt?: number;
   lastActive: number;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface UserPreferences {
@@ -845,6 +853,8 @@ export interface PasswordResetRecord {
   id: string;
   userId: number;
   tokenHash: string;
+  codeHash?: string;
+  contact?: string;
   expiresAt: number;
   usedAt?: number | null;
   createdAt: number;

@@ -165,7 +165,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   ) {
     setResolving(true);
     try {
-      const res = await api.resolveDefault(recordId, option, currentUser?.phone);
+      const res = await api.resolveDefault(recordId, option, currentUser?.phone || undefined);
       onNotify('success', res.message);
       setSelectedDefault(null);
       if (onUserUpdate) onUserUpdate();

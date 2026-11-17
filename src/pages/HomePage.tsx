@@ -413,16 +413,11 @@ export const HomePage: React.FC<HomePageProps> = ({
               <Megaphone className="w-5 h-5 text-slate-900" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
-                  Welcome to Buyoll — Kenya's Social Fintech Group Marketplace
-                </h2>
-                <span className="px-2 py-0.5 bg-emerald-700/80 text-emerald-100 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                  Public Feed
-                </span>
-              </div>
-              <p className="text-xs text-emerald-100/80 mt-0.5 max-w-2xl leading-relaxed">
-                Explore official announcements and genuine merchant Group deals below. Sign in to access your private Groups, Wallet, Merchant Catalog, or Peer Lending Desk.
+              <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
+                Welcome to Buyoll — Kenya&apos;s Social Fintech Marketplace.
+              </h2>
+              <p className="text-xs text-emerald-100/90 mt-0.5 max-w-2xl leading-relaxed">
+                Explore featured products, announcements, and merchant group deals below. Sign in to access your Groups, Wallet, Merchant Catalog, and Peer Lending Desk.
               </p>
             </div>
           </div>

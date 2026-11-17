@@ -74,8 +74,22 @@ export async function hashPassword(password: string): Promise<string> {
   });
 }
 
+let cachedDummyHash: string | null = null;
+
+export async function verifyDummyPassword(password: string): Promise<void> {
+  try {
+    if (!cachedDummyHash) {
+      cachedDummyHash = await hashPassword('Buyoll_Dummy_Constant_Timing_Seed_2026!');
+    }
+    await argon2.verify(cachedDummyHash, String(password ?? ''));
+  } catch {
+    // Timing mitigation only
+  }
+}
+
 export async function verifyPassword(password: string, storedHash?: string): Promise<boolean> {
   if (!storedHash || typeof storedHash !== 'string' || password === undefined || password === null || password === '') {
+    await verifyDummyPassword(password || '');
     return false;
   }
   if (storedHash.startsWith('$argon2')) {
@@ -128,6 +142,59 @@ export function isPasswordReusedGlobally(
 }
 
 // ======================================================================
+// East African & International Phone Normalization
+// ======================================================================
+const EAST_AFRICA_E164_RE = /^\+(254[17]\d{8}|255[67]\d{8}|256[37]\d{8}|2507\d{8}|257\d{8}|2119\d{8})$/;
+const GENERAL_E164_RE = /^\+[1-9]\d{7,14}$/;
+
+export function looksLikePhoneNumber(raw: string): boolean {
+  const s = String(raw || '').trim();
+  if (!s || s.includes('@') || /[a-zA-Z]/.test(s)) return false;
+  const digits = s.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 16 && /^[\d+\s().-]+$/.test(s);
+}
+
+export function normalizeEastAfricanPhone(raw?: string | null): {
+  valid: boolean;
+  normalized: string | null;
+  error?: string;
+} {
+  if (raw === undefined || raw === null) {
+    return { valid: true, normalized: null };
+  }
+  const trimmed = String(raw).trim();
+  if (!trimmed) {
+    return { valid: true, normalized: null };
+  }
+
+  let compact = trimmed.replace(/[\s().-]/g, '');
+  if (compact.startsWith('00')) {
+    compact = `+${compact.slice(2)}`;
+  }
+
+  // Local Kenyan format 07XXXXXXXX or 01XXXXXXXX -> +2547XXXXXXXX / +2541XXXXXXXX
+  if (/^0[17]\d{8}$/.test(compact)) {
+    compact = `+254${compact.slice(1)}`;
+  } else if (/^[17]\d{8}$/.test(compact)) {
+    compact = `+254${compact}`;
+  } else if (/^(254|255|256|250|257|211)\d{7,10}$/.test(compact)) {
+    compact = `+${compact}`;
+  } else if (/^\d{8,15}$/.test(compact) && !compact.startsWith('0')) {
+    compact = `+${compact}`;
+  }
+
+  if (EAST_AFRICA_E164_RE.test(compact) || GENERAL_E164_RE.test(compact)) {
+    return { valid: true, normalized: compact };
+  }
+
+  return {
+    valid: false,
+    normalized: null,
+    error: 'Enter a valid phone number (e.g. 0712345678, +254712345678, +255..., +256..., +250..., +257..., or +211...).',
+  };
+}
+
+// ======================================================================
 // Username Normalization & Validation
 // ======================================================================
 export function normalizeUsername(raw: string): string {
@@ -140,6 +207,14 @@ export function normalizeUsername(raw: string): string {
 
 export function canonicalizeUsernameInput(raw: string): string {
   return String(raw || '').normalize('NFKC').trim().toLowerCase();
+}
+
+export function isValidStrictUsername(raw: string): boolean {
+  const cleaned = canonicalizeUsernameInput(raw);
+  if (cleaned.length < 3 || cleaned.length > 30) return false;
+  if (!/^[a-z0-9._]+$/.test(cleaned)) return false;
+  const norm = normalizeUsername(cleaned);
+  return norm.length >= 3;
 }
 
 export function isValidUsername(raw: string): boolean {
@@ -193,14 +268,19 @@ export function evaluatePasswordStrength(
 
   let notSimilarToIdentity = true;
   if (context) {
+    const exactMatches: string[] = [];
     const tokens: string[] = [];
     if (context.username) {
-      tokens.push(canonicalizeUsernameInput(context.username));
-      tokens.push(normalizeUsername(context.username));
+      const uLower = canonicalizeUsernameInput(context.username);
+      const uNorm = normalizeUsername(context.username);
+      exactMatches.push(uLower, uNorm);
+      tokens.push(uLower, uNorm);
     }
     if (context.email) {
-      const local = context.email.split('@')[0] || '';
-      if (local.length >= 3) tokens.push(local.toLowerCase(), normalizeUsername(local));
+      const emailLower = context.email.trim().toLowerCase();
+      exactMatches.push(emailLower);
+      const local = emailLower.split('@')[0] || '';
+      if (local.length >= 2) tokens.push(local, normalizeUsername(local));
     }
     if (context.name) {
       for (const part of context.name.toLowerCase().split(/\s+/)) {
@@ -209,12 +289,19 @@ export function evaluatePasswordStrength(
     }
     if (context.phone) {
       const digits = context.phone.replace(/\D/g, '');
-      if (digits.length >= 5) tokens.push(digits, digits.slice(-6));
+      if (digits.length >= 5) {
+        exactMatches.push(context.phone.trim().toLowerCase(), digits);
+        tokens.push(digits, digits.slice(-6));
+      }
     }
-    for (const tok of tokens) {
-      if (tok && tok.length >= 3 && (pwLower.includes(tok) || pwNorm.includes(tok))) {
-        notSimilarToIdentity = false;
-        break;
+    if (exactMatches.some((m) => m && (pwLower === m || pwNorm === m))) {
+      notSimilarToIdentity = false;
+    } else {
+      for (const tok of tokens) {
+        if (tok && tok.length >= 3 && (pwLower.includes(tok) || pwNorm.includes(tok))) {
+          notSimilarToIdentity = false;
+          break;
+        }
       }
     }
   }
@@ -227,7 +314,7 @@ export function evaluatePasswordStrength(
   } else if (!notCommon) {
     error = 'This password is too common. Please choose a less predictable password.';
   } else if (!notSimilarToIdentity) {
-    error = 'Password cannot contain or closely match your username, name, email, or phone number.';
+    error = 'Password cannot equal or contain your username, name, email, or phone number.';
   }
 
   let scoreCount = 0;
@@ -722,9 +809,44 @@ export async function resolveAuthenticatedUser(
   return resolution.user;
 }
 
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'passwordhash',
+  'password_hash',
+  'confirmpassword',
+  'newpassword',
+  'currentpassword',
+  'passkey',
+  'adminpasskey',
+  'adminpasskeyhash',
+  'passwordhmac',
+  'refreshtoken',
+  'accesstoken',
+]);
+
+export function scrubSensitiveFields(value: unknown, depth = 0): unknown {
+  if (depth > 4 || value === null || value === undefined || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubSensitiveFields(item, depth + 1));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+      out[k] = '[REDACTED]';
+    } else {
+      out[k] = scrubSensitiveFields(v, depth + 1);
+    }
+  }
+  return out;
+}
+
 export function sanitizeUser(user: User): Omit<User, 'password' | 'adminPasskeyHash' | 'passwordHmac'> {
   const {
     password: _pw,
+    passwordHash: _pwh,
+    password_hash: _pwh2,
     adminPasskeyHash: _pk,
     passwordHmac: _ph,
     ...safe
