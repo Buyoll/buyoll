@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import argon2 from 'argon2';
+import { createRequire } from 'module';
 import { Request, Response } from 'express';
 import {
   ACCESS_TOKEN_TTL_MS,
@@ -63,15 +63,64 @@ const BREACHED_COMMON_PASSWORDS = new Set([
 ]);
 
 // ======================================================================
-// Password & Passkey Hashing (argon2id + legacy scrypt fallback)
+// Password & Passkey Hashing (argon2id with safe scrypt fallback)
 // ======================================================================
-export async function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, {
-    type: argon2.argon2id,
-    memoryCost: 65536,
-    timeCost: 3,
-    parallelism: 1,
+const nodeRequire = createRequire(import.meta.url);
+let argon2ModuleCache: any | null | undefined;
+
+function getArgon2(): any | null {
+  if (argon2ModuleCache !== undefined) return argon2ModuleCache;
+  try {
+    argon2ModuleCache = nodeRequire('argon2');
+  } catch {
+    argon2ModuleCache = null;
+  }
+  return argon2ModuleCache;
+}
+
+function hashScryptAsync(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve(`${salt}:${derivedKey.toString('hex')}`);
+    });
   });
+}
+
+function verifyScryptAsync(password: string, salt: string, keyHex: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const keyBuffer = Buffer.from(keyHex, 'hex');
+      crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+        if (err || keyBuffer.length !== derivedKey.length) return resolve(false);
+        try {
+          resolve(crypto.timingSafeEqual(keyBuffer, derivedKey));
+        } catch {
+          resolve(false);
+        }
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const argon2Mod = getArgon2();
+  if (argon2Mod && typeof argon2Mod.hash === 'function') {
+    try {
+      return await argon2Mod.hash(password, {
+        type: argon2Mod.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 1,
+      });
+    } catch {
+      // Fallback to Node crypto.scrypt if native argon2 binary fails on constrained/serverless hosts
+    }
+  }
+  return hashScryptAsync(password);
 }
 
 let cachedDummyHash: string | null = null;
@@ -81,7 +130,13 @@ export async function verifyDummyPassword(password: string): Promise<void> {
     if (!cachedDummyHash) {
       cachedDummyHash = await hashPassword('Buyoll_Dummy_Constant_Timing_Seed_2026!');
     }
-    await argon2.verify(cachedDummyHash, String(password ?? ''));
+    const argon2Mod = getArgon2();
+    if (cachedDummyHash.startsWith('$argon2') && argon2Mod && typeof argon2Mod.verify === 'function') {
+      await argon2Mod.verify(cachedDummyHash, String(password ?? ''));
+    } else if (cachedDummyHash.includes(':')) {
+      const [salt, key] = cachedDummyHash.split(':');
+      if (salt && key) await verifyScryptAsync(String(password ?? ''), salt, key);
+    }
   } catch {
     // Timing mitigation only
   }
@@ -93,23 +148,20 @@ export async function verifyPassword(password: string, storedHash?: string): Pro
     return false;
   }
   if (storedHash.startsWith('$argon2')) {
-    try {
-      return await argon2.verify(storedHash, password);
-    } catch {
-      return false;
+    const argon2Mod = getArgon2();
+    if (argon2Mod && typeof argon2Mod.verify === 'function') {
+      try {
+        return await argon2Mod.verify(storedHash, password);
+      } catch {
+        return false;
+      }
     }
+    return false;
   }
   if (storedHash.includes(':')) {
     const [salt, key] = storedHash.split(':');
     if (!salt || !key) return false;
-    try {
-      const keyBuffer = Buffer.from(key, 'hex');
-      const derivedKey = crypto.scryptSync(password, salt, 64);
-      if (keyBuffer.length !== derivedKey.length) return false;
-      return crypto.timingSafeEqual(keyBuffer, derivedKey);
-    } catch {
-      return false;
-    }
+    return verifyScryptAsync(password, salt, key);
   }
   // Legacy plaintext (exact char compare using timingSafeEqual via sha256 digest)
   const a = crypto.createHash('sha256').update(password).digest();

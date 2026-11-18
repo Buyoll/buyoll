@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { getDatabase, logAudit, runDatabaseTransaction, DatabaseSchema } from './db.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import { LOAN_PLATFORM_FEE_RATE, toCents, fromCents, computeFeeCents } from './config.js';
 import {
@@ -18,7 +18,7 @@ import {
   User,
 } from '../src/types.js';
 
-export const groupLoansRouter = Router();
+export const groupLoansRouter = wrapRouterAsync(Router());
 
 function ensureNumericGroupId(req: Request, res: Response, next: NextFunction) {
   const raw = req.params.id;

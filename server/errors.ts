@@ -1,5 +1,41 @@
-import { Response } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { ZodError } from 'zod';
+
+export type AsyncRequestHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => unknown | Promise<unknown>;
+
+export function asyncHandler(fn: AsyncRequestHandler) {
+  return function wrappedAsyncHandler(req: Request, res: Response, next: NextFunction) {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+export function wrapRouterAsync(router: Router): Router {
+  const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'] as const;
+  for (const method of methods) {
+    const orig = (router as any)[method].bind(router);
+    (router as any)[method] = function (path: any, ...handlers: any[]) {
+      const wrapped = handlers.map((h) => {
+        if (typeof h !== 'function' || h.length >= 4) return h;
+        return function safeHandler(req: Request, res: Response, next: NextFunction) {
+          try {
+            const out = h(req, res, next);
+            if (out && typeof out.then === 'function') {
+              out.catch(next);
+            }
+          } catch (err) {
+            next(err);
+          }
+        };
+      });
+      return orig(path, ...wrapped);
+    };
+  }
+  return router;
+}
 
 export interface ApiErrorBody {
   error: {

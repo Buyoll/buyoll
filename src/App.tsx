@@ -556,6 +556,7 @@ export default function App() {
           <AdminPortalPage
             currentUser={currentUser}
             onSuccess={(user) => {
+              currentUserRef.current = user;
               onProfileUpdate(user);
               handleNavigate('admin-dashboard');
             }}
@@ -783,6 +784,7 @@ export default function App() {
             setResetTokenFromUrl(null);
           }}
           onSuccess={(user, targetRoute) => {
+            currentUserRef.current = user;
             onProfileUpdate(user);
             setIsAuthOpen(false);
             setResetTokenFromUrl(null);

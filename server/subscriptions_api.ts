@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getDatabase, DatabaseSchema, logAudit, runDatabaseTransaction } from './db.js';
 import { User, SubscriptionRequest, MerchantSubscriptionTier, MerchantSubscriptionRecord, SubscriptionActivationNotice } from '../src/types.js';
 import { resolveAuthenticatedSession, resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import {
   computeSubscriptionStatusEat,
@@ -13,7 +13,7 @@ import {
 } from './config.js';
 import { debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
 
-export const subscriptionsRouter = Router();
+export const subscriptionsRouter = wrapRouterAsync(Router());
 
 // Standard 6-Tier Merchant Subscription Catalog (Single source of truth)
 // Yearly pricing reflects ~17% annual discount (2 months free compared to 12x monthly)

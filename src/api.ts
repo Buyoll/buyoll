@@ -361,6 +361,7 @@ export const api = {
     phone?: string;
     shopName?: string;
     shopDescription?: string;
+    lenderType?: string;
     referredBy?: string;
     rememberMe?: boolean;
   }): Promise<{ user: User; accessToken?: string; refreshToken?: string; session?: any; notice?: string }> {

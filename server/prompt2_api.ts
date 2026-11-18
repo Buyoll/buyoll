@@ -21,13 +21,14 @@ import {
   resolvePlan,
 } from './subscriptions_api.js';
 import { toCents } from './config.js';
+import { wrapRouterAsync } from './errors.js';
 import {
   creditWalletCents,
   debitWalletCents,
   findPlatformAdminUser,
 } from './wallet_service.js';
 
-export const prompt2Router = Router();
+export const prompt2Router = wrapRouterAsync(Router());
 
 // Configurable 6-Tier Subscription Plans Table (Single source of truth synced with subscriptions_api)
 export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();

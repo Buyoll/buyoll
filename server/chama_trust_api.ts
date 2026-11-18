@@ -12,8 +12,9 @@ import {
 } from '../src/types.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
 import { SUPPORT_EMAIL } from './config.js';
+import { wrapRouterAsync } from './errors.js';
 
-export const chamaTrustRouter = Router();
+export const chamaTrustRouter = wrapRouterAsync(Router());
 
 // ----------------------------------------------------------------------
 // AUTH & SESSION HELPERS

@@ -2,11 +2,11 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { getDatabase, logAudit, runDatabaseTransaction, DatabaseSchema } from './db.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import { ChamaGroup, GroupJoinPolicy, GroupJoinRequest, GroupSlot, User } from '../src/types.js';
 
-export const groupMembershipRouter = Router();
+export const groupMembershipRouter = wrapRouterAsync(Router());
 
 function isNumericIdParam(raw: string): boolean {
   return /^\d+$/.test(String(raw || '').trim());

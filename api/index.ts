@@ -19,4 +19,22 @@ app.use('/api', apiRouter);
 app.use('/api', createApiNotFoundOrMethodHandler(apiRouter));
 app.use(globalJsonErrorHandler);
 
-export default app;
+export default function handler(req: express.Request, res: express.Response) {
+  try {
+    return app(req, res, (err: any) => {
+      if (err) {
+        return globalJsonErrorHandler(err, req, res, () => {});
+      }
+      if (!res.headersSent) {
+        res.status(404).json({
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Requested API endpoint was not found.',
+          },
+        });
+      }
+    });
+  } catch (err: any) {
+    return globalJsonErrorHandler(err, req, res, () => {});
+  }
+}

@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import express from 'express';
+import http from 'http';
 import { startTestServer, TestHarness } from './test_server.js';
 import { MIGRATIONS } from '../server/migrations.js';
 import { getDatabase, saveDatabase } from '../server/db.js';
-import { scrubSensitiveFields } from '../server/auth_utils.js';
+import { scrubSensitiveFields, verifyPassword } from '../server/auth_utils.js';
+import { wrapRouterAsync } from '../server/errors.js';
+import { globalJsonErrorHandler } from '../server/http_middleware.js';
+import vercelHandler from '../api/index.js';
 
 describe('Auth Acceptance Suite (Parts 1–8)', () => {
   let harness: TestHarness;
@@ -518,4 +523,107 @@ describe('Auth Acceptance Suite (Parts 1–8)', () => {
     assert.ok(!home.includes('across Kenya through product discovery'));
     assert.ok(!footer.includes('across Kenya through product discovery'));
   });
+
+  it('9. Merchant and Lender registration persist role-specific fields (shopName, lenderType, local phone, null optionals) cleanly', async () => {
+    const merchantRes = await fetch(`${harness.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'merchant',
+        name: 'Wanjiku Njoroge',
+        shopName: 'Wanjiku Home Solar',
+        username: 'wanjiku.solar',
+        email: 'wanjiku.solar@example.com',
+        phone: null,
+        shopDescription: null,
+        password: 'SolarShop#2026',
+        confirmPassword: 'SolarShop#2026',
+      }),
+    });
+    assert.equal(merchantRes.status, 201);
+    const merchantJson = await merchantRes.json();
+    assert.equal(merchantJson.user.role, 'merchant');
+    assert.equal(merchantJson.user.activeRole, 'merchant');
+    assert.equal(merchantJson.user.shopName, 'Wanjiku Home Solar');
+
+    const lenderRes = await fetch(`${harness.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'lender',
+        name: 'Kiptoo Holdings',
+        lenderType: 'SACCO / Credit Society',
+        username: 'kiptoo.sacco',
+        email: 'kiptoo.sacco@example.com',
+        phone: '0744556677',
+        password: 'SaccoFund#2026',
+        confirmPassword: 'SaccoFund#2026',
+      }),
+    });
+    assert.equal(lenderRes.status, 201);
+    const lenderJson = await lenderRes.json();
+    assert.equal(lenderJson.user.role, 'lender');
+    assert.equal(lenderJson.user.activeRole, 'lender');
+    assert.equal(lenderJson.user.lenderType, 'SACCO / Credit Society');
+    assert.equal(lenderJson.user.phone, '+254744556677');
+  });
+
+  it('10. Vercel handler returns JSON 201 on register, wrapRouterAsync catches async errors as JSON, and scrypt verification works', async () => {
+    // Vercel entrypoint HTTP dispatch
+    const vercelServer = http.createServer((req, res) => vercelHandler(req as any, res as any));
+    await new Promise<void>((resolve) => vercelServer.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const addr = vercelServer.address() as { port: number };
+      const regRes = await fetch(`http://127.0.0.1:${addr.port}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'member',
+          name: 'Vercel Smoke Member',
+          username: 'vercel.smoke01',
+          email: 'vercel.smoke01@example.com',
+          password: 'MombasaHarbor#2026',
+          confirmPassword: 'MombasaHarbor#2026',
+        }),
+      });
+      assert.equal(regRes.status, 201);
+      assert.ok((regRes.headers.get('content-type') || '').includes('application/json'));
+      const regBody = await regRes.json();
+      assert.equal(regBody.user.role, 'member');
+    } finally {
+      vercelServer.closeAllConnections?.();
+      await new Promise<void>((resolve) => vercelServer.close(() => resolve()));
+    }
+
+    // wrapRouterAsync guarantees Express 4 async rejections become structured JSON instead of HTML 500
+    const errApp = express();
+    const probeRouter = wrapRouterAsync(express.Router());
+    probeRouter.get('/boom', async () => {
+      throw new Error('Synthetic async failure');
+    });
+    errApp.use('/api', probeRouter);
+    errApp.use(globalJsonErrorHandler);
+
+    const errServer = http.createServer(errApp);
+    await new Promise<void>((resolve) => errServer.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const addr = errServer.address() as { port: number };
+      const boomRes = await fetch(`http://127.0.0.1:${addr.port}/api/boom`);
+      assert.equal(boomRes.status, 500);
+      assert.ok((boomRes.headers.get('content-type') || '').includes('application/json'));
+      const boomBody = await boomRes.json();
+      assert.equal(boomBody.error?.code, 'INTERNAL_SERVER_ERROR');
+    } finally {
+      errServer.closeAllConnections?.();
+      await new Promise<void>((resolve) => errServer.close(() => resolve()));
+    }
+
+    // Verify scrypt fallback hashes (salt:hex format) remain verifiable
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derived = crypto.scryptSync('ScryptFallback#2026', salt, 64).toString('hex');
+    const scryptStored = `${salt}:${derived}`;
+    assert.equal(await verifyPassword('ScryptFallback#2026', scryptStored), true);
+    assert.equal(await verifyPassword('WrongPass#2026', scryptStored), false);
+  });
 });
+

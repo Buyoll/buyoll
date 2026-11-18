@@ -36,7 +36,7 @@ import {
   verifySessionCookieValue,
 } from './auth_utils.js';
 import { buildResetLink, dispatchContactNotification } from './messaging.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import {
   ADMIN_LOCKOUT_MS,
   ADMIN_MAX_FAILED_ATTEMPTS,
@@ -51,7 +51,7 @@ import {
 import { ensureWallet, findPlatformAdminUser, normalizeRoleValue } from './wallet_service.js';
 import { OtpChallengeRecord, User, UserRole } from '../src/types.js';
 
-export const authRouter = Router();
+export const authRouter = wrapRouterAsync(Router());
 
 const NON_ADMIN_SOFT_PROMPT_THRESHOLD = 3;
 const NON_ADMIN_MAX_ATTEMPTS = 5;
@@ -260,10 +260,10 @@ const registerSchema = z.object({
   confirmPassword: z.string().optional(),
   phone: z.union([z.string().trim().max(30), z.null()]).optional(),
   role: z.enum(['member', 'merchant', 'lender', 'admin']).optional(),
-  shopName: z.string().trim().max(100).optional(),
-  shopDescription: z.string().trim().max(500).optional(),
-  lenderType: z.string().trim().max(80).optional(),
-  referredBy: z.string().trim().max(60).optional(),
+  shopName: z.union([z.string().trim().max(100), z.null()]).optional(),
+  shopDescription: z.union([z.string().trim().max(500), z.null()]).optional(),
+  lenderType: z.union([z.string().trim().max(80), z.null()]).optional(),
+  referredBy: z.union([z.string().trim().max(60), z.null()]).optional(),
   rememberMe: z.boolean().optional(),
 });
 
@@ -607,7 +607,7 @@ authRouter.post('/auth/register', async (req: Request, res: Response) => {
       referredBy: input.referredBy || undefined,
       shopName: cleanRole === 'merchant' ? input.shopName || input.name : undefined,
       shopDescription: cleanRole === 'merchant' ? input.shopDescription || 'Verified seller on Buyoll' : undefined,
-      lenderType: cleanRole === 'lender' ? input.lenderType : undefined,
+      lenderType: cleanRole === 'lender' ? input.lenderType || undefined : undefined,
       verified: false,
       emailVerified: false,
       phoneVerified: false,

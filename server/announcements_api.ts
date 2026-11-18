@@ -6,7 +6,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { getDatabase, logAudit, runDatabaseTransaction } from './db.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import {
   ANNOUNCEMENT_UPLOADS_DIR,
@@ -21,7 +21,7 @@ import {
   User,
 } from '../src/types.js';
 
-export const announcementsRouter = Router();
+export const announcementsRouter = wrapRouterAsync(Router());
 
 const uploadAnnouncementImage = multer({
   storage: multer.memoryStorage(),
@@ -186,12 +186,20 @@ announcementsRouter.post(
       );
     }
 
-    await fs.mkdir(ANNOUNCEMENT_UPLOADS_DIR, { recursive: true });
     const filename = `ann_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.${validated.ext}`;
-    const targetPath = path.join(ANNOUNCEMENT_UPLOADS_DIR, filename);
-    await fs.writeFile(targetPath, buffer);
-
-    const url = `/uploads/announcements/${filename}`;
+    let url: string;
+    if (process.env.VERCEL !== '1' && process.env.VERCEL !== 'true') {
+      try {
+        await fs.mkdir(ANNOUNCEMENT_UPLOADS_DIR, { recursive: true });
+        const targetPath = path.join(ANNOUNCEMENT_UPLOADS_DIR, filename);
+        await fs.writeFile(targetPath, buffer);
+        url = `/uploads/announcements/${filename}`;
+      } catch {
+        url = `data:${validated.mime};base64,${buffer.toString('base64')}`;
+      }
+    } else {
+      url = `data:${validated.mime};base64,${buffer.toString('base64')}`;
+    }
     await runDatabaseTransaction((db) => {
       logAudit(db, admin.id, admin.name, 'ANNOUNCEMENT_IMAGE_UPLOADED', `Uploaded promotional image ${filename} (${buffer!.length} bytes)`);
     });

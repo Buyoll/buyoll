@@ -6,6 +6,7 @@ import { X, Eye, EyeOff, AtSign, Phone, KeyRound, ArrowLeft, CheckCircle2, Shiel
 export interface RoleConfig {
   label: string;
   nameLabel: string;
+  subtitle: string;
   canRegister: boolean;
   loginTitle: string;
   loginText: string;
@@ -17,33 +18,37 @@ export const ROLES: Record<string, RoleConfig> = {
   member: {
     label: 'Member',
     nameLabel: 'Full name',
+    subtitle: 'Join 1–10 member Lipa Mdogomdogo groups & shopping wallet',
     canRegister: true,
     loginTitle: 'Welcome back!',
     loginText: 'Pick up where you left off and check your balance, repayments and rewards.',
     regTitle: 'Join the circle',
-    regText: 'Create a member account to save, borrow and shop with trusted merchants.',
+    regText: 'Create a member account to save, join product groups, and shop with verified merchants.',
   },
   merchant: {
     label: 'Merchant',
-    nameLabel: 'Business / Shop name',
+    nameLabel: 'Owner / Contact full name',
+    subtitle: 'List products, run group deals & manage customer orders',
     canRegister: true,
     loginTitle: 'Good to see you',
     loginText: 'Manage your store, orders and settlements in one place.',
-    regTitle: 'Merchant registration',
-    regText: 'Register your merchant business on Buyoll to launch product Groups and accept member orders.',
+    regTitle: 'Merchant onboarding',
+    regText: 'Register your business on Buyoll to publish verified products and launch 1–10 member groups.',
   },
   lender: {
     label: 'Lender',
-    nameLabel: 'Institution / Full name',
+    nameLabel: 'Full name / Authorized representative',
+    subtitle: 'Accredit your capital desk & fund verified group advances',
     canRegister: true,
     loginTitle: 'Welcome back',
     loginText: 'Review applications, portfolio performance and repayments.',
-    regTitle: 'Lender registration',
-    regText: 'Accredit your lending profile on Buyoll to fund Group emergency advances and earn interest.',
+    regTitle: 'Lender accreditation',
+    regText: 'Register your lending profile on Buyoll to support verified group financing requests.',
   },
   admin: {
     label: 'Admin',
     nameLabel: 'Admin full name',
+    subtitle: 'Restricted Buyoll operations & security portal',
     canRegister: false,
     loginTitle: 'Admin console',
     loginText: 'Restricted access. Sign in with your administrator username/email, password, and security passkey.',
@@ -206,6 +211,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   });
   const [reg, setReg] = useState({
     name: '',
+    shopName: '',
+    lenderType: 'Individual Lender',
     username: '',
     email: '',
     phone: '',
@@ -438,6 +445,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setBusy(true);
     try {
       const referrer = typeof window !== 'undefined' ? localStorage.getItem('buyoll_referrer') : null;
+      const cleanShopName = reg.shopName.trim();
       const res = await api.register({
         role,
         name: cleanName,
@@ -446,7 +454,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         phone: cleanPhone || undefined,
         password: reg.password,
         confirmPassword: reg.confirmPassword,
-        shopName: role === 'merchant' ? cleanName : undefined,
+        shopName: role === 'merchant' ? (cleanShopName || cleanName) : undefined,
+        lenderType: role === 'lender' ? reg.lenderType : undefined,
         referredBy: referrer || undefined,
         rememberMe: true,
       });
@@ -455,6 +464,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const userActiveRole = (res.user.activeRole || res.user.role || role) as RoleKey;
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('user:signin'));
+        window.dispatchEvent(new Event('user:login'));
       }
       onSuccess(res.user, ROLE_ROUTES[userActiveRole] || 'home');
       onClose();
@@ -604,14 +614,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       <style>{css}</style>
 
-      <div className="relative w-full max-w-[960px] flex flex-col items-center my-auto">
-        <button
-          onClick={onClose}
-          aria-label="Close modal"
-          className="absolute -top-11 right-0 sm:-right-2 text-white/80 hover:text-white bg-black/40 hover:bg-black/70 p-2 rounded-full transition-all z-50 cursor-pointer shadow-md"
-        >
-          <X className="w-5 h-5" />
-        </button>
+      <div className="relative w-full max-w-[980px] flex flex-col items-center my-auto">
+        <div className="w-full flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="text-white/90 hover:text-white bg-black/50 hover:bg-black/75 p-2 rounded-full transition-all z-50 cursor-pointer shadow-md"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
         <div className={`ax-box ${active ? 'is-active' : ''}`}>
           <div className="ax-diagonal" aria-hidden="true" />
@@ -654,6 +667,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   : handleForgotResetSubmit
               }
             >
+              <div className="ax-form-inner">
               <button
                 type="button"
                 onClick={() => switchMode('login')}
@@ -885,9 +899,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   {notice}
                 </p>
               )}
+              </div>
             </form>
           ) : (
             <form className="ax-form ax-login" onSubmit={handleLoginSubmit} aria-hidden={active}>
+              <div className="ax-form-inner">
               <div className="flex items-center justify-center gap-2 mb-1">
                 <img
                   src={resolveImageUrl('buyoll_logo.png')}
@@ -1044,9 +1060,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <p className="ax-alt ax-anim" style={{ '--li': 4 } as React.CSSProperties}>
                 {canRegisterEffective ? (
                   <>
-                    No account yet?{' '}
+                    No {cfg.label.toLowerCase()} account yet?{' '}
                     <button type="button" onClick={() => switchMode('register')}>
-                      Sign up
+                      Sign up as {cfg.label}
                     </button>
                   </>
                 ) : portalMode ? (
@@ -1055,149 +1071,198 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   'Merchant & Lender accounts are subject to review.'
                 )}
               </p>
+              </div>
             </form>
           )}
 
           {/* REGISTER FORM (RIGHT PANEL) - Non-admin only */}
           <form className="ax-form ax-register" onSubmit={handleRegisterSubmit} aria-hidden={!active}>
-            <h1 className="ax-anim" style={{ '--li': 0, marginBottom: '6px' } as React.CSSProperties}>
-              {cfg.label} sign-up
-            </h1>
+            <div className="ax-form-inner">
+              <div className="ax-anim text-center mb-2" style={{ '--li': 0 } as React.CSSProperties}>
+                <h1 style={{ marginBottom: '2px' }}>
+                  {cfg.label} sign-up
+                </h1>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                  {cfg.subtitle}
+                </p>
+              </div>
 
-            <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
-              <Field
-                id="r-name"
-                label={cfg.nameLabel || 'Name'}
-                icon={<UserIcon />}
-                autoComplete="name"
-                value={reg.name}
-                errorText={fieldErrors.name}
-                onChange={(e) => setReg({ ...reg, name: e.target.value })}
-              />
-            </div>
+              <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
+                <Field
+                  id="r-name"
+                  label={cfg.nameLabel || 'Full name'}
+                  icon={<UserIcon />}
+                  autoComplete="name"
+                  value={reg.name}
+                  errorText={fieldErrors.name}
+                  onChange={(e) => setReg({ ...reg, name: e.target.value })}
+                />
+              </div>
 
-            <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
-              <Field
-                id="r-username"
-                label="Username (e.g. jane.m)"
-                icon={<AtSign className="w-4 h-4" />}
-                autoComplete="username"
-                value={reg.username}
-                errorText={
-                  fieldErrors.username ||
-                  (usernameStatus.available === false ? usernameStatus.message : undefined)
-                }
-                onChange={(e) =>
-                  setReg({ ...reg, username: e.target.value.replace(/\s+/g, '') })
-                }
-                rightToggle={
-                  usernameStatus.available ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  ) : (
-                    <AtSign className="w-4 h-4" />
-                  )
-                }
-              />
-            </div>
-
-            <div className="ax-anim grid grid-cols-1 sm:grid-cols-2 gap-x-3" style={{ '--li': 2 } as React.CSSProperties}>
-              <Field
-                id="r-mail"
-                label="Email address"
-                type="email"
-                icon={<MailIcon />}
-                autoComplete="email"
-                value={reg.email}
-                errorText={fieldErrors.email}
-                onChange={(e) => setReg({ ...reg, email: e.target.value })}
-              />
-              <Field
-                id="r-phone"
-                label="Phone (optional)"
-                type="tel"
-                icon={<Phone className="w-4 h-4" />}
-                autoComplete="tel"
-                required={false}
-                value={reg.phone}
-                errorText={fieldErrors.phone}
-                onChange={(e) => setReg({ ...reg, phone: e.target.value })}
-              />
-            </div>
-
-            <div className="ax-anim" style={{ '--li': 3 } as React.CSSProperties}>
-              <Field
-                id="r-pw"
-                label="Password (min 8 chars, letter + number)"
-                type={showRegPw ? 'text' : 'password'}
-                icon={<LockIcon />}
-                autoComplete="new-password"
-                value={reg.password}
-                errorText={fieldErrors.password}
-                onChange={(e) => setReg({ ...reg, password: e.target.value })}
-                rightToggle={
-                  <button
-                    type="button"
-                    onClick={() => setShowRegPw((s) => !s)}
-                    aria-label={showRegPw ? 'Hide password' : 'Show password'}
-                    className="cursor-pointer hover:text-[#ff6600]"
-                  >
-                    {showRegPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                }
-              />
-              {reg.password && (
-                <div className="mt-1 mb-1">
-                  <div className="h-1 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${strength.color}`}
-                      style={{ width: `${Math.min(100, (strength.score / 4) * 100)}%` }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Strength: <span className="font-semibold">{strength.label}</span>
-                  </p>
+              {role === 'merchant' && (
+                <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
+                  <Field
+                    id="r-shop-name"
+                    label="Business / Shop name (optional)"
+                    icon={<UserIcon />}
+                    autoComplete="organization"
+                    required={false}
+                    value={reg.shopName}
+                    errorText={fieldErrors.shopName}
+                    onChange={(e) => setReg({ ...reg, shopName: e.target.value })}
+                  />
                 </div>
               )}
-              <Field
-                id="r-confirm-pw"
-                label="Confirm password"
-                type={showRegConfirmPw ? 'text' : 'password'}
-                icon={<LockIcon />}
-                autoComplete="new-password"
-                value={reg.confirmPassword}
-                errorText={fieldErrors.confirmPassword}
-                onChange={(e) => setReg({ ...reg, confirmPassword: e.target.value })}
-                rightToggle={
-                  <button
-                    type="button"
-                    onClick={() => setShowRegConfirmPw((s) => !s)}
-                    aria-label={showRegConfirmPw ? 'Hide confirm password' : 'Show confirm password'}
-                    className="cursor-pointer hover:text-[#ff6600]"
+
+              {role === 'lender' && (
+                <div className="ax-anim ax-field-wrap" style={{ '--li': 1 } as React.CSSProperties}>
+                  <label
+                    htmlFor="r-lender-type"
+                    className="block text-[11px] font-semibold text-[#ff6600] mb-1"
                   >
-                    {showRegConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                }
-              />
-            </div>
+                    Lender profile type
+                  </label>
+                  <select
+                    id="r-lender-type"
+                    value={reg.lenderType}
+                    onChange={(e) => setReg({ ...reg, lenderType: e.target.value })}
+                    className="w-full bg-transparent border-0 border-b-2 border-[#c3d3c9] dark:border-[#24312C] text-[13px] font-medium text-[var(--ink)] py-1.5 outline-none focus:border-[#ff6600]"
+                  >
+                    <option value="Individual Lender" className="text-slate-900">Individual Lender</option>
+                    <option value="SACCO / Credit Society" className="text-slate-900">SACCO / Credit Society</option>
+                    <option value="Microfinance Institution" className="text-slate-900">Microfinance Institution</option>
+                    <option value="Investment / Chama Capital" className="text-slate-900">Investment / Chama Capital</option>
+                  </select>
+                </div>
+              )}
 
-            <div className="ax-anim" style={{ '--li': 4 } as React.CSSProperties}>
-              <button className="ax-btn" disabled={busy} type="submit">
-                {busy && active ? 'Creating account…' : `Register as ${cfg.label}`}
-              </button>
-            </div>
+              <div className="ax-anim" style={{ '--li': 1 } as React.CSSProperties}>
+                <Field
+                  id="r-username"
+                  label="Username (e.g. jane.m)"
+                  icon={<AtSign className="w-4 h-4" />}
+                  autoComplete="username"
+                  value={reg.username}
+                  errorText={
+                    fieldErrors.username ||
+                    (usernameStatus.available === false ? usernameStatus.message : undefined)
+                  }
+                  onChange={(e) =>
+                    setReg({ ...reg, username: e.target.value.replace(/\s+/g, '') })
+                  }
+                  rightToggle={
+                    usernameStatus.available ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <AtSign className="w-4 h-4" />
+                    )
+                  }
+                />
+              </div>
 
-            {error && active && (
-              <p className="ax-error" role="alert">
-                {error}
+              <div className="ax-anim grid grid-cols-1 sm:grid-cols-2 gap-x-3" style={{ '--li': 2 } as React.CSSProperties}>
+                <Field
+                  id="r-mail"
+                  label="Email address"
+                  type="email"
+                  icon={<MailIcon />}
+                  autoComplete="email"
+                  value={reg.email}
+                  errorText={fieldErrors.email}
+                  onChange={(e) => setReg({ ...reg, email: e.target.value })}
+                />
+                <Field
+                  id="r-phone"
+                  label="Phone (optional)"
+                  type="tel"
+                  icon={<Phone className="w-4 h-4" />}
+                  autoComplete="tel"
+                  required={false}
+                  value={reg.phone}
+                  errorText={fieldErrors.phone}
+                  onChange={(e) => setReg({ ...reg, phone: e.target.value })}
+                />
+              </div>
+
+              <div className="ax-anim" style={{ '--li': 3 } as React.CSSProperties}>
+                <Field
+                  id="r-pw"
+                  label="Password"
+                  type={showRegPw ? 'text' : 'password'}
+                  icon={<LockIcon />}
+                  autoComplete="new-password"
+                  value={reg.password}
+                  errorText={fieldErrors.password}
+                  onChange={(e) => setReg({ ...reg, password: e.target.value })}
+                  rightToggle={
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPw((s) => !s)}
+                      aria-label={showRegPw ? 'Hide password' : 'Show password'}
+                      className="cursor-pointer hover:text-[#ff6600]"
+                    >
+                      {showRegPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  }
+                />
+                {reg.password ? (
+                  <div className="mt-1 mb-1">
+                    <div className="h-1 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${strength.color}`}
+                        style={{ width: `${Math.min(100, (strength.score / 4) * 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Strength: <span className="font-semibold">{strength.label}</span>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 -mt-1 mb-1">
+                    Min 8 characters with at least 1 letter and 1 number.
+                  </p>
+                )}
+                <Field
+                  id="r-confirm-pw"
+                  label="Confirm password"
+                  type={showRegConfirmPw ? 'text' : 'password'}
+                  icon={<LockIcon />}
+                  autoComplete="new-password"
+                  value={reg.confirmPassword}
+                  errorText={fieldErrors.confirmPassword}
+                  onChange={(e) => setReg({ ...reg, confirmPassword: e.target.value })}
+                  rightToggle={
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPw((s) => !s)}
+                      aria-label={showRegConfirmPw ? 'Hide confirm password' : 'Show confirm password'}
+                      className="cursor-pointer hover:text-[#ff6600]"
+                    >
+                      {showRegConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  }
+                />
+              </div>
+
+              <div className="ax-anim" style={{ '--li': 4 } as React.CSSProperties}>
+                <button className="ax-btn" disabled={busy} type="submit">
+                  {busy && active ? 'Creating account…' : `Register as ${cfg.label}`}
+                </button>
+              </div>
+
+              {error && active && (
+                <p className="ax-error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <p className="ax-alt ax-anim" style={{ '--li': 5 } as React.CSSProperties}>
+                Already registered?{' '}
+                <button type="button" onClick={() => switchMode('login')}>
+                  Log in
+                </button>
               </p>
-            )}
-
-            <p className="ax-alt ax-anim" style={{ '--li': 5 } as React.CSSProperties}>
-              Already registered?{' '}
-              <button type="button" onClick={() => switchMode('login')}>
-                Log in
-              </button>
-            </p>
+            </div>
           </form>
 
           <aside className="ax-info ax-info-login">
@@ -1225,8 +1290,9 @@ const css = `
   --o2: #ff8000;
   --g3: #ff8000;
   position: relative;
-  width: min(940px, 100%);
-  min-height: 640px;
+  width: min(980px, 100%);
+  min-height: 600px;
+  height: min(760px, 88vh);
   background: var(--bg);
   overflow: hidden;
   border-radius: 20px;
@@ -1310,10 +1376,15 @@ const css = `
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 62px 38px 18px;
+  justify-content: flex-start;
+  padding: 68px 34px 22px;
   z-index: 4;
   overflow-y: auto;
+}
+
+.ax-form-inner {
+  width: 100%;
+  margin: auto 0;
 }
 
 .ax-login {
@@ -1325,10 +1396,10 @@ const css = `
 }
 
 .ax-form h1 {
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 700;
   text-align: center;
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   color: var(--ink);
 }
 
@@ -1373,7 +1444,7 @@ const css = `
 }
 
 .ax-field-wrap {
-  margin: 10px 0;
+  margin: 12px 0;
 }
 
 .ax-field {
@@ -1412,7 +1483,11 @@ const css = `
   position: absolute;
   left: 0;
   top: 8px;
-  font-size: 13px;
+  max-width: calc(100% - 30px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
   color: var(--mute);
   pointer-events: none;
   transition: 0.3s;
@@ -1553,10 +1628,10 @@ const css = `
   transition-delay: 0.4s;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .ax-box {
     height: auto;
-    min-height: 580px;
+    min-height: auto;
     border-width: 1px;
   }
   .ax-diagonal,
@@ -1564,20 +1639,25 @@ const css = `
     display: none;
   }
   .ax-roles {
-    left: 12px;
-    right: 12px;
+    position: relative;
+    top: auto;
+    left: auto;
     transform: none;
+    margin: 16px 16px 0;
+    width: calc(100% - 32px);
     justify-content: space-between;
   }
   .ax-roles button {
     flex: 1;
-    padding: 6px 2px;
-    font-size: 11.5px;
+    padding: 7px 4px;
+    font-size: 12px;
   }
   .ax-form {
     position: relative;
     width: 100%;
-    padding: 78px 22px 24px;
+    height: auto;
+    padding: 18px 20px 26px;
+    overflow: visible;
   }
   .ax-register {
     display: none;

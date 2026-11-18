@@ -10,14 +10,21 @@ import {
   validateImageBuffer,
 } from './config.js';
 import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
-import { sendApiError, sendZodError } from './errors.js';
+import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import { ChamaGroup, GroupProductEntry, Product, User } from '../src/types.js';
 
-export const profileAndGroupsRouter = Router();
+export const profileAndGroupsRouter = wrapRouterAsync(Router());
 
-if (!fs.existsSync(AVATAR_UPLOADS_DIR)) {
-  fs.mkdirSync(AVATAR_UPLOADS_DIR, { recursive: true });
+function ensureAvatarDirSafe(): boolean {
+  try {
+    if (!fs.existsSync(AVATAR_UPLOADS_DIR)) {
+      fs.mkdirSync(AVATAR_UPLOADS_DIR, { recursive: true });
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const avatarUpload = multer({
@@ -113,9 +120,18 @@ profileAndGroupsRouter.post('/users/me/avatar', handleAvatarMulter, async (req: 
   }
 
   const filename = `avatar_${authUser.id}_${Date.now()}.${validated.ext}`;
-  const filePath = path.join(AVATAR_UPLOADS_DIR, filename);
-  fs.writeFileSync(filePath, fileBuffer);
-  const avatarUrl = `/uploads/avatars/${filename}`;
+  let avatarUrl: string;
+  if (process.env.VERCEL !== '1' && process.env.VERCEL !== 'true' && ensureAvatarDirSafe()) {
+    try {
+      const filePath = path.join(AVATAR_UPLOADS_DIR, filename);
+      fs.writeFileSync(filePath, fileBuffer);
+      avatarUrl = `/uploads/avatars/${filename}`;
+    } catch {
+      avatarUrl = `data:${validated.mime};base64,${fileBuffer.toString('base64')}`;
+    }
+  } else {
+    avatarUrl = `data:${validated.mime};base64,${fileBuffer.toString('base64')}`;
+  }
 
   try {
     const updatedUser = await runDatabaseTransaction(async (db) => {

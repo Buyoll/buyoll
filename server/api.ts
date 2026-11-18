@@ -46,6 +46,7 @@ import { groupLoansRouter } from './group_loans_api.js';
 import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { emitPlatformEvent, handleEventsSse } from './events.js';
 import { SUPPORT_EMAIL, toCents, fromCents } from './config.js';
+import { wrapRouterAsync } from './errors.js';
 import {
   creditWalletCents,
   debitWalletCents,
@@ -56,7 +57,7 @@ import {
 
 export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
 
-export const apiRouter = Router();
+export const apiRouter = wrapRouterAsync(Router());
 apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', time: Date.now() });
 });
