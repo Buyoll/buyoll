@@ -27,9 +27,16 @@ function getAllowedOrigins(): string[] {
 const AUTHORITY_HEADER = `ho${'st'}`;
 const FWD_AUTHORITY_HEADER = `x-forwarded-${AUTHORITY_HEADER}`;
 
+function getRequestAuthority(req: Request): string {
+  const raw = req.headers[FWD_AUTHORITY_HEADER] || req.headers[AUTHORITY_HEADER];
+  if (!raw) return '';
+  const first = Array.isArray(raw) ? raw[0] : String(raw);
+  return first.split(',')[0].trim();
+}
+
 function isOriginAllowed(origin: string, req: Request): boolean {
   const cleanOrigin = origin.replace(/\/+$/, '');
-  const reqAuthority = req.headers[FWD_AUTHORITY_HEADER] || req.headers[AUTHORITY_HEADER];
+  const reqAuthority = getRequestAuthority(req);
   if (reqAuthority) {
     const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
     const expectedSameOrigin = `${proto}://${reqAuthority}`.replace(/\/+$/, '');
@@ -58,7 +65,7 @@ export function securityAndCorsMiddleware(req: Request, res: Response, next: Nex
 
   // Enforce HTTPS behind reverse proxies (Vercel/Render/Railway) in production
   if (isProd && forwardedProto === 'http') {
-    const authority = req.headers[FWD_AUTHORITY_HEADER] || req.headers[AUTHORITY_HEADER];
+    const authority = getRequestAuthority(req);
     if (authority) {
       if (req.method === 'GET' || req.method === 'HEAD') {
         res.redirect(301, `https://${authority}${req.originalUrl}`);
@@ -74,17 +81,22 @@ export function securityAndCorsMiddleware(req: Request, res: Response, next: Nex
     }
   }
 
-  // Baseline HTTP security headers
+  // Baseline HTTP security headers (allow AI Studio iframe preview via CSP frame-ancestors)
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (process.env.STRICT_SAMEORIGIN_FRAME === 'true') {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (isProd || forwardedProto === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+  const frameAncestors =
+    process.env.FRAME_ANCESTORS ||
+    "'self' https://aistudio.google.com https://*.google.com https://*.googleusercontent.com";
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss: ws:;"
+    `default-src 'self'; base-uri 'self'; frame-ancestors ${frameAncestors}; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss: ws:;`
   );
 
   // CORS headers & preflight handling
