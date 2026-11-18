@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { ChamaActivityFeed } from '../components/ChamaActivityFeed.tsx';
 import { ContributionCalendar } from '../components/ContributionCalendar.tsx';
+import { getLowestGroupDailyAmount } from '../utils/speedOptions.ts';
 
 interface GroupDetailPageProps {
   groupId: number;
@@ -2663,9 +2664,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {recommendedProducts.slice(0, 10).map((rec) => {
-            const minDaily = rec.speedOptions && rec.speedOptions.length > 0
-              ? Math.min(...rec.speedOptions.map(s => s.dailyAmount))
-              : Math.ceil(rec.price / 10 / 10);
+            const minDaily = getLowestGroupDailyAmount(rec.price, rec.speedOptions);
 
             return (
               <div

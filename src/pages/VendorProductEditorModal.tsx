@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { Product, SpeedOption, User, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
 import { api } from '../api.ts';
 import { X, Plus, Trash2, Save, Image as ImageIcon, Video, Upload, Camera, CreditCard } from 'lucide-react';
+import {
+  buildAllSpeedOptions,
+  calculateDailyContribution,
+  calculateTotalDurationDays,
+} from '../utils/speedOptions.ts';
 
 interface VendorProductEditorModalProps {
   product: Product | null; // null if creating new product
@@ -68,14 +73,9 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
       ];
   const [attributesList, setAttributesList] = useState<Array<{ key: string; value: string }>>(initialAttrs);
 
-  // Speed options editor
-  const [speedOptions, setSpeedOptions] = useState<SpeedOption[]>(
-    product?.speedOptions || [
-      { size: 10, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 10 / 10), totalAmount: product?.price || 10000, description: '10 members · Daily installment · Rotation every 10 days' },
-      { size: 6, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 6 / 10), totalAmount: product?.price || 10000, description: '6 members · 60-day cycle' },
-      { size: 4, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 4 / 10), totalAmount: product?.price || 10000, description: '4 members · 40-day cycle' },
-      { size: 2, cycleDays: 10, dailyAmount: Math.ceil((product?.price || 10000) / 2 / 10), totalAmount: product?.price || 10000, description: '2 members · 20-day duo' },
-    ]
+  // Speed options editor (all 10 speeds: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+  const [speedOptions, setSpeedOptions] = useState<SpeedOption[]>(() =>
+    buildAllSpeedOptions(product?.price || 10000, product?.speedOptions)
   );
 
   const [saving, setSaving] = useState(false);
@@ -103,13 +103,18 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
     if (wasPrice && wasPrice > newPrice) {
       setDiscountPercent(Math.round(((wasPrice - newPrice) / wasPrice) * 100));
     }
-    // Update daily rates on existing speeds
+    // Update daily rates on existing speeds using canonical cycle math (including 1-member solo)
     setSpeedOptions(prev =>
-      prev.map(opt => ({
-        ...opt,
-        totalAmount: newPrice,
-        dailyAmount: Math.ceil(newPrice / opt.size / 10),
-      }))
+      prev.map(opt => {
+        const cycleDays = opt.cycleDays || (opt.size === 1 ? 90 : 10);
+        const dailyAmount = calculateDailyContribution(newPrice, opt.size, cycleDays);
+        return {
+          ...opt,
+          cycleDays,
+          totalAmount: newPrice,
+          dailyAmount,
+        };
+      })
     );
   }
 
@@ -122,18 +127,26 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
     });
   }
 
+  function syncAllTenSpeeds() {
+    setSpeedOptions(prev => buildAllSpeedOptions(price, prev));
+    onNotify('success', 'All 10 Member Speeds (10, 9, 8, 7, 6, 5, 4, 3, 2, 1) synchronized.');
+  }
+
   function addSpeedOption(size = 8) {
     const isSolo = size === 1;
+    const cycleDays = isSolo ? 90 : 10;
+    const totalDays = calculateTotalDurationDays(size, cycleDays);
+    const dailyAmount = calculateDailyContribution(price, size, cycleDays);
     setSpeedOptions(prev => [
       ...prev,
       {
         size,
-        cycleDays: isSolo ? 90 : 10,
-        dailyAmount: isSolo ? Math.ceil(price / 90) : Math.ceil(price / size / 10),
+        cycleDays,
+        dailyAmount,
         totalAmount: price,
         description: isSolo
-          ? '1 member · Solo Lipa Mdogomdogo (1 to 6 Months)'
-          : `${size} members · Rotation every 10 days`,
+          ? '1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)'
+          : `${size} members · KSh ${dailyAmount.toLocaleString()} daily · ${totalDays}-day total (1 item every 10 days)`,
       },
     ]);
   }
@@ -819,14 +832,23 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                   Define member counts and daily rates members can select on the product page.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => addSpeedOption(8)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Speed</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={syncAllTenSpeeds}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-[#ff6600] border border-orange-200 text-xs font-semibold rounded"
+                >
+                  <span>Sync All 10 Speeds (10→1)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addSpeedOption(8)}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Speed</span>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2.5">
@@ -844,16 +866,19 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
                       value={opt.size}
                       onChange={(e) => {
                         const newSize = Math.max(1, Math.min(10, Number(e.target.value)));
+                        const cycleDays = newSize === 1 ? 90 : 10;
+                        const dailyAmount = calculateDailyContribution(price, newSize, cycleDays);
+                        const totalDays = calculateTotalDurationDays(newSize, cycleDays);
                         updateSpeedOption(idx, 'size', newSize);
-                        if (newSize === 1) {
-                          updateSpeedOption(idx, 'cycleDays', 90);
-                          updateSpeedOption(idx, 'dailyAmount', Math.ceil(price / 90));
-                          updateSpeedOption(idx, 'description', '1 member · Solo Lipa Mdogomdogo · 1 to 6 Months');
-                        } else {
-                          updateSpeedOption(idx, 'cycleDays', 10);
-                          updateSpeedOption(idx, 'dailyAmount', Math.ceil(price / newSize / 10));
-                          updateSpeedOption(idx, 'description', `${newSize} members · Rotation every 10 days`);
-                        }
+                        updateSpeedOption(idx, 'cycleDays', cycleDays);
+                        updateSpeedOption(idx, 'dailyAmount', dailyAmount);
+                        updateSpeedOption(
+                          idx,
+                          'description',
+                          newSize === 1
+                            ? '1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)'
+                            : `${newSize} members · KSh ${dailyAmount.toLocaleString()} daily · ${totalDays}-day total (1 item every 10 days)`
+                        );
                       }}
                       className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
                     />

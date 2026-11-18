@@ -132,7 +132,7 @@ export interface UserPreferences {
 }
 
 export interface SpeedOption {
-  size: number; // number of members: 10, 8, 6, 4, 2, 1
+  size: number; // number of members: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
   cycleDays: number; // e.g., 10 days per member distribution, or up to 180 days for 1-member Lipa Mdogomdogo
   dailyAmount: number; // KSh / day
   totalAmount: number; // Total product price

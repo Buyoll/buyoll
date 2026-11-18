@@ -689,7 +689,7 @@ export const LendersDashboardPage: React.FC<LendersDashboardPageProps> = ({
               <span>Re-Join Any Speed</span>
             </div>
             <p className="text-slate-600 leading-relaxed">
-              Removed members do not lose money; they can use their wallet credit to take an open slot in a 10, 8, 6, 4, or 2 member group.
+              Removed members do not lose money; they can use their wallet credit to take an open slot in a 10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member Lipa Mdogomdogo group.
             </p>
           </div>
 

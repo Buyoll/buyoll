@@ -2,6 +2,7 @@ import React from 'react';
 import { Product, ChamaGroup } from '../types.ts';
 import { resolveImageUrl } from '../api.ts';
 import { Users, CheckCircle2, Gift, Sparkles, Flame, Star, HandCoins, Plus, Trash2 } from 'lucide-react';
+import { getLowestGroupDailyAmount } from '../utils/speedOptions.ts';
 
 interface ProductCardProps {
   product: Product;
@@ -38,10 +39,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onFeatureInGroup,
   onRequestLoan,
 }) => {
-  // Lowest daily amount across configured speed options
-  const minDaily = product.speedOptions && product.speedOptions.length > 0
-    ? Math.min(...product.speedOptions.map(s => s.dailyAmount))
-    : Math.ceil(product.price / 10 / 10);
+  // Lowest daily amount across all configured speed options (10 down to 1)
+  const minDaily = getLowestGroupDailyAmount(product.price, product.speedOptions);
 
   const mainImage = resolveImageUrl(product.images?.[0]);
   const showDraftBadge = isDraft ?? (product.publicationStatus === 'draft' || product.live === false);

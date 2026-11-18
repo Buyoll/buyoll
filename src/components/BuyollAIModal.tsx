@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Product, ProductAIInquiry, User } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import {
+  buildAllSpeedOptions,
+  calculateTotalDurationDays,
+  DEFAULT_SOLO_MONTHS,
+  SOLO_DURATION_MONTHS,
+} from '../utils/speedOptions.ts';
+import {
   Sparkles,
   X,
   Send,
@@ -51,6 +57,7 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
   const [inputQuestion, setInputQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'comparison' | 'insights'>('chat');
+  const [soloMonths, setSoloMonths] = useState<number>(DEFAULT_SOLO_MONTHS);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const isOwner = currentUser && (currentUser.id === product.vendorId || currentUser.role === 'admin');
@@ -69,7 +76,7 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
       setMessages([
         {
           sender: 'ai',
-          text: `Hello! I am your dedicated Buyoll.ai Assistant for "${product.title}". How can I help you discover its great benefits, specifications, and flexible Group contribution speeds today?`,
+          text: `Hello! I am your dedicated Buyoll.ai Assistant for "${product.title}". How can I help you discover its great benefits, specifications, and flexible Member Speeds (10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member Lipa Mdogomdogo) today?`,
           timestamp: Date.now(),
         },
       ]);
@@ -97,23 +104,16 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
     } catch (err: any) {
       // Positive fallback
       const bonusText = product.bonusGift ? ` plus you receive an enticing free merchant bonus: ${product.bonusGift}!` : '!';
-      const fallbackAns = `The ${product.title} is an exceptional, high-grade product offering premium durability, outstanding performance, and superb value${bonusText} At only KSh ${product.price.toLocaleString()}, you can acquire it immediately or start saving with our flexible Group daily contribution speeds. We warmly encourage you to join a group or buy today!`;
+      const fallbackAns = `The ${product.title} is an exceptional, high-grade product offering premium durability, outstanding performance, and superb value${bonusText} At only KSh ${product.price.toLocaleString()}, you can acquire it immediately or start saving across any Member Speed (10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member Lipa Mdogomdogo over 1 to 6 months). Check the Speed & Payment Breakdown tab to compare all 10 daily rates!`;
       setMessages(prev => [...prev, { sender: 'ai', text: fallbackAns, timestamp: Date.now() }]);
     } finally {
       setLoading(false);
     }
   }
 
-  // Calculate daily payment speeds for comparison chart
-  const speedsForChart = (product.speedOptions && product.speedOptions.length > 0)
-    ? product.speedOptions
-    : [
-        { size: 10, cycleDays: 10, dailyAmount: Math.ceil(product.price / 10 / 10), totalAmount: product.price, description: '10 members · 100 days' },
-        { size: 6, cycleDays: 10, dailyAmount: Math.ceil(product.price / 6 / 10), totalAmount: product.price, description: '6 members · 60 days' },
-        { size: 4, cycleDays: 10, dailyAmount: Math.ceil(product.price / 4 / 10), totalAmount: product.price, description: '4 members · 40 days' },
-        { size: 2, cycleDays: 10, dailyAmount: Math.ceil(product.price / 2 / 10), totalAmount: product.price, description: '2 members · 20 days' },
-        { size: 1, cycleDays: 90, dailyAmount: Math.ceil(product.price / 90), totalAmount: product.price, description: '1 member · 3 Months Lipa Mdogomdogo' },
-      ];
+  // Calculate daily contribution breakdown across all 10 speeds: 10, 9, 8, 7, 6, 5, 4, 3, 2, and 1
+  const speedsForChart = buildAllSpeedOptions(product.price, product.speedOptions, soloMonths);
+  const maxDailyForChart = Math.max(1, ...speedsForChart.map((x) => x.dailyAmount));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -312,32 +312,81 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
             <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 text-[#ff6600] shrink-0 mt-0.5" />
               <div>
-                <b>Buyoll Group Savings & Solo Speed Breakdown:</b>
+                <b>Buyoll Group Savings &amp; Solo Speed Breakdown (10 down to 1 Member):</b>
                 <p className="text-slate-600 mt-0.5">
-                  Acquire <b>{product.title}</b> (KSh {product.price.toLocaleString()}) comfortably by choosing any speed from 10 down to 1-member Lipa Mdogomdogo.
+                  Acquire <b>{product.title}</b> (KSh {product.price.toLocaleString()}) comfortably across any Member Speed: <b>10, 9, 8, 7, 6, 5, 4, 3, 2</b>, or <b>1-Member Solo Lipa Mdogomdogo</b> (1–6 months).
                 </p>
               </div>
             </div>
 
-            {/* Visual Bar Chart Comparison */}
+            {/* 1-Member Solo Lipa Mdogomdogo Duration Interactive Calculator */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="text-xs">
+                <span className="font-bold text-slate-900 block">
+                  1-Member Solo Lipa Mdogomdogo Plan
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Adjust 1–6 months ({soloMonths * 30} days) to preview solo daily installments
+                </span>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {SOLO_DURATION_MONTHS.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setSoloMonths(m)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                      soloMonths === m
+                        ? 'bg-[#ff6600] text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {m} Mo
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Visual Bar Chart Comparison across all 10 Speeds */}
             <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <BarChart3 className="w-4 h-4 text-[#ff6600]" />
-                <span>Daily Contribution Comparison by Speed</span>
-              </h4>
+              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <BarChart3 className="w-4 h-4 text-[#ff6600]" />
+                  <span>Daily Contribution Comparison by Speed</span>
+                </h4>
+                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  Member Speeds: 10 · 9 · 8 · 7 · 6 · 5 · 4 · 3 · 2 · 1
+                </span>
+              </div>
 
               <div className="space-y-3">
-                {speedsForChart.map((s, idx) => {
-                  const maxDaily = Math.max(...speedsForChart.map(x => x.dailyAmount));
-                  const barWidth = Math.max(12, Math.round((s.dailyAmount / maxDaily) * 100));
+                {speedsForChart.map((s) => {
+                  const barWidth = Math.max(8, Math.round((s.dailyAmount / maxDailyForChart) * 100));
+                  const totalDays = calculateTotalDurationDays(s.size, s.cycleDays);
+                  const isSolo = s.size === 1;
+                  const poolPerRotation = s.dailyAmount * s.size * (isSolo ? totalDays : (s.cycleDays || 10));
 
                   return (
-                    <div key={idx} className="text-xs">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-slate-800">
-                          {s.size === 1 ? '1-Member Solo (Lipa Mdogomdogo)' : `${s.size}-Member Speed`}
+                    <div key={s.size} className="text-xs">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <span>
+                            {isSolo
+                              ? '1 Member Speed (Solo Lipa Mdogomdogo)'
+                              : `${s.size} Members Speed`}
+                          </span>
+                          {s.size === 10 && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                              Lowest Group Daily
+                            </span>
+                          )}
+                          {isSolo && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                              {soloMonths} Mo ({totalDays}d)
+                            </span>
+                          )}
                         </span>
-                        <span className="font-extrabold text-[#ff6600] font-mono">
+                        <span className="font-extrabold text-[#ff6600] font-mono shrink-0">
                           KSh {s.dailyAmount.toLocaleString()} / day
                         </span>
                       </div>
@@ -349,9 +398,16 @@ export const BuyollAIModal: React.FC<BuyollAIModalProps> = ({
                         />
                       </div>
 
-                      <div className="text-[10px] text-slate-500 mt-0.5 flex justify-between">
-                        <span>{s.description || `Rotation every ${s.cycleDays} days`}</span>
-                        <span>Total: KSh {s.totalAmount.toLocaleString()}</span>
+                      <div className="text-[10px] text-slate-500 mt-0.5 flex items-center justify-between gap-2 flex-wrap">
+                        <span>
+                          {isSolo
+                            ? `1 member · ${totalDays} days total · ~KSh ${Math.ceil(s.totalAmount / soloMonths).toLocaleString()}/mo`
+                            : `${s.size} members · ${totalDays} days total · 1 item every ${s.cycleDays || 10} days`}
+                        </span>
+                        <span>
+                          Target: KSh {s.totalAmount.toLocaleString()}
+                          {!isSolo && ` · Pool/${s.cycleDays || 10}d: KSh ${poolPerRotation.toLocaleString()}`}
+                        </span>
                       </div>
                     </div>
                   );

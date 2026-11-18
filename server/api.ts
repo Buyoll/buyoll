@@ -54,6 +54,11 @@ import {
   getWalletBalanceCents,
   normalizeRoleValue,
 } from './wallet_service.js';
+import {
+  STANDARD_MEMBER_SPEEDS,
+  buildAllSpeedOptions,
+  calculateDailyContribution,
+} from '../src/utils/speedOptions.js';
 
 export const SUBSCRIPTION_TIERS: MerchantSubscriptionTier[] = getComputedSubscriptionTiers();
 
@@ -639,7 +644,10 @@ apiRouter.get('/products', async (req: Request, res: Response) => {
   const paginated = parsedLimit > 0 ? products.slice(parsedOffset, parsedOffset + parsedLimit) : products.slice(parsedOffset);
 
   res.json({
-    products: paginated,
+    products: paginated.map((p) => ({
+      ...p,
+      speedOptions: buildAllSpeedOptions(p.price, p.speedOptions),
+    })),
     total,
     limit: parsedLimit || total,
     offset: parsedOffset,
@@ -666,7 +674,13 @@ apiRouter.get('/products/:id', async (req: Request, res: Response) => {
   // Also include the product's active Chama groups
   const groups = db.groups.filter(g => g.productId === product.id && (g.status === 'active' || g.status === 'full'));
 
-  res.json({ product, groups });
+  res.json({
+    product: {
+      ...product,
+      speedOptions: buildAllSpeedOptions(product.price, product.speedOptions),
+    },
+    groups,
+  });
 });
 
 // -------------------------------------------------------------
@@ -694,7 +708,7 @@ apiRouter.post('/products/:id/ai-chat', async (req: Request, res: Response) => {
 Strict Rules:
 1. Speak about this product strictly in a glowing, helpful, and highly positive light.
 2. Highlight its features, benefits, specifications, and exceptional value (Price: KSh ${product.price.toLocaleString()}, Category: ${product.category}, Seller: ${product.vendorName}).
-3. Strongly encourage and ask the member to buy it or join an active Chama group right now (available in speeds of 10, 8, 6, 4, 2 members, or 1-member solo Lipa Mdogomdogo over 1 to 6 months).
+3. Strongly encourage and ask the member to buy it or join an active Chama group right now (available in speeds of 10, 9, 8, 7, 6, 5, 4, 3, 2 members, or 1-member solo Lipa Mdogomdogo over 1 to 6 months).
 4. FORBIDDEN: You are strictly forbidden from answering in any negative way, highlighting flaws, or discouraging the customer.
 5. Keep your answer SHORT, CONCISE, and on point (2 to 4 sentences maximum).`;
 
@@ -727,7 +741,7 @@ Strict Rules:
   // Guaranteed positive fallback response
   if (!aiAnswer) {
     const bonusMention = product.bonusGift ? ` plus you receive an enticing free merchant bonus gift: ${product.bonusGift}!` : '!';
-    aiAnswer = `The ${product.title} is an incredible, highly-rated choice offering supreme quality, reliability, and top-tier value${bonusMention} At only KSh ${product.price.toLocaleString()}, you can easily acquire it today in full or through our flexible Chama daily savings (from 10, 8, 6, 4, 2 down to 1-member Lipa Mdogomdogo over 1 to 6 months). We warmly recommend securing your slot right now!`;
+    aiAnswer = `The ${product.title} is an incredible, highly-rated choice offering supreme quality, reliability, and top-tier value${bonusMention} At only KSh ${product.price.toLocaleString()}, you can easily acquire it today in full or through our flexible Chama daily savings (across 10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member Lipa Mdogomdogo over 1 to 6 months). We warmly recommend securing your slot right now!`;
   }
 
   const inquiry = {
@@ -914,17 +928,11 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
   }
   const numPrice = Number(price);
 
-  // Generate standard speed options including 1-member Lipa Mdogomdogo
-  const parsedSpeedOptions = Array.isArray(speedOptions) && speedOptions.length > 0
-    ? speedOptions
-    : [
-        { size: 10, cycleDays: 10, dailyAmount: Math.ceil(numPrice / 10 / 10), totalAmount: numPrice, description: '10 members · Daily installment · Rotation every 10 days' },
-        { size: 8, cycleDays: 10, dailyAmount: Math.ceil(numPrice / 8 / 10), totalAmount: numPrice, description: '8 members · Rotation every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: Math.ceil(numPrice / 6 / 10), totalAmount: numPrice, description: '6 members · 60-day cycle' },
-        { size: 4, cycleDays: 10, dailyAmount: Math.ceil(numPrice / 4 / 10), totalAmount: numPrice, description: '4 members · 40-day cycle' },
-        { size: 2, cycleDays: 10, dailyAmount: Math.ceil(numPrice / 2 / 10), totalAmount: numPrice, description: '2 members · 20-day cycle' },
-        { size: 1, cycleDays: 180, dailyAmount: Math.ceil(numPrice / 180), totalAmount: numPrice, description: '1 member · Lipa Mdogomdogo (Installments) · 1 to 6 Months maximum' },
-      ];
+  // Generate all 10 canonical speed options (10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+  const parsedSpeedOptions = buildAllSpeedOptions(
+    numPrice,
+    Array.isArray(speedOptions) && speedOptions.length > 0 ? speedOptions : undefined
+  );
 
   // Media caps validation: max 3 photos, max 2 videos
   const cleanImages = Array.isArray(images) ? images.filter(Boolean) : [];
@@ -1166,7 +1174,9 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
   }
 
   if (Array.isArray(speedOptions) && speedOptions.length > 0) {
-    product.speedOptions = speedOptions;
+    product.speedOptions = buildAllSpeedOptions(product.price, speedOptions);
+  } else if (price !== undefined) {
+    product.speedOptions = buildAllSpeedOptions(product.price, product.speedOptions);
   }
 
   if (isFeatured !== undefined) {
@@ -1362,8 +1372,8 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
   const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
   const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
-  // Standard speeds: 10 down to 1
-  const standardSizes = [10, 8, 6, 4, 2, 1];
+  // Standard speeds: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+  const standardSizes = STANDARD_MEMBER_SPEEDS;
   const createdGroups: ChamaGroup[] = [];
 
   for (const size of standardSizes) {
@@ -1375,10 +1385,11 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
     const existing = db.groups.find(g => g.productId === product.id && g.size === size && g.status === 'active');
     if (!existing) {
       const isSolo = size === 1;
+      const defaultCycleDays = isSolo ? 90 : 10;
       const speedOpt = product.speedOptions?.find(s => s.size === size) || {
         size,
-        cycleDays: isSolo ? 90 : 10,
-        dailyAmount: isSolo ? Math.ceil(product.price / 90) : Math.ceil(product.price / size / 10),
+        cycleDays: defaultCycleDays,
+        dailyAmount: calculateDailyContribution(product.price, size, defaultCycleDays),
         totalAmount: product.price,
       };
       const receiving = normalizePaymentReceiving(product.paymentReceiving, dbUser.paymentReceiving);
@@ -1695,9 +1706,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
   const validSpeed = (!requestedDays && product.speedOptions?.find(s => s.size === speedSize)) || {
     size: speedSize,
     cycleDays: effectiveCycleDays,
-    dailyAmount: isSolo
-      ? Math.ceil(product.price / effectiveCycleDays)
-      : Math.ceil(product.price / speedSize / effectiveCycleDays),
+    dailyAmount: calculateDailyContribution(product.price, speedSize, effectiveCycleDays),
     totalAmount: product.price,
     description: isSolo
       ? `1 Member Solo (Lipa Mdogomdogo) · ${effectiveCycleDays} Days`
@@ -2101,9 +2110,7 @@ apiRouter.post('/groups/:id/payout-option', async (req: Request, res: Response) 
     const cleanDays = Math.min(365, Math.max(1, Number(paymentDurationDays)));
     group.paymentDurationDays = cleanDays;
     group.cycleDays = cleanDays;
-    group.dailyAmount = group.size === 1
-      ? Math.ceil(group.productPrice / cleanDays)
-      : Math.ceil(group.productPrice / group.size / cleanDays);
+    group.dailyAmount = calculateDailyContribution(group.productPrice, group.size, cleanDays);
   }
 
   const optionLabel = payoutOption === 'turn_by_turn'

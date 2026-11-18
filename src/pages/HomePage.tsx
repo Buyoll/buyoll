@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { User, Announcement, PlatformAnnouncementSlot } from '../types.ts';
 import { useSearchHistory } from '../hooks/useSearchHistory.ts';
+import { getLowestGroupDailyAmount } from '../utils/speedOptions.ts';
 
 interface HomePageProps {
   currentUser?: User | null;
@@ -910,9 +911,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 {/* Duplicate the array to create seamless loop */}
                 {[...filteredNewlyPosted, ...filteredNewlyPosted].map((prod, idx) => {
                   const daysAgo = getDaysAgo(prod.createdAt);
-                  const minDaily = prod.speedOptions && prod.speedOptions.length > 0
-                    ? Math.min(...prod.speedOptions.map(s => s.dailyAmount))
-                    : Math.ceil(prod.price / 10 / 10);
+                  const minDaily = getLowestGroupDailyAmount(prod.price, prod.speedOptions);
 
                   return (
                     <div
@@ -1009,7 +1008,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-1">Choose Your Speed</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Select 10, 6, 4, or 2 members with clear daily installments and scheduled distribution dates.
+                Select 10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member Lipa Mdogomdogo with clear daily installments and scheduled distribution dates.
               </p>
             </div>
           </div>

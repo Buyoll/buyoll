@@ -42,6 +42,7 @@ import {
 } from '../src/types.js';
 import { SUPPORT_EMAIL } from './config.js';
 import { runPendingMigrations, MigrationRecord } from './migrations.js';
+import { buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -335,12 +336,7 @@ function getInitialDatabase(): DatabaseSchema {
         Cycles: '3,000+ Cycles to 80%',
         Warranty: '2 Years Manufacturer',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 680, totalAmount: 68000, description: '10 members · KSh 680 daily · Delivery rotation every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 1134, totalAmount: 68000, description: '6 members · KSh 1,134 daily · Accelerated 60-day cycle' },
-        { size: 4, cycleDays: 10, dailyAmount: 1700, totalAmount: 68000, description: '4 members · KSh 1,700 daily · Express 40-day delivery' },
-        { size: 2, cycleDays: 10, dailyAmount: 3400, totalAmount: 68000, description: '2 members · KSh 3,400 daily · Fast-track 20-day duo' },
-      ],
+      speedOptions: buildAllSpeedOptions(68000),
       createdAt: now, // Posted today (0 days ago)
       updatedAt: now,
     },
@@ -365,12 +361,7 @@ function getInitialDatabase(): DatabaseSchema {
         Compatibility: 'Induction / Gas / Ceramic',
         Cleaning: 'Dishwasher Safe',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 145, totalAmount: 14500, description: '10 members · KSh 145 daily · One set delivered every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 242, totalAmount: 14500, description: '6 members · KSh 242 daily · Completed in 60 days' },
-        { size: 4, cycleDays: 10, dailyAmount: 363, totalAmount: 14500, description: '4 members · KSh 363 daily · Completed in 40 days' },
-        { size: 2, cycleDays: 10, dailyAmount: 725, totalAmount: 14500, description: '2 members · KSh 725 daily · Completed in 20 days' },
-      ],
+      speedOptions: buildAllSpeedOptions(14500),
       createdAt: now - 1 * dayMs, // Posted 1 day ago
       updatedAt: now - 1 * dayMs,
     },
@@ -395,12 +386,7 @@ function getInitialDatabase(): DatabaseSchema {
         Audio: '24W Dolby Atmos Stereo',
         OS: 'Google TV Licensed',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 460, totalAmount: 46000, description: '10 members · KSh 460 daily · Allocation every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 767, totalAmount: 46000, description: '6 members · KSh 767 daily · 60-day fulfillment' },
-        { size: 4, cycleDays: 10, dailyAmount: 1150, totalAmount: 46000, description: '4 members · KSh 1,150 daily · 40-day fulfillment' },
-        { size: 2, cycleDays: 10, dailyAmount: 2300, totalAmount: 46000, description: '2 members · KSh 2,300 daily · 20-day duo speed' },
-      ],
+      speedOptions: buildAllSpeedOptions(46000),
       createdAt: now - 2 * dayMs, // Posted 2 days ago
       updatedAt: now - 2 * dayMs,
     },
@@ -425,12 +411,7 @@ function getInitialDatabase(): DatabaseSchema {
         Base: 'Polished Cast Aluminum',
         Warranty: '3 Years Comprehensive',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 240, totalAmount: 24000, description: '10 members · KSh 240 daily · 1 chair allocated every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 400, totalAmount: 24000, description: '6 members · KSh 400 daily · 60 days total' },
-        { size: 4, cycleDays: 10, dailyAmount: 600, totalAmount: 24000, description: '4 members · KSh 600 daily · 40 days total' },
-        { size: 2, cycleDays: 10, dailyAmount: 1200, totalAmount: 24000, description: '2 members · KSh 1,200 daily · 20 days duo' },
-      ],
+      speedOptions: buildAllSpeedOptions(24000),
       createdAt: now - 3 * dayMs, // Posted 3 days ago
       updatedAt: now - 3 * dayMs,
     },
@@ -455,12 +436,7 @@ function getInitialDatabase(): DatabaseSchema {
         Cooling: 'Multi Air Flow No Frost',
         Power: 'A+ Energy Efficiency',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 385, totalAmount: 38500, description: '10 members · KSh 385 daily · 1 fridge every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 642, totalAmount: 38500, description: '6 members · KSh 642 daily · 60-day cycle' },
-        { size: 4, cycleDays: 10, dailyAmount: 963, totalAmount: 38500, description: '4 members · KSh 963 daily · 40-day cycle' },
-        { size: 2, cycleDays: 10, dailyAmount: 1925, totalAmount: 38500, description: '2 members · KSh 1,925 daily · 20-day cycle' },
-      ],
+      speedOptions: buildAllSpeedOptions(38500),
       createdAt: now - 4 * dayMs, // Posted 4 days ago
       updatedAt: now - 4 * dayMs,
     },
@@ -485,12 +461,7 @@ function getInitialDatabase(): DatabaseSchema {
         Cover: 'Breathable Bamboo Jacquard',
         Warranty: '5 Years Manufacturer',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 220, totalAmount: 22000, description: '10 members · KSh 220 daily · 1 mattress every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 367, totalAmount: 22000, description: '6 members · KSh 367 daily · 60 days total' },
-        { size: 4, cycleDays: 10, dailyAmount: 550, totalAmount: 22000, description: '4 members · KSh 550 daily · 40 days total' },
-        { size: 2, cycleDays: 10, dailyAmount: 1100, totalAmount: 22000, description: '2 members · KSh 1,100 daily · 20 days duo' },
-      ],
+      speedOptions: buildAllSpeedOptions(22000),
       createdAt: now - 5 * dayMs, // Posted 5 days ago
       updatedAt: now - 5 * dayMs,
     },
@@ -515,12 +486,7 @@ function getInitialDatabase(): DatabaseSchema {
         Speed: 'Variable Speed + Pulse Switch',
         Blades: 'Japanese 6-Leaf Stainless',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 78, totalAmount: 7800, description: '10 members · KSh 78 daily · 1 blender every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 130, totalAmount: 7800, description: '6 members · KSh 130 daily · 60 days total' },
-        { size: 4, cycleDays: 10, dailyAmount: 195, totalAmount: 7800, description: '4 members · KSh 195 daily · 40 days total' },
-        { size: 2, cycleDays: 10, dailyAmount: 390, totalAmount: 7800, description: '2 members · KSh 390 daily · 20 days duo' },
-      ],
+      speedOptions: buildAllSpeedOptions(7800),
       createdAt: now - 6 * dayMs, // Posted 6 days ago
       updatedAt: now - 6 * dayMs,
     },
@@ -545,12 +511,7 @@ function getInitialDatabase(): DatabaseSchema {
         Battery: '15,000mAh Rechargeable',
         Resolution: '2K 3MP Dual Lens Color Night',
       },
-      speedOptions: [
-        { size: 10, cycleDays: 10, dailyAmount: 125, totalAmount: 12500, description: '10 members · KSh 125 daily · 1 camera every 10 days' },
-        { size: 6, cycleDays: 10, dailyAmount: 209, totalAmount: 12500, description: '6 members · KSh 209 daily · 60 days total' },
-        { size: 4, cycleDays: 10, dailyAmount: 313, totalAmount: 12500, description: '4 members · KSh 313 daily · 40 days total' },
-        { size: 2, cycleDays: 10, dailyAmount: 625, totalAmount: 12500, description: '2 members · KSh 625 daily · 20 days duo' },
-      ],
+      speedOptions: buildAllSpeedOptions(12500),
       createdAt: now - 7 * dayMs, // Posted 7 days ago (on the 7-day boundary)
       updatedAt: now - 7 * dayMs,
     },

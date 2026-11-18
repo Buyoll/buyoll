@@ -40,6 +40,11 @@ import {
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { BuyollAIModal } from '../components/BuyollAIModal.tsx';
 import { triggerVisualPushAlert } from '../utils/notifications.ts';
+import {
+  buildAllSpeedOptions,
+  getLowestGroupDailyAmount,
+  SOLO_DURATION_MONTHS,
+} from '../utils/speedOptions.ts';
 
 interface ProductDetailPageProps {
   productId: number;
@@ -226,6 +231,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         productId: product!.id,
         size: selectedSpeed,
         name: customGroupName.trim() || undefined,
+        paymentDurationDays: selectedSpeed === 1 ? soloMonths * 30 : undefined,
       });
 
       onNotify('success', `Group created! Platform Till: 522533.`);
@@ -899,33 +905,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               {/* Speed Option Cards */}
               <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                 {(() => {
-                  const standardSizes = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-                  const displayOptions: SpeedOption[] = standardSizes.map((sz) => {
-                    if (sz === 1) {
-                      return {
-                        size: 1,
-                        cycleDays: soloMonths * 30,
-                        dailyAmount: Math.ceil(product.price / (soloMonths * 30)),
-                        totalAmount: product.price,
-                        description: `1 Member Solo (Lipa Mdogomdogo) · ${soloMonths} Months gradual payment`,
-                      };
-                    }
-                    const existing = product.speedOptions?.find((s) => s.size === sz);
-                    if (existing) return existing;
-
-                    const daily = Math.ceil(product.price / (sz * 10));
-                    return {
-                      size: sz,
-                      cycleDays: 10,
-                      dailyAmount: daily,
-                      totalAmount: product.price,
-                      description: `${sz} members · KSh ${daily.toLocaleString()} daily · 1 item delivery every 10 days`,
-                    };
-                  });
+                  const displayOptions: SpeedOption[] = buildAllSpeedOptions(
+                    product.price,
+                    product.speedOptions,
+                    soloMonths
+                  );
 
                   return displayOptions.map((opt) => {
                     const isSelected = selectedSpeed === opt.size;
-                    const daily = opt.size === 1 ? Math.ceil(product.price / (soloMonths * 30)) : opt.dailyAmount;
+                    const daily = opt.dailyAmount;
 
                     return (
                       <div
@@ -1016,7 +1004,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
 
                   <div className="grid grid-cols-6 gap-1.5">
-                    {[1, 2, 3, 4, 5, 6].map((m) => (
+                    {SOLO_DURATION_MONTHS.map((m) => (
                       <button
                         key={m}
                         type="button"
@@ -1169,7 +1157,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               Active Speed Groups
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Store-created Groups for 10, 8, 6, 4 or 2 members. Select your speed and start saving immediately.
+              Store-created Groups for 10, 9, 8, 7, 6, 5, 4, 3, 2, or 1-member solo Lipa Mdogomdogo. Select your speed and start saving immediately.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1352,9 +1340,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {recommendedProducts.slice(0, 10).map((rec) => {
-            const minDaily = rec.speedOptions && rec.speedOptions.length > 0
-              ? Math.min(...rec.speedOptions.map(s => s.dailyAmount))
-              : Math.ceil(rec.price / 10 / 10);
+            const minDaily = getLowestGroupDailyAmount(rec.price, rec.speedOptions);
 
             const isSameCategory = (rec.category || '').toLowerCase() === (product.category || '').toLowerCase();
 

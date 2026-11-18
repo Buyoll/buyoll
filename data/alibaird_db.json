@@ -438,7 +438,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 8,
+      "tokenVersion": 14,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -685,11 +685,39 @@
           "description": "10 members · KSh 680 daily · Delivery rotation every 10 days"
         },
         {
+          "size": 9,
+          "cycleDays": 10,
+          "dailyAmount": 756,
+          "totalAmount": 68000,
+          "description": "9 members · KSh 756 daily · 90-day total (1 item every 10 days)"
+        },
+        {
+          "size": 8,
+          "cycleDays": 10,
+          "dailyAmount": 850,
+          "totalAmount": 68000,
+          "description": "8 members · KSh 850 daily · 80-day total (1 item every 10 days)"
+        },
+        {
+          "size": 7,
+          "cycleDays": 10,
+          "dailyAmount": 972,
+          "totalAmount": 68000,
+          "description": "7 members · KSh 972 daily · 70-day total (1 item every 10 days)"
+        },
+        {
           "size": 6,
           "cycleDays": 10,
           "dailyAmount": 1134,
           "totalAmount": 68000,
           "description": "6 members · KSh 1,134 daily · Accelerated 60-day cycle"
+        },
+        {
+          "size": 5,
+          "cycleDays": 10,
+          "dailyAmount": 1360,
+          "totalAmount": 68000,
+          "description": "5 members · KSh 1,360 daily · 50-day total (1 item every 10 days)"
         },
         {
           "size": 4,
@@ -699,15 +727,29 @@
           "description": "4 members · KSh 1,700 daily · Express 40-day delivery"
         },
         {
+          "size": 3,
+          "cycleDays": 10,
+          "dailyAmount": 2267,
+          "totalAmount": 68000,
+          "description": "3 members · KSh 2,267 daily · 30-day total (1 item every 10 days)"
+        },
+        {
           "size": 2,
           "cycleDays": 10,
           "dailyAmount": 3400,
           "totalAmount": 68000,
           "description": "2 members · KSh 3,400 daily · Fast-track 20-day duo"
+        },
+        {
+          "size": 1,
+          "cycleDays": 90,
+          "dailyAmount": 756,
+          "totalAmount": 68000,
+          "description": "1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)"
         }
       ],
       "createdAt": 1792421094021,
-      "updatedAt": 1792421094021,
+      "updatedAt": 1795016529239,
       "status": "PUBLISHED",
       "hiddenReason": null
     },
@@ -738,34 +780,76 @@
         {
           "size": 10,
           "cycleDays": 10,
-          "dailyAmount": 145,
-          "totalAmount": 14500,
-          "description": "10 members · KSh 145 daily · One set delivered every 10 days"
+          "dailyAmount": 149,
+          "totalAmount": 14900,
+          "description": "10 members · KSh 149 daily · 100-day total (1 item every 10 days)"
+        },
+        {
+          "size": 9,
+          "cycleDays": 10,
+          "dailyAmount": 166,
+          "totalAmount": 14900,
+          "description": "9 members · KSh 166 daily · 90-day total (1 item every 10 days)"
+        },
+        {
+          "size": 8,
+          "cycleDays": 10,
+          "dailyAmount": 187,
+          "totalAmount": 14900,
+          "description": "8 members · KSh 187 daily · 80-day total (1 item every 10 days)"
+        },
+        {
+          "size": 7,
+          "cycleDays": 10,
+          "dailyAmount": 213,
+          "totalAmount": 14900,
+          "description": "7 members · KSh 213 daily · 70-day total (1 item every 10 days)"
         },
         {
           "size": 6,
           "cycleDays": 10,
-          "dailyAmount": 242,
-          "totalAmount": 14500,
-          "description": "6 members · KSh 242 daily · Completed in 60 days"
+          "dailyAmount": 249,
+          "totalAmount": 14900,
+          "description": "6 members · KSh 249 daily · 60-day total (1 item every 10 days)"
+        },
+        {
+          "size": 5,
+          "cycleDays": 10,
+          "dailyAmount": 298,
+          "totalAmount": 14900,
+          "description": "5 members · KSh 298 daily · 50-day total (1 item every 10 days)"
         },
         {
           "size": 4,
           "cycleDays": 10,
-          "dailyAmount": 363,
-          "totalAmount": 14500,
-          "description": "4 members · KSh 363 daily · Completed in 40 days"
+          "dailyAmount": 373,
+          "totalAmount": 14900,
+          "description": "4 members · KSh 373 daily · 40-day total (1 item every 10 days)"
+        },
+        {
+          "size": 3,
+          "cycleDays": 10,
+          "dailyAmount": 497,
+          "totalAmount": 14900,
+          "description": "3 members · KSh 497 daily · 30-day total (1 item every 10 days)"
         },
         {
           "size": 2,
           "cycleDays": 10,
-          "dailyAmount": 725,
-          "totalAmount": 14500,
-          "description": "2 members · KSh 725 daily · Completed in 20 days"
+          "dailyAmount": 745,
+          "totalAmount": 14900,
+          "description": "2 members · KSh 745 daily · 20-day total (1 item every 10 days)"
+        },
+        {
+          "size": 1,
+          "cycleDays": 90,
+          "dailyAmount": 166,
+          "totalAmount": 14900,
+          "description": "1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)"
         }
       ],
       "createdAt": 1792507494021,
-      "updatedAt": 1792853117377,
+      "updatedAt": 1795016529239,
       "status": "PUBLISHED",
       "hiddenReason": null
     },
@@ -801,11 +885,39 @@
           "description": "10 members · KSh 460 daily · Allocation every 10 days"
         },
         {
+          "size": 9,
+          "cycleDays": 10,
+          "dailyAmount": 512,
+          "totalAmount": 46000,
+          "description": "9 members · KSh 512 daily · 90-day total (1 item every 10 days)"
+        },
+        {
+          "size": 8,
+          "cycleDays": 10,
+          "dailyAmount": 575,
+          "totalAmount": 46000,
+          "description": "8 members · KSh 575 daily · 80-day total (1 item every 10 days)"
+        },
+        {
+          "size": 7,
+          "cycleDays": 10,
+          "dailyAmount": 658,
+          "totalAmount": 46000,
+          "description": "7 members · KSh 658 daily · 70-day total (1 item every 10 days)"
+        },
+        {
           "size": 6,
           "cycleDays": 10,
           "dailyAmount": 767,
           "totalAmount": 46000,
           "description": "6 members · KSh 767 daily · 60-day fulfillment"
+        },
+        {
+          "size": 5,
+          "cycleDays": 10,
+          "dailyAmount": 920,
+          "totalAmount": 46000,
+          "description": "5 members · KSh 920 daily · 50-day total (1 item every 10 days)"
         },
         {
           "size": 4,
@@ -815,15 +927,29 @@
           "description": "4 members · KSh 1,150 daily · 40-day fulfillment"
         },
         {
+          "size": 3,
+          "cycleDays": 10,
+          "dailyAmount": 1534,
+          "totalAmount": 46000,
+          "description": "3 members · KSh 1,534 daily · 30-day total (1 item every 10 days)"
+        },
+        {
           "size": 2,
           "cycleDays": 10,
           "dailyAmount": 2300,
           "totalAmount": 46000,
           "description": "2 members · KSh 2,300 daily · 20-day duo speed"
+        },
+        {
+          "size": 1,
+          "cycleDays": 90,
+          "dailyAmount": 512,
+          "totalAmount": 46000,
+          "description": "1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)"
         }
       ],
       "createdAt": 1792593894021,
-      "updatedAt": 1792593894021,
+      "updatedAt": 1795016529239,
       "status": "PUBLISHED",
       "hiddenReason": null
     },
@@ -859,11 +985,39 @@
           "description": "10 members · KSh 240 daily · 1 chair allocated every 10 days"
         },
         {
+          "size": 9,
+          "cycleDays": 10,
+          "dailyAmount": 267,
+          "totalAmount": 24000,
+          "description": "9 members · KSh 267 daily · 90-day total (1 item every 10 days)"
+        },
+        {
+          "size": 8,
+          "cycleDays": 10,
+          "dailyAmount": 300,
+          "totalAmount": 24000,
+          "description": "8 members · KSh 300 daily · 80-day total (1 item every 10 days)"
+        },
+        {
+          "size": 7,
+          "cycleDays": 10,
+          "dailyAmount": 343,
+          "totalAmount": 24000,
+          "description": "7 members · KSh 343 daily · 70-day total (1 item every 10 days)"
+        },
+        {
           "size": 6,
           "cycleDays": 10,
           "dailyAmount": 400,
           "totalAmount": 24000,
           "description": "6 members · KSh 400 daily · 60 days total"
+        },
+        {
+          "size": 5,
+          "cycleDays": 10,
+          "dailyAmount": 480,
+          "totalAmount": 24000,
+          "description": "5 members · KSh 480 daily · 50-day total (1 item every 10 days)"
         },
         {
           "size": 4,
@@ -873,15 +1027,29 @@
           "description": "4 members · KSh 600 daily · 40 days total"
         },
         {
+          "size": 3,
+          "cycleDays": 10,
+          "dailyAmount": 800,
+          "totalAmount": 24000,
+          "description": "3 members · KSh 800 daily · 30-day total (1 item every 10 days)"
+        },
+        {
           "size": 2,
           "cycleDays": 10,
           "dailyAmount": 1200,
           "totalAmount": 24000,
           "description": "2 members · KSh 1,200 daily · 20 days duo"
+        },
+        {
+          "size": 1,
+          "cycleDays": 90,
+          "dailyAmount": 267,
+          "totalAmount": 24000,
+          "description": "1 member · Solo Lipa Mdogomdogo · 3 Months (90 days)"
         }
       ],
       "createdAt": 1792680294021,
-      "updatedAt": 1792680294021,
+      "updatedAt": 1795016529239,
       "status": "PUBLISHED",
       "hiddenReason": null
     }
@@ -2869,6 +3037,11 @@
       "id": "010_auth_hardening_e164_phone_and_resets",
       "name": "Backfill UUIDs, display/lowercase usernames, E.164 nullable phone normalization, verification flags, and audit legacy credential issues without deleting data",
       "appliedAt": 1794894911271
+    },
+    {
+      "id": "011_standardize_all_ten_member_speeds",
+      "name": "Normalize all product speedOptions to include all 10 member speeds (10, 9, 8, 7, 6, 5, 4, 3, 2, 1)",
+      "appliedAt": 1795016529239
     }
   ],
   "announcementDismissals": [],

@@ -11,6 +11,7 @@ import {
 } from './auth_utils.js';
 import { ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
+import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 
 export interface MigrationRecord {
   id: string;
@@ -778,6 +779,35 @@ export const MIGRATIONS: MigrationDefinition[] = [
         delete u.mustResetPassword;
       }
       return true;
+    },
+  },
+  {
+    id: '011_standardize_all_ten_member_speeds',
+    name: 'Normalize all product speedOptions to include all 10 member speeds (10, 9, 8, 7, 6, 5, 4, 3, 2, 1)',
+    up(db) {
+      let changed = false;
+      const expectedSizes = [...STANDARD_MEMBER_SPEEDS];
+      for (const p of db.products || []) {
+        const currentSizes = Array.isArray(p.speedOptions)
+          ? p.speedOptions.map((s) => Number(s.size))
+          : [];
+        const matchesCanonical =
+          currentSizes.length === expectedSizes.length &&
+          expectedSizes.every((sz, idx) => currentSizes[idx] === sz);
+        const normalized = buildAllSpeedOptions(p.price, p.speedOptions);
+        if (
+          !matchesCanonical ||
+          JSON.stringify(p.speedOptions) !== JSON.stringify(normalized)
+        ) {
+          p.speedOptions = normalized;
+          p.updatedAt = Date.now();
+          changed = true;
+        }
+      }
+      return changed;
+    },
+    down() {
+      return false;
     },
   },
 ];
