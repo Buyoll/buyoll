@@ -161,7 +161,50 @@ async function tryRefreshTokens(): Promise<boolean> {
   return inflightRefresh;
 }
 
-async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried = false): Promise<T> {
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
+export interface AdminPaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export interface AdminControlCenterSummary {
+  users: { total: number; members: number; merchants: number; lenders: number; admins: number; suspended: number; verifiedMerchants: number; unavailable?: boolean };
+  groups: { total: number; active: number; completed: number; unavailable?: boolean };
+  payments: { total: number; pending: number; approved: number; rejected: number; pendingAmount: number; unavailable?: boolean };
+  deposits: { total: number; pending: number; approved: number; declined: number; pendingAmount: number; unavailable?: boolean };
+  subscriptions: { total: number; active: number; pending: number; declined: number; expired: number; unavailable?: boolean };
+  verifications: { total: number; pending: number; verified: number; declined: number; unavailable?: boolean };
+  refunds: { total: number; requested: number; approved: number; completed: number; unavailable?: boolean };
+  loans: { total: number; pending: number; funded: number; repaid: number; defaulted: number; unavailable?: boolean };
+  wallets: { totalCredit: number; totalCoins: number; totalPoints: number; totalAccounts: number; unavailable?: boolean };
+  products: { total: number; live: number; featured: number; unavailable?: boolean };
+  moderation: { totalChatMessages: number; flaggedMessages: number; moderationEvents: number; unavailable?: boolean };
+  audit: { totalLogs: number; unavailable?: boolean };
+  unavailableFields: string[];
+  cache?: { cachedAt: number; ttlMs: number; cacheHit: boolean };
+}
+
+function buildAdminQuery(params?: Record<string, string | number | boolean | undefined>): string {
+  if (!params) return '';
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '' && v !== null) {
+      qs.set(k, String(v));
+    }
+  }
+  const str = qs.toString();
+  return str ? `?${str}` : '';
+}
+
+async function fetchApi<T>(
+  endpoint: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+  _retried = false
+): Promise<T> {
   const token = getAccessToken();
   const activeRole = getActiveRoleHeader();
   const headers = new Headers(options.headers || {});
@@ -176,17 +219,52 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}, _retried
   }
 
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  let externalSignalCleanup: (() => void) | null = null;
+  if (options.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      const onExternalAbort = () => controller.abort();
+      options.signal.addEventListener('abort', onExternalAbort, { once: true });
+      externalSignalCleanup = () => options.signal?.removeEventListener('abort', onExternalAbort);
+    }
+  }
+  const timer = timeoutMs > 0
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
+    : null;
+
   let res: Response;
   try {
+    const { timeoutMs: _t, signal: _s, ...fetchInit } = options;
     res = await fetch(`${API_BASE}${normalizedEndpoint}`, {
       credentials: 'include',
-      ...options,
+      ...fetchInit,
       headers,
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err: any) {
+    if (timedOut || err?.name === 'AbortError') {
+      const timeoutErr = new Error(
+        timedOut
+          ? 'Request timed out after 10 seconds. Please check your connection and try again.'
+          : 'Request was cancelled.'
+      ) as any;
+      timeoutErr.isTimeoutError = timedOut;
+      timeoutErr.isAbortError = !timedOut;
+      throw timeoutErr;
+    }
     const netErr = new Error('Unable to reach the Buyoll server. Please check your internet connection and try again.') as any;
     netErr.isNetworkError = true;
     throw netErr;
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (externalSignalCleanup) externalSignalCleanup();
   }
 
   const contentType = res.headers.get('content-type') || '';
@@ -905,18 +983,38 @@ export const api = {
     });
   },
 
-  // Admin
-  async getAdminOverview(): Promise<{
+  // Admin Control Center
+  async getAdminControlCenterSummary(forceRefresh = false): Promise<AdminControlCenterSummary> {
+    const q = forceRefresh ? '?refresh=true' : '';
+    return await fetchApi<AdminControlCenterSummary>(`/admin/control-center/summary${q}`);
+  },
+
+  async getAdminOverview(params?: { page?: number; limit?: number }): Promise<{
     pendingPayments: PaymentRecord[];
-    allPayments: PaymentRecord[];
     refundRequests: RefundRequest[];
-    merchants: User[];
-    allUsers: User[];
     auditLogs: AuditLog[];
-    groups: ChamaGroup[];
-    products: Product[];
+    summary?: AdminControlCenterSummary;
+    pagination?: {
+      payments: AdminPaginationMeta;
+      refunds: AdminPaginationMeta;
+      audit: AdminPaginationMeta;
+    };
   }> {
-    return await fetchApi<any>('/admin/overview');
+    return await fetchApi<any>(`/admin/overview${buildAdminQuery(params)}`);
+  },
+
+  async getAdminRefunds(params?: { page?: number; limit?: number }): Promise<{
+    refundRequests: RefundRequest[];
+    pagination: AdminPaginationMeta;
+  }> {
+    return await fetchApi<any>(`/admin/refunds${buildAdminQuery(params)}`);
+  },
+
+  async getAdminAuditLogs(params?: { page?: number; limit?: number }): Promise<{
+    auditLogs: AuditLog[];
+    pagination: AdminPaginationMeta;
+  }> {
+    return await fetchApi<any>(`/admin/audit-logs${buildAdminQuery(params)}`);
   },
 
   async adminPaymentDecision(paymentId: number, decision: 'approve' | 'reject'): Promise<{ payment: PaymentRecord; message: string }> {
@@ -1163,8 +1261,8 @@ export const api = {
   },
 
   // PROMPT 6: Admin payment reconciliation, user management & moderation
-  async getAdminPayments(): Promise<{ payments: any[]; statements: any[] }> {
-    return await fetchApi<{ payments: any[]; statements: any[] }>('/admin/payments');
+  async getAdminPayments(params?: { page?: number; limit?: number; status?: string }): Promise<{ payments: any[]; pagination?: AdminPaginationMeta }> {
+    return await fetchApi<{ payments: any[]; pagination?: AdminPaginationMeta }>(`/admin/payments${buildAdminQuery(params)}`);
   },
 
   async adminDecidePayment(paymentId: number, decision: 'approve' | 'reject', reason?: string): Promise<any> {
@@ -1174,8 +1272,8 @@ export const api = {
     });
   },
 
-  async getAdminUsers(): Promise<{ users: User[] }> {
-    return await fetchApi<{ users: User[] }>('/admin/users');
+  async getAdminUsers(params?: { page?: number; limit?: number; search?: string; role?: string }): Promise<{ users: User[]; pagination?: AdminPaginationMeta }> {
+    return await fetchApi<{ users: User[]; pagination?: AdminPaginationMeta }>(`/admin/users${buildAdminQuery(params)}`);
   },
 
   async adminVerifyUser(userId: number, verified: boolean, notes?: string): Promise<any> {
@@ -1199,12 +1297,12 @@ export const api = {
     });
   },
 
-  async getAdminWallets(): Promise<any> {
-    return await fetchApi<any>('/admin/wallets');
+  async getAdminWallets(params?: { page?: number; limit?: number; search?: string }): Promise<any> {
+    return await fetchApi<any>(`/admin/wallets${buildAdminQuery(params)}`);
   },
 
-  async getAdminChatLogs(): Promise<any> {
-    return await fetchApi<any>('/admin/chat-logs');
+  async getAdminChatLogs(params?: { page?: number; limit?: number }): Promise<any> {
+    return await fetchApi<any>(`/admin/chat-logs${buildAdminQuery(params)}`);
   },
 
   async moderateChat(data: {
@@ -1281,8 +1379,8 @@ export const api = {
     return await fetchApi<{ deposits: WalletDepositRequest[] }>('/wallet/deposits');
   },
 
-  async getAdminWalletDeposits(): Promise<{ deposits: WalletDepositRequest[] }> {
-    return await fetchApi<{ deposits: WalletDepositRequest[] }>('/admin/wallet-deposits');
+  async getAdminWalletDeposits(params?: { page?: number; limit?: number; status?: string }): Promise<{ deposits: WalletDepositRequest[]; pagination?: AdminPaginationMeta }> {
+    return await fetchApi<{ deposits: WalletDepositRequest[]; pagination?: AdminPaginationMeta }>(`/admin/wallet-deposits${buildAdminQuery(params)}`);
   },
 
   async decideWalletDeposit(id: string, data: { action: 'approve' | 'decline'; notes?: string }): Promise<any> {
@@ -1851,8 +1949,8 @@ export const api = {
     });
   },
 
-  async getAdminMerchantVerifications(): Promise<{ verifications: any[] }> {
-    return await fetchApi<{ verifications: any[] }>('/admin/merchant-verifications');
+  async getAdminMerchantVerifications(params?: { page?: number; limit?: number }): Promise<{ verifications: any[]; pagination?: AdminPaginationMeta }> {
+    return await fetchApi<{ verifications: any[]; pagination?: AdminPaginationMeta }>(`/admin/merchant-verifications${buildAdminQuery(params)}`);
   },
 
   async adminScheduleVisit(merchantId: number, data: { scheduledDate?: string; representative?: string }): Promise<any> {
@@ -1892,9 +1990,9 @@ export const api = {
   },
 
   // Admin Subscriptions & Featured Products
-  async getAdminMerchantSubscriptions(): Promise<{ subscriptions: any[] }> {
+  async getAdminMerchantSubscriptions(params?: { page?: number; limit?: number; status?: string }): Promise<{ subscriptions: any[]; pagination?: AdminPaginationMeta }> {
     try {
-      const res = await fetchApi<{ requests: any[] }>('/admin/subscriptions/requests');
+      const res = await fetchApi<{ requests: any[]; pagination?: AdminPaginationMeta }>(`/admin/subscriptions/requests${buildAdminQuery(params)}`);
       if (res?.requests) {
         return {
           subscriptions: res.requests.map((r) => ({
@@ -1905,10 +2003,11 @@ export const api = {
             paymentCode: r.mpesaCode,
             status: r.status === 'approved' ? 'active' : r.status === 'rejected' ? 'declined' : 'pending',
           })),
+          pagination: res.pagination,
         };
       }
     } catch {}
-    return await fetchApi<{ subscriptions: any[] }>('/admin/merchant-subscriptions');
+    return await fetchApi<{ subscriptions: any[]; pagination?: AdminPaginationMeta }>(`/admin/merchant-subscriptions${buildAdminQuery(params)}`);
   },
 
   async approveAdminMerchantSubscription(subscriptionId: string): Promise<any> {
@@ -1944,8 +2043,8 @@ export const api = {
     });
   },
 
-  async getAdminFeaturedProducts(): Promise<{ featured: any[]; allProducts: any[] }> {
-    return await fetchApi<{ featured: any[]; allProducts: any[] }>('/admin/featured-products');
+  async getAdminFeaturedProducts(params?: { page?: number; limit?: number; search?: string }): Promise<{ featured: any[]; allProducts: any[]; pagination?: AdminPaginationMeta }> {
+    return await fetchApi<{ featured: any[]; allProducts: any[]; pagination?: AdminPaginationMeta }>(`/admin/featured-products${buildAdminQuery(params)}`);
   },
 
   async toggleAdminFeaturedProduct(productId: number): Promise<any> {

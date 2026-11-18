@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types.ts';
 import { getUserActiveRole, getUserRoles } from '../utils/rbac.ts';
-import { Share2, Menu, X, Copy, Check, MessageCircle, Bell } from 'lucide-react';
+import { Share2, Menu, X, Copy, Check, MessageCircle, Bell, Shield } from 'lucide-react';
 import { api, resolveImageUrl } from '../api.ts';
+import { prefetchAdminControlCenter } from './AdminErrorBoundary.tsx';
 import {
   getInAppNotifications,
   requestNotificationPermission,
@@ -323,7 +324,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="relative" ref={userRef}>
                   <button
                     type="button"
-                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    onClick={() => {
+                      const nextOpen = !isUserMenuOpen;
+                      setIsUserMenuOpen(nextOpen);
+                      if (nextOpen && activeRole === 'admin') {
+                        prefetchAdminControlCenter();
+                      }
+                    }}
                     aria-label="Account menu"
                     aria-expanded={isUserMenuOpen}
                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] transition-colors cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
@@ -385,12 +392,71 @@ export const Header: React.FC<HeaderProps> = ({
                           <span className="text-[var(--muted)]">·</span>
                           <span className="text-[#ff8000] font-semibold">Points: {currentUser.points || 0}</span>
                         </div>
+                        {activeRole === 'admin' && (
+                          <button
+                            type="button"
+                            onMouseEnter={prefetchAdminControlCenter}
+                            onFocus={prefetchAdminControlCenter}
+                            onClick={() => {
+                              setIsUserMenuOpen(false);
+                              onNavigate('admin-dashboard');
+                            }}
+                            aria-label="Open Buyoll Admin Control Center"
+                            aria-current={currentView === 'admin-dashboard' ? 'page' : undefined}
+                            data-testid="admin-summary-control-center-link"
+                            className={`mt-2 w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff6600] ${
+                              currentView === 'admin-dashboard'
+                                ? 'bg-[#ff6600] text-white shadow-xs'
+                                : 'bg-[#fff4ec] dark:bg-[#2a1608] text-[#ff6600] hover:bg-[#ff6600] hover:text-white border border-[#ff6600]/30'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Shield className="w-3.5 h-3.5 shrink-0" />
+                              <span>Buyoll Admin Control Center</span>
+                            </span>
+                            {currentView === 'admin-dashboard' && (
+                              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/20 text-white font-extrabold">
+                                Active
+                              </span>
+                            )}
+                          </button>
+                        )}
                       </div>
 
                       {/* Role Isolation Note */}
                       <div className="px-3 py-1.5 bg-[var(--field)] rounded-lg my-1 text-[10.5px] text-[var(--muted)]">
                         Signed in as <b className="capitalize text-[var(--text)]">{activeRole}</b>. To use another role, please log out and sign in with that account.
                       </div>
+
+                      {activeRole === 'admin' && (
+                        <button
+                          type="button"
+                          onMouseEnter={prefetchAdminControlCenter}
+                          onFocus={prefetchAdminControlCenter}
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            onNavigate('admin-dashboard');
+                          }}
+                          aria-label="Buyoll Admin Control Center"
+                          aria-current={currentView === 'admin-dashboard' ? 'page' : undefined}
+                          data-testid="admin-menu-control-center-item"
+                          className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-between gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff6600] ${
+                            currentView === 'admin-dashboard'
+                              ? 'bg-[#fff4ec] dark:bg-[#2a1608] text-[#ff6600] ring-1 ring-[#ff6600]/30'
+                              : 'text-[#ff6600] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <Shield className="w-4 h-4 shrink-0" />
+                            <span>Buyoll Admin Control Center</span>
+                          </span>
+                          {currentView === 'admin-dashboard' && (
+                            <span className="text-[10px] bg-[#ff6600] text-white px-1.5 py-0.2 rounded-full font-bold">
+                              Active
+                            </span>
+                          )}
+                        </button>
+                      )}
 
                       <button
                         onClick={() => {

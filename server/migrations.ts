@@ -12,6 +12,7 @@ import {
 import { ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
 import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
+import { buildControlCenterIndexSnapshot } from './admin_control_center.js';
 
 export interface MigrationRecord {
   id: string;
@@ -808,6 +809,29 @@ export const MIGRATIONS: MigrationDefinition[] = [
     },
     down() {
       return false;
+    },
+  },
+  {
+    id: '012_admin_control_center_indexes',
+    name: 'Initialize non-destructive Control Center lookup index metadata on users, payments, deposits, subscriptions, loans, groups, refunds, and products',
+    up(db, ctx) {
+      const snapshot = buildControlCenterIndexSnapshot(db);
+      if (!ctx.alreadyApplied || !db.controlCenterIndexes) {
+        db.controlCenterIndexes = snapshot;
+        return true;
+      }
+      // Refresh index counts only if underlying collection sizes drifted
+      const prevCounts = JSON.stringify(db.controlCenterIndexes.counts);
+      const nextCounts = JSON.stringify(snapshot.counts);
+      if (prevCounts !== nextCounts) {
+        db.controlCenterIndexes = snapshot;
+        return true;
+      }
+      return false;
+    },
+    down(db) {
+      delete db.controlCenterIndexes;
+      return true;
     },
   },
 ];

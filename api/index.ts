@@ -3,6 +3,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from '../server/api.js';
 import {
+  compressionMiddleware,
   createApiNotFoundOrMethodHandler,
   globalJsonErrorHandler,
   securityAndCorsMiddleware,
@@ -11,6 +12,7 @@ import {
 const app = express();
 app.set('trust proxy', 1);
 app.use(securityAndCorsMiddleware);
+app.use(compressionMiddleware);
 app.use(cookieParser());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));

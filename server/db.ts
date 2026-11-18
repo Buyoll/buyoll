@@ -43,6 +43,7 @@ import {
 import { SUPPORT_EMAIL } from './config.js';
 import { runPendingMigrations, MigrationRecord } from './migrations.js';
 import { buildAllSpeedOptions } from '../src/utils/speedOptions.js';
+import { ControlCenterIndexSnapshot, invalidateControlCenterSummaryCache } from './admin_control_center.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,6 +119,7 @@ export interface DatabaseSchema {
   emailOutbox?: EmailOutboxRecord[];
   tierOverrides?: Record<string, { monthlyFee?: number; yearlyFee?: number; yearlyDiscountPercent?: number }>;
   migrationsApplied?: MigrationRecord[];
+  controlCenterIndexes?: ControlCenterIndexSnapshot;
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];
   nextIds: {
@@ -1098,6 +1100,7 @@ async function writeDatabaseFileAtomic(data: DatabaseSchema): Promise<void> {
 
 export async function saveDatabase(data: DatabaseSchema): Promise<void> {
   dbCache = data;
+  invalidateControlCenterSummaryCache(getActiveDbFile());
   writeLock = writeLock
     .catch(() => {})
     .then(async () => {
@@ -1137,6 +1140,7 @@ export async function runDatabaseTransaction<T>(
           const db = await getDatabase();
           const result = await operation(db);
           dbCache = db;
+          invalidateControlCenterSummaryCache(getActiveDbFile());
           await writeDatabaseFileAtomic(db);
           resolve(result);
         } catch (err) {

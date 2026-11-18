@@ -1,5 +1,5 @@
 // Buyoll Social Fintech Service Worker - Push Notifications & PWA
-const CACHE_NAME = 'buyoll-cache-v1';
+const CACHE_NAME = 'buyoll-cache-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

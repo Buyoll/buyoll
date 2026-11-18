@@ -12,6 +12,7 @@ import {
   toCents,
 } from './config.js';
 import { debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
+import { paginateList, parsePaginationQuery } from './admin_control_center.js';
 
 export const subscriptionsRouter = wrapRouterAsync(Router());
 
@@ -895,14 +896,20 @@ subscriptionsRouter.get('/admin/subscriptions/requests', async (req: Request, re
   }
 
   const statusFilter = req.query.status ? String(req.query.status).toLowerCase().trim() : undefined;
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
   const db = await getDatabase();
 
-  let list = db.subscriptionRequests || [];
+  const userMap = new Map<number, User>();
+  for (const u of db.users || []) userMap.set(u.id, u);
+
+  let list = [...(db.subscriptionRequests || [])];
+  const existingIds = new Set(list.map((r) => r.id));
+  const existingCodes = new Set(list.map((r) => r.mpesaCode).filter(Boolean));
 
   // Reconcile with merchantSubscriptions if any are missing in subscriptionRequests
   (db.merchantSubscriptions || []).forEach((ms) => {
-    if (!list.some((r) => r.id === ms.id || (ms.paymentCode && r.mpesaCode === ms.paymentCode))) {
-      const m = db.users.find((u) => u.id === ms.merchantId);
+    if (!existingIds.has(ms.id) && !(ms.paymentCode && existingCodes.has(ms.paymentCode))) {
+      const m = userMap.get(ms.merchantId);
       const plan = resolvePlan(ms.tierId);
       list.push({
         id: ms.id,
@@ -931,10 +938,12 @@ subscriptionsRouter.get('/admin/subscriptions/requests', async (req: Request, re
 
   // Sort latest first
   list.sort((a, b) => b.createdAt - a.createdAt);
+  const paged = paginateList(list, page, limit);
 
   res.json({
     success: true,
-    requests: list,
+    requests: paged.items,
+    pagination: paged.pagination,
   });
 });
 

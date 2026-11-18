@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
-import { getDatabase, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
+import { getDatabase, getActiveDbFile, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
+import {
+  getControlCenterSummary,
+  paginateList,
+  parsePaginationQuery,
+  projectAdminUserRow,
+} from './admin_control_center.js';
 
 export { hashPassword, verifyPassword } from './auth_utils.js';
 import {
@@ -3949,20 +3955,73 @@ apiRouter.post('/admin/account/update', async (req: Request, res: Response) => {
   });
 });
 
+apiRouter.get('/admin/control-center/summary', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
+
+  const bypassCache = req.query.refresh === 'true' || req.query.force === '1';
+  const summary = await getControlCenterSummary(db, getActiveDbFile(), { bypassCache });
+  res.json(summary);
+});
+
 apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
   const { db } = auth;
 
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const stmtMap = new Map<string, any>();
+  for (const s of db.mpesaStatements || []) {
+    stmtMap.set(String(s.code || '').toUpperCase(), s);
+  }
+  const codeCounts = new Map<string, number>();
+  for (const p of db.payments || []) {
+    const code = String(p.code || '').toUpperCase();
+    codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+  }
+
+  const allPending = (db.payments || [])
+    .filter((p) => p.status === 'pending')
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .map((p) => {
+      const code = String(p.code || '').toUpperCase();
+      const matched = stmtMap.get(code) || null;
+      const duplicateDetected = (codeCounts.get(code) || 0) > 1;
+      const amountMismatch = matched ? Math.abs(matched.amount - p.amount) > 5 : false;
+      return {
+        ...p,
+        statementMatch: {
+          matched: Boolean(matched && !amountMismatch && !duplicateDetected),
+          duplicateDetected,
+          reason: amountMismatch ? 'amount_mismatch' : undefined,
+          statementRecord: matched
+            ? {
+                ...matched,
+                tillOrPaybill: matched.channel || 'Till 196853',
+                senderName: matched.payerName || 'M-Pesa Customer',
+                timestamp: matched.timestamp ? new Date(matched.timestamp).toLocaleString() : '',
+              }
+            : undefined,
+        },
+      };
+    });
+
+  const pagedPayments = paginateList(allPending, page, limit);
+  const pagedRefunds = paginateList(db.refundRequests || [], page, limit);
+  const pagedAudit = paginateList(db.auditLogs || [], page, limit);
+  const summary = await getControlCenterSummary(db, getActiveDbFile());
+
   res.json({
-    pendingPayments: (db.payments || []).filter(p => p.status === 'pending'),
-    allPayments: db.payments || [],
-    refundRequests: db.refundRequests || [],
-    merchants: (db.users || []).filter(u => u.role === 'merchant'),
-    allUsers: db.users || [],
-    auditLogs: (db.auditLogs || []).slice(0, 50),
-    groups: db.groups || [],
-    products: db.products || [],
+    pendingPayments: pagedPayments.items,
+    refundRequests: pagedRefunds.items,
+    auditLogs: pagedAudit.items,
+    summary,
+    pagination: {
+      payments: pagedPayments.pagination,
+      refunds: pagedRefunds.pagination,
+      audit: pagedAudit.pagination,
+    },
   });
 });
 
@@ -3971,13 +4030,32 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
   if (!auth) return;
   const { db } = auth;
 
-  const paymentsWithMatching = db.payments.map(p => {
-    const matched = (db.mpesaStatements || []).find(
-      s => s.code.toUpperCase() === p.code.toUpperCase()
-    );
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const statusFilter = typeof req.query.status === 'string' ? req.query.status.toLowerCase().trim() : '';
+
+  const stmtMap = new Map<string, any>();
+  for (const s of db.mpesaStatements || []) {
+    stmtMap.set(String(s.code || '').toUpperCase(), s);
+  }
+  const codeCounts = new Map<string, number>();
+  for (const p of db.payments || []) {
+    const code = String(p.code || '').toUpperCase();
+    codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+  }
+
+  let filtered = db.payments || [];
+  if (statusFilter && statusFilter !== 'all') {
+    filtered = filtered.filter((p) => String(p.status || '').toLowerCase() === statusFilter);
+  }
+  const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const paged = paginateList(sorted, page, limit);
+
+  const paymentsWithMatching = paged.items.map((p) => {
+    const code = String(p.code || '').toUpperCase();
+    const matched = stmtMap.get(code) || null;
     const hasCodeMismatch = !matched;
     const hasAmountMismatch = matched ? Math.abs(matched.amount - p.amount) > 5 : false;
-    const isDuplicate = db.payments.filter(other => other.code === p.code).length > 1;
+    const isDuplicate = (codeCounts.get(code) || 0) > 1;
 
     let verificationFlag: 'perfect_match' | 'amount_mismatch' | 'unmatched_code' | 'duplicate_detected' = 'perfect_match';
     if (isDuplicate) verificationFlag = 'duplicate_detected';
@@ -3986,14 +4064,56 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
 
     return {
       ...p,
-      matchedTillEntry: matched || null,
+      matchedTillEntry: matched,
+      statementMatch: {
+        matched: Boolean(matched && !hasAmountMismatch && !isDuplicate),
+        duplicateDetected: isDuplicate,
+        reason: hasAmountMismatch ? 'amount_mismatch' : undefined,
+        statementRecord: matched
+          ? {
+              ...matched,
+              tillOrPaybill: matched.channel || 'Till 196853',
+              senderName: matched.payerName || 'M-Pesa Customer',
+              timestamp: matched.timestamp ? new Date(matched.timestamp).toLocaleString() : '',
+            }
+          : undefined,
+      },
       verificationFlag,
     };
   });
 
   res.json({
     payments: paymentsWithMatching,
-    statements: db.mpesaStatements || [],
+    pagination: paged.pagination,
+  });
+});
+
+apiRouter.get('/admin/refunds', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
+
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const sorted = [...(db.refundRequests || [])].sort((a, b) => (b.requestedAt || b.id) - (a.requestedAt || a.id));
+  const paged = paginateList(sorted, page, limit);
+
+  res.json({
+    refundRequests: paged.items,
+    pagination: paged.pagination,
+  });
+});
+
+apiRouter.get('/admin/audit-logs', async (req: Request, res: Response) => {
+  const auth = await requireAdminUser(req, res);
+  if (!auth) return;
+  const { db } = auth;
+
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const paged = paginateList(db.auditLogs || [], page, limit);
+
+  res.json({
+    auditLogs: paged.items,
+    pagination: paged.pagination,
   });
 });
 
@@ -4297,7 +4417,28 @@ apiRouter.get('/admin/users', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
   const { db } = auth;
-  res.json({ users: db.users });
+
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+  const roleFilter = typeof req.query.role === 'string' ? req.query.role.trim().toLowerCase() : 'all';
+
+  const filtered = (db.users || []).filter((u) => {
+    if (roleFilter && roleFilter !== 'all') {
+      const r = String(u.activeRole || u.role || '').toLowerCase();
+      if (r !== roleFilter) return false;
+    }
+    if (search) {
+      const hay = `${u.name || ''} ${u.phone || ''} ${u.email || ''} ${u.shopName || ''} ${u.username || ''}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  const paged = paginateList(filtered, page, limit);
+  res.json({
+    users: paged.items.map(projectAdminUserRow),
+    pagination: paged.pagination,
+  });
 });
 
 apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response) => {
@@ -4399,25 +4540,48 @@ apiRouter.get('/admin/wallets', async (req: Request, res: Response) => {
   if (!auth) return;
   const { db } = auth;
 
-  const totalCredit = db.users.reduce((acc, u) => acc + (u.credit || 0), 0);
-  const totalCoins = db.users.reduce((acc, u) => acc + (u.coins || 0), 0);
-  const totalPoints = db.users.reduce((acc, u) => acc + (u.points || 0), 0);
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
 
+  let totalCredit = 0;
+  let totalCoins = 0;
+  let totalPoints = 0;
+  const matching: User[] = [];
+
+  for (const u of db.users || []) {
+    totalCredit += u.credit || 0;
+    totalCoins += u.coins || 0;
+    totalPoints += u.points || 0;
+    if (search) {
+      const hay = `${u.name || ''} ${u.phone || ''} ${u.activeRole || u.role || ''}`.toLowerCase();
+      if (!hay.includes(search)) continue;
+    }
+    matching.push(u);
+  }
+
+  const paged = paginateList(matching, page, limit);
   res.json({
-    summary: { totalCredit, totalCoins, totalPoints, userCount: db.users.length, totalUsers: db.users.length },
-    wallets: db.users.map(u => ({
+    summary: {
+      totalCredit,
+      totalCoins,
+      totalPoints,
+      userCount: (db.users || []).length,
+      totalUsers: (db.users || []).length,
+    },
+    wallets: paged.items.map((u) => ({
       id: u.id,
       name: u.name,
-      phone: u.phone,
-      role: u.role,
+      phone: u.phone || '',
+      role: u.activeRole || u.role,
       credit: u.credit || 0,
+      balance: u.credit || 0,
+      nonWithdrawableBalance: u.nonWithdrawableBalance || 0,
       coins: u.coins || 0,
       points: u.points || 0,
-      verified: u.verified,
-      isSuspended: u.isSuspended,
+      verified: Boolean(u.verified),
+      isSuspended: Boolean(u.isSuspended),
     })),
-    recentLedger: db.storeCreditLedger.slice(0, 50),
-    coinLedger: (db.coinLedger || []).slice(0, 50),
+    pagination: paged.pagination,
   });
 });
 
@@ -4453,40 +4617,28 @@ apiRouter.get('/admin/chat-logs', async (req: Request, res: Response) => {
   if (!auth) return;
   const { db } = auth;
 
-  const allGroupChats = db.groups.flatMap(g =>
-    (g.chat || []).map(c => ({
-      ...c,
-      context: 'group',
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const allGroupChats = (db.groups || []).flatMap((g) =>
+    (g.chat || []).map((c) => ({
       groupId: g.id,
       groupName: g.name,
+      messageId: c.id,
+      senderId: c.senderId,
+      senderName: c.senderName,
+      text: c.text,
+      timestamp: c.timestamp,
+      isFlagged: (c as any).isFlagged || false,
     }))
   );
 
-  const helpChats = (db.helpChat || []).map(h => ({
-    ...h,
-    context: 'help_chat',
-    groupId: null,
-    groupName: 'Community Help & FAQ',
-  }));
-
-  const allLogs = [...allGroupChats, ...helpChats].sort((a, b) => b.timestamp - a.timestamp);
-
-  const recentChats = allGroupChats.slice(0, 100).map(c => ({
-    groupId: c.groupId,
-    groupName: c.groupName,
-    messageId: c.id,
-    senderId: c.senderId,
-    senderName: c.senderName,
-    text: c.text,
-    timestamp: c.timestamp,
-    isFlagged: (c as any).isFlagged || false,
-  }));
+  allGroupChats.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  const pagedChats = paginateList(allGroupChats, page, limit);
+  const pagedEvents = paginateList(db.chatModerationLogs || [], page, limit);
 
   res.json({
-    logs: allLogs.slice(0, 200),
-    recentChats,
-    moderationEvents: db.chatModerationLogs || [],
-    moderationActions: db.chatModerationLogs || [],
+    recentChats: pagedChats.items,
+    moderationEvents: pagedEvents.items,
+    pagination: pagedChats.pagination,
   });
 });
 
@@ -5400,7 +5552,20 @@ apiRouter.get('/admin/wallet-deposits', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
   const { db } = auth;
-  res.json({ deposits: db.walletDeposits || [] });
+
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const statusFilter = typeof req.query.status === 'string' ? req.query.status.toLowerCase().trim() : '';
+  let list = [...(db.walletDeposits || [])];
+  if (statusFilter && statusFilter !== 'all') {
+    list = list.filter((d) => String(d.status || '').toLowerCase() === statusFilter);
+  }
+  list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const paged = paginateList(list, page, limit);
+
+  res.json({
+    deposits: paged.items,
+    pagination: paged.pagination,
+  });
 });
 
 apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Response) => {

@@ -27,6 +27,7 @@ import {
   debitWalletCents,
   findPlatformAdminUser,
 } from './wallet_service.js';
+import { paginateList, parsePaginationQuery } from './admin_control_center.js';
 
 export const prompt2Router = wrapRouterAsync(Router());
 
@@ -1110,14 +1111,19 @@ prompt2Router.post('/admin/merchant-verifications/:id/decide', async (req: Reque
   res.json({ success: true, verification: rec, user: merchantUser, message: `Merchant has been ${action === 'verify' ? 'verified' : 'declined'}.` });
 });
 
-// Admin lists all verifications
+// Admin lists all verifications (paginated, O(1) user map)
 prompt2Router.get('/admin/merchant-verifications', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
-  const list = (db.merchantVerifications || []).map((v) => {
-    const m = db.users.find((u) => u.id === v.merchantId);
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const userMap = new Map<number, User>();
+  for (const u of db.users || []) userMap.set(u.id, u);
+
+  const paged = paginateList(db.merchantVerifications || [], page, limit);
+  const list = paged.items.map((v) => {
+    const m = userMap.get(v.merchantId);
     return {
       ...v,
       merchantName: m?.name || 'Merchant',
@@ -1127,17 +1133,23 @@ prompt2Router.get('/admin/merchant-verifications', async (req: Request, res: Res
     };
   });
 
-  res.json({ verifications: list });
+  res.json({ verifications: list, pagination: paged.pagination });
 });
 
-// Admin lists all subscriptions
+// Admin lists all subscriptions (paginated, O(1) user map)
 prompt2Router.get('/admin/merchant-subscriptions', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
-  const list = (db.merchantSubscriptions || []).map((s) => {
-    const m = db.users.find((u) => u.id === s.merchantId);
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const userMap = new Map<number, User>();
+  for (const u of db.users || []) userMap.set(u.id, u);
+
+  const sorted = [...(db.merchantSubscriptions || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const paged = paginateList(sorted, page, limit);
+  const list = paged.items.map((s) => {
+    const m = userMap.get(s.merchantId);
     return {
       ...s,
       merchantName: m?.name || 'Merchant',
@@ -1147,7 +1159,7 @@ prompt2Router.get('/admin/merchant-subscriptions', async (req: Request, res: Res
     };
   });
 
-  res.json({ subscriptions: list });
+  res.json({ subscriptions: list, pagination: paged.pagination });
 });
 
 // Admin approves manual till/paybill subscription OR wallet subscription
@@ -1402,16 +1414,35 @@ prompt2Router.post('/admin/merchant-subscriptions/set-enterprise-price', async (
   res.json({ success: true, message: `Agreed Enterprise pricing KSh ${price.toLocaleString()} for ${merchantUser.name}.` });
 });
 
-// Admin lists and toggles Featured Products (KES 30/day)
+// Admin lists and toggles Featured Products (paginated & lean projection)
 prompt2Router.get('/admin/featured-products', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const db = await getDatabase();
-  const featured = db.products.filter((p) => p.isFeatured);
-  const allProducts = db.products;
+  const { page, limit } = parsePaginationQuery(req.query, 20, 100);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
 
-  res.json({ featured, allProducts });
+  const filtered = search
+    ? (db.products || []).filter((p) => `${p.title || ''} ${p.category || ''}`.toLowerCase().includes(search))
+    : (db.products || []);
+
+  const paged = paginateList(filtered, page, limit);
+  const projectProduct = (p: Product) => ({
+    id: p.id,
+    title: p.title,
+    price: p.price,
+    category: p.category,
+    vendorId: p.vendorId,
+    chamaOptions: p.chamaOptions || '1–10 Member Speeds',
+    isFeatured: Boolean(p.isFeatured),
+    image: (Array.isArray(p.images) && p.images[0]) || (p as any).image || './images/smart_tv.jpg',
+  });
+
+  const featured = (db.products || []).filter((p) => p.isFeatured).slice(0, limit).map(projectProduct);
+  const allProducts = paged.items.map(projectProduct);
+
+  res.json({ featured, allProducts, pagination: paged.pagination });
 });
 
 prompt2Router.post('/admin/featured-products/:id/toggle', async (req: Request, res: Response) => {

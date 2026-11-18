@@ -20,10 +20,16 @@ import { ADMIN_PORTAL_PATH, isAdminPortalPath } from './config/adminPortal.ts';
 import { PromoPopup } from './components/PromoPopup.tsx';
 import { usePromoTrigger } from './hooks/usePromoTrigger.ts';
 import type { PromoCTA } from './config/promoConfig.ts';
+import {
+  AdminControlCenterErrorBoundary,
+  AdminControlCenterSkeleton,
+  importAdminControlCenterModule,
+  lazyWithChunkRetry,
+} from './components/AdminErrorBoundary.tsx';
 
-// Lazy-load Admin Dashboard to prevent shipping administrative bundle to public visitors (Requirement 1)
-const AdminDashboardPage = React.lazy(() =>
-  import('./pages/AdminDashboardPage.tsx').then((m) => ({ default: m.AdminDashboardPage }))
+// Lazy-load Admin Dashboard with chunk-load retry guard
+const AdminDashboardPage = lazyWithChunkRetry(() =>
+  importAdminControlCenterModule().then((m) => ({ default: m.AdminDashboardPage }))
 );
 import {
   Home,
@@ -382,7 +388,8 @@ export default function App() {
   const currentUserId = currentUser?.id;
   useEffect(() => {
     if (!currentUserId) return;
-    api.getMe()
+    const activeRole = getUserActiveRole(currentUserRef.current) || undefined;
+    api.getMe(activeRole)
       .then(res => {
         if (!res?.user) return;
         setCurrentUser(prev => {
@@ -418,12 +425,12 @@ export default function App() {
       .catch(() => {});
   }, [currentUserId]);
 
-  function handleNotify(type: 'success' | 'error' | 'info', message: string) {
+  const handleNotify = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
     setTimeout(() => {
       setNotification((curr) => (curr?.message === message ? null : curr));
     }, 4500);
-  }
+  }, []);
 
   async function handleLogout() {
     const activeRole = getUserActiveRole(currentUserRef.current);
@@ -567,20 +574,15 @@ export default function App() {
 
         {currentView === 'admin-dashboard' && (
           <RoleGuard allow={['admin']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
-            <React.Suspense
-              fallback={
-                <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-                  <div className="w-10 h-10 border-4 border-[#ff6600] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                  <p className="text-xs font-semibold text-slate-600">Loading Secure Admin Console...</p>
-                </div>
-              }
-            >
-              <AdminDashboardPage
-                currentUser={currentUser}
-                onNavigate={handleNavigate}
-                onNotify={handleNotify}
-              />
-            </React.Suspense>
+            <AdminControlCenterErrorBoundary onNavigateHome={() => handleNavigate('home')}>
+              <React.Suspense fallback={<AdminControlCenterSkeleton />}>
+                <AdminDashboardPage
+                  currentUser={currentUser}
+                  onNavigate={handleNavigate}
+                  onNotify={handleNotify}
+                />
+              </React.Suspense>
+            </AdminControlCenterErrorBoundary>
           </RoleGuard>
         )}
 

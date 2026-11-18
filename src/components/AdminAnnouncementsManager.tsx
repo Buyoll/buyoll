@@ -47,6 +47,7 @@ export const AdminAnnouncementsManager: React.FC<AdminAnnouncementsManagerProps>
 }) => {
   const [items, setItems] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | AnnouncementLifecycleStatus>('ALL');
   const [search, setSearch] = useState('');
 
@@ -63,6 +64,7 @@ export const AdminAnnouncementsManager: React.FC<AdminAnnouncementsManagerProps>
 
   const loadAnnouncements = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.getAdminAnnouncements({
         status: statusFilter,
@@ -70,7 +72,9 @@ export const AdminAnnouncementsManager: React.FC<AdminAnnouncementsManagerProps>
       });
       setItems(res.announcements || []);
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to load announcements');
+      const msg = err?.message || 'Failed to load announcements';
+      setLoadError(msg);
+      onNotify('error', msg);
     } finally {
       setLoading(false);
     }
@@ -295,6 +299,18 @@ export const AdminAnnouncementsManager: React.FC<AdminAnnouncementsManagerProps>
       {/* Table / Cards List */}
       {loading ? (
         <div className="py-10 text-center text-xs text-slate-500">Loading announcements...</div>
+      ) : loadError ? (
+        <div className="py-8 px-4 text-center border border-red-200 rounded-xl bg-red-50/70 space-y-3">
+          <p className="text-xs font-bold text-red-800">{loadError}</p>
+          <button
+            type="button"
+            onClick={loadAnnouncements}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Retry</span>
+          </button>
+        </div>
       ) : items.length === 0 ? (
         <div className="py-10 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
           <Megaphone className="w-8 h-8 text-slate-300 mx-auto mb-2" />

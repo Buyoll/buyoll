@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response, Router } from 'express';
+import zlib from 'zlib';
 import { CORS_ORIGINS, FRONTEND_URL } from './config.js';
 import { scrubSensitiveFields } from './auth_utils.js';
 
@@ -117,6 +118,63 @@ export function securityAndCorsMiddleware(req: Request, res: Response, next: Nex
     res.status(204).end();
     return;
   }
+
+  next();
+}
+
+export function compressionMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (req.method === 'HEAD' || req.path.includes('/events')) {
+    return next();
+  }
+  const acceptEncoding = String(req.headers['accept-encoding'] || '').toLowerCase();
+  const useBr = acceptEncoding.includes('br');
+  const useGzip = !useBr && acceptEncoding.includes('gzip');
+  if (!useBr && !useGzip) {
+    return next();
+  }
+
+  const origJson = res.json.bind(res);
+  const origSend = res.send.bind(res);
+
+  function sendCompressed(body: any, isJson: boolean) {
+    if (res.headersSent) return res;
+    const contentType = String(res.getHeader('Content-Type') || (isJson ? 'application/json; charset=utf-8' : ''));
+    const raw =
+      Buffer.isBuffer(body)
+        ? body
+        : typeof body === 'string'
+        ? Buffer.from(body, 'utf-8')
+        : isJson
+        ? Buffer.from(JSON.stringify(body), 'utf-8')
+        : null;
+
+    const compressible =
+      raw &&
+      raw.length >= 1024 &&
+      !res.getHeader('Content-Encoding') &&
+      (!contentType || /json|text|javascript|ecmascript|css|svg|xml/i.test(contentType));
+
+    if (!compressible || !raw) {
+      return isJson ? origJson(body) : origSend(body);
+    }
+
+    const compressed = useBr ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw);
+    if (isJson && !res.getHeader('Content-Type')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+    res.setHeader('Content-Encoding', useBr ? 'br' : 'gzip');
+    res.setHeader('Vary', 'Accept-Encoding');
+    res.removeHeader('Content-Length');
+    return origSend(compressed);
+  }
+
+  res.json = ((body: any) => sendCompressed(body, true)) as any;
+  res.send = ((body?: any) => {
+    if (typeof body === 'string' || Buffer.isBuffer(body)) {
+      return sendCompressed(body, false);
+    }
+    return origSend(body);
+  }) as any;
 
   next();
 }

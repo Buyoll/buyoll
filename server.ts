@@ -7,6 +7,7 @@ import { createServer as createViteServer } from 'vite';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from './server/api.js';
 import {
+  compressionMiddleware,
   createApiNotFoundOrMethodHandler,
   globalJsonErrorHandler,
   securityAndCorsMiddleware,
@@ -33,6 +34,7 @@ async function startServer() {
 
   app.set('trust proxy', 1);
   app.use(securityAndCorsMiddleware);
+  app.use(compressionMiddleware);
   app.use(cookieParser());
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
@@ -41,14 +43,41 @@ async function startServer() {
   app.use('/api', apiRouter);
   app.use('/api', createApiNotFoundOrMethodHandler(apiRouter));
 
-  // Serve static assets from public if any
-  app.use(express.static(path.resolve(__dirname, 'public')));
+  // Serve static assets from public if any (do not cache sw.js)
+  app.use(
+    express.static(path.resolve(__dirname, 'public'), {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('sw.js')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    })
+  );
 
   let vite: Awaited<ReturnType<typeof createViteServer>> | null = null;
 
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.use(
+      '/assets',
+      express.static(path.resolve(__dirname, 'dist', 'assets'), {
+        maxAge: '365d',
+        immutable: true,
+        setHeaders: (res) => {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        },
+      })
+    );
+    app.use(
+      express.static(path.resolve(__dirname, 'dist'), {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html') || filePath.endsWith('sw.js')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   } else {
