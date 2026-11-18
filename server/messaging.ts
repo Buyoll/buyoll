@@ -59,39 +59,6 @@ class ConsoleEmailProvider implements EmailProvider {
   }
 }
 
-class AfricasTalkingSmsProvider implements SmsProvider {
-  readonly name = 'africastalking';
-  constructor(
-    private readonly apiKey: string,
-    private readonly username: string,
-    private readonly senderId?: string
-  ) {}
-  async sendSms(msg: SmsMessage): Promise<void> {
-    const form = new URLSearchParams({
-      username: this.username,
-      to: msg.to,
-      message: msg.body,
-    });
-    if (this.senderId) form.set('from', this.senderId);
-    const endpoint =
-      this.username === 'sandbox'
-        ? 'https://api.sandbox.africastalking.com/version1/messaging'
-        : 'https://api.africastalking.com/version1/messaging';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        apiKey: this.apiKey,
-        Accept: 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: form.toString(),
-    });
-    if (!res.ok) {
-      throw new Error(`Africa's Talking SMS delivery failed (${res.status})`);
-    }
-  }
-}
-
 class ConsoleSmsProvider implements SmsProvider {
   readonly name = 'console';
   async sendSms(msg: SmsMessage): Promise<void> {
@@ -109,13 +76,6 @@ export function getEmailProvider(): EmailProvider {
 }
 
 export function getSmsProvider(): SmsProvider {
-  if (process.env.AFRICASTALKING_API_KEY && process.env.AFRICASTALKING_USERNAME) {
-    return new AfricasTalkingSmsProvider(
-      process.env.AFRICASTALKING_API_KEY,
-      process.env.AFRICASTALKING_USERNAME,
-      process.env.AFRICASTALKING_SENDER_ID
-    );
-  }
   return new ConsoleSmsProvider();
 }
 
@@ -135,7 +95,9 @@ export async function dispatchContactNotification(params: {
     await sms.sendSms({ to: params.phone, body: params.body }).catch((err) => {
       console.error(`[SmsProvider:${sms.name}] Delivery warning:`, err?.message || err);
     });
-    return;
+    if (!params.email) {
+      return;
+    }
   }
 
   if (params.email) {
