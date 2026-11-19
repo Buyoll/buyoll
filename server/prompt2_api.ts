@@ -1434,7 +1434,7 @@ prompt2Router.get('/admin/featured-products', async (req: Request, res: Response
     price: p.price,
     category: p.category,
     vendorId: p.vendorId,
-    chamaOptions: p.chamaOptions || '1–10 Member Speeds',
+    chamaOptions: (p as any).chamaOptions || '1–10 Member Speeds',
     isFeatured: Boolean(p.isFeatured),
     image: (Array.isArray(p.images) && p.images[0]) || (p as any).image || './images/smart_tv.jpg',
   });

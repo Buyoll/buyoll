@@ -4422,7 +4422,8 @@ apiRouter.get('/admin/users', async (req: Request, res: Response) => {
   const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
   const roleFilter = typeof req.query.role === 'string' ? req.query.role.trim().toLowerCase() : 'all';
 
-  const filtered = (db.users || []).filter((u) => {
+  const allUsers: User[] = Array.isArray(db.users) ? db.users : [];
+  const filtered = allUsers.filter((u) => {
     if (roleFilter && roleFilter !== 'all') {
       const r = String(u.activeRole || u.role || '').toLowerCase();
       if (r !== roleFilter) return false;

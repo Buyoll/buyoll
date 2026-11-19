@@ -378,7 +378,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   }, []);
 
   const loadSecuritySettings = useCallback(async () => {
-    if (securityLoadedRef.current && adminSecurity) return;
+    if (securityLoadedRef.current) return;
     try {
       const secRes = await api.getAdminSecuritySettings();
       securityLoadedRef.current = true;
@@ -387,7 +387,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     } catch {
       // Non-blocking background metadata
     }
-  }, [adminSecurity]);
+  }, []);
 
   const loadSection = useCallback(
     async (

@@ -438,7 +438,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 14,
+      "tokenVersion": 19,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -3042,6 +3042,11 @@
       "id": "011_standardize_all_ten_member_speeds",
       "name": "Normalize all product speedOptions to include all 10 member speeds (10, 9, 8, 7, 6, 5, 4, 3, 2, 1)",
       "appliedAt": 1795016529239
+    },
+    {
+      "id": "012_admin_control_center_indexes",
+      "name": "Initialize non-destructive Control Center lookup index metadata on users, payments, deposits, subscriptions, loans, groups, refunds, and products",
+      "appliedAt": 1795114143120
     }
   ],
   "announcementDismissals": [],
@@ -3248,5 +3253,93 @@
       "note": "Opening wallet balance for merchant role",
       "createdAt": 1794894911269
     }
-  ]
+  ],
+  "controlCenterIndexes": {
+    "version": 1,
+    "updatedAt": 1795114143120,
+    "columns": {
+      "users": [
+        "role",
+        "activeRole",
+        "isDisabled",
+        "isSuspended",
+        "verified"
+      ],
+      "payments": [
+        "status",
+        "code",
+        "createdAt",
+        "userId"
+      ],
+      "walletDeposits": [
+        "status",
+        "createdAt",
+        "userId"
+      ],
+      "merchantSubscriptions": [
+        "status",
+        "merchantId",
+        "expiresAt"
+      ],
+      "subscriptionRequests": [
+        "status",
+        "merchantId",
+        "createdAt"
+      ],
+      "peerLoans": [
+        "status",
+        "groupId",
+        "borrowerId"
+      ],
+      "groups": [
+        "status",
+        "productId",
+        "vendorId"
+      ],
+      "refundRequests": [
+        "status",
+        "userId"
+      ],
+      "products": [
+        "isFeatured",
+        "live",
+        "vendorId",
+        "category"
+      ],
+      "merchantVerifications": [
+        "status",
+        "merchantId"
+      ]
+    },
+    "counts": {
+      "usersByRole": {
+        "member": 3,
+        "merchant": 6,
+        "lender": 2,
+        "admin": 1
+      },
+      "paymentsByStatus": {
+        "approved": 9,
+        "rejected": 2,
+        "pending": 2
+      },
+      "depositsByStatus": {
+        "approved": 3
+      },
+      "subscriptionsByStatus": {
+        "active": 2,
+        "declined": 2
+      },
+      "loansByStatus": {},
+      "groupsByStatus": {
+        "active": 2
+      },
+      "refundsByStatus": {},
+      "featuredProductIds": [
+        1,
+        2,
+        3
+      ]
+    }
+  }
 }

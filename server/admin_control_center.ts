@@ -457,10 +457,11 @@ export async function getControlCenterSummary(
       let defaulted = 0;
       for (const l of db.peerLoans || []) {
         total++;
-        if (l.status === 'pending') pending++;
-        else if (l.status === 'funded') funded++;
-        else if (l.status === 'repaid') repaid++;
-        else if (l.status === 'defaulted') defaulted++;
+        const st = String(l.status || '');
+        if (st === 'pending' || st === 'open' || st === 'fee_pending') pending++;
+        else if (st === 'funded') funded++;
+        else if (st === 'repaid') repaid++;
+        else if (st === 'defaulted') defaulted++;
       }
       return { total, pending, funded, repaid, defaulted };
     }),
