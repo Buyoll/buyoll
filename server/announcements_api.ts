@@ -8,6 +8,7 @@ import { getDatabase, logAudit, runDatabaseTransaction } from './db.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
 import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
+import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
 import {
   ANNOUNCEMENT_UPLOADS_DIR,
   MAX_ANNOUNCEMENT_IMAGE_BYTES,
@@ -325,25 +326,31 @@ announcementsRouter.post('/admin/announcements', async (req: Request, res: Respo
 
     db.announcements.unshift(item);
 
+    const outboxBatch: any[] = [];
     if (status === 'PUBLISHED') {
       if (!db.userNotifications) db.userNotifications = [];
       for (const u of db.users) {
+        if (u.isDisabled) continue;
         const uRole = u.activeRole || u.role;
         const ok =
           item.audience === 'ALL' ||
           (item.audience === 'MEMBERS' && uRole === 'member') ||
           (item.audience === 'MERCHANTS' && uRole === 'merchant');
         if (!ok) continue;
-        db.userNotifications.unshift({
-          id: `notif_ann_${item.id}_${u.id}_${now}`,
+        const evt = enqueueOutboxInTx(db, {
           userId: u.id,
+          eventType: 'announcement.updated',
+          entityType: 'announcement',
+          entityId: String(item.id),
           title: `${item.type === 'PROMOTION' ? '🎁' : item.type === 'NOTICE' ? '📌' : '📢'} ${item.title}`,
           message: item.body.slice(0, 220),
-          type: 'broadcast',
+          notificationType: 'broadcast',
           link: item.ctaUrl || '/announcements',
-          read: false,
-          timestamp: now,
+          payload: { action: 'created', announcementId: item.id, status: item.status },
+          alsoAddNotification: true,
+          now,
         });
+        outboxBatch.push(evt);
       }
     }
 
@@ -354,22 +361,25 @@ announcementsRouter.post('/admin/announcements', async (req: Request, res: Respo
       'ADMIN_ANNOUNCEMENT_CREATED',
       `Admin created ${item.type} #${item.id} "${item.title}" [${item.status}, audience=${item.audience}]`
     );
-    return item;
+    return { item, outboxBatch };
   });
 
+  if (announcement.outboxBatch.length > 0) {
+    flushOutboxEvents(announcement.outboxBatch);
+  }
   emitPlatformEvent('announcement.updated', {
     action: 'created',
-    announcementId: announcement.id,
-    status: announcement.status,
+    announcementId: announcement.item.id,
+    status: announcement.item.status,
   });
 
   return res.status(201).json({
     success: true,
-    announcement,
+    announcement: announcement.item,
     message:
-      announcement.status === 'PUBLISHED'
+      announcement.item.status === 'PUBLISHED'
         ? 'Announcement published live.'
-        : announcement.status === 'SCHEDULED'
+        : announcement.item.status === 'SCHEDULED'
         ? 'Announcement scheduled for publication.'
         : 'Announcement saved as draft.',
   });
@@ -460,7 +470,7 @@ announcementsRouter.post('/admin/announcements/:id/publish', async (req: Request
   if (!admin) return;
 
   try {
-    const updated = await runDatabaseTransaction((db) => {
+    const out = await runDatabaseTransaction((db) => {
       const item = (db.announcements || []).find((a) => String(a.id) === String(req.params.id));
       if (!item) throw { status: 404, code: 'NOT_FOUND', message: 'Announcement not found.' };
 
@@ -472,12 +482,43 @@ announcementsRouter.post('/admin/announcements/:id/publish', async (req: Request
       item.updatedAt = now;
       item.version = (item.version || 1) + 1;
 
+      const outboxBatch: any[] = [];
+      if (item.status === 'PUBLISHED') {
+        for (const u of db.users) {
+          if (u.isDisabled) continue;
+          const uRole = u.activeRole || u.role;
+          const ok =
+            item.audience === 'ALL' ||
+            (item.audience === 'MEMBERS' && uRole === 'member') ||
+            (item.audience === 'MERCHANTS' && uRole === 'merchant');
+          if (!ok) continue;
+          outboxBatch.push(
+            enqueueOutboxInTx(db, {
+              userId: u.id,
+              eventType: 'announcement.updated',
+              entityType: 'announcement',
+              entityId: String(item.id),
+              title: `${item.type === 'PROMOTION' ? '🎁' : item.type === 'NOTICE' ? '📌' : '📢'} ${item.title}`,
+              message: item.body.slice(0, 220),
+              notificationType: 'broadcast',
+              link: item.ctaUrl || '/announcements',
+              payload: { action: 'published', announcementId: item.id, status: item.status },
+              alsoAddNotification: true,
+              now,
+            })
+          );
+        }
+      }
+
       logAudit(db, admin.id, admin.name, 'ADMIN_ANNOUNCEMENT_PUBLISHED', `Published announcement #${item.id} "${item.title}"`);
-      return item;
+      return { item, outboxBatch };
     });
 
-    emitPlatformEvent('announcement.updated', { action: 'published', announcementId: updated.id });
-    return res.json({ success: true, announcement: updated, message: 'Announcement published live.' });
+    if (out.outboxBatch.length > 0) {
+      flushOutboxEvents(out.outboxBatch);
+    }
+    emitPlatformEvent('announcement.updated', { action: 'published', announcementId: out.item.id });
+    return res.json({ success: true, announcement: out.item, message: 'Announcement published live.' });
   } catch (err: any) {
     return sendApiError(res, err.status || 500, err.code || 'PUBLISH_FAILED', err.message || 'Publish failed.');
   }

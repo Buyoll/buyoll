@@ -90,6 +90,23 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     }
   }, [currentUserId]);
 
+  useEffect(() => {
+    if (!currentUserId || typeof window === 'undefined') return;
+    const handleLiveUpdate = () => {
+      void loadWalletData(false);
+    };
+    window.addEventListener('buyoll:wallet-updated', handleLiveUpdate);
+    window.addEventListener('buyoll:deposit-updated', handleLiveUpdate);
+    window.addEventListener('buyoll:refund-updated', handleLiveUpdate);
+    window.addEventListener('buyoll:outbox-notification', handleLiveUpdate);
+    return () => {
+      window.removeEventListener('buyoll:wallet-updated', handleLiveUpdate);
+      window.removeEventListener('buyoll:deposit-updated', handleLiveUpdate);
+      window.removeEventListener('buyoll:refund-updated', handleLiveUpdate);
+      window.removeEventListener('buyoll:outbox-notification', handleLiveUpdate);
+    };
+  }, [currentUserId]);
+
   async function loadWalletData(isInitial = false) {
     if (!currentUser) return;
     if (isInitial || !hasLoaded) {

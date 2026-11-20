@@ -15,6 +15,32 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname ?? '.', '.'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'vendor-react';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              return 'vendor-deps';
+            }
+            if (
+              id.includes('/src/pages/AdminDashboardPage') ||
+              id.includes('/src/components/AdminWalletPanel') ||
+              id.includes('/src/components/AdminFeaturedModeration') ||
+              id.includes('/src/components/AdminAnnouncementsManager')
+            ) {
+              return 'admin-control-center';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

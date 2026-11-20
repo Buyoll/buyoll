@@ -232,6 +232,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [applyUserUpdate]);
 
+  const currentUserId = currentUser?.id;
+  const seenOutboxIdsRef = useRef<Set<string>>(new Set());
+  const pullPendingOutboxRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    void pullPendingOutboxRef.current?.();
+  }, [currentUserId]);
+
   // BroadcastChannel, StorageEvent, SessionExpiredEvent, and SSE sync
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -310,10 +319,73 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
 
+    const dispatchOutboxEvent = (evt: any) => {
+      if (!evt) return;
+      const evtId = String(evt.id || '');
+      if (evtId && seenOutboxIdsRef.current.has(evtId)) return;
+      if (evtId) seenOutboxIdsRef.current.add(evtId);
+
+      const entity = String(evt.entityType || '');
+      const statusText = String(evt.payload?.status || evt.title || '').toLowerCase();
+      const notifyType: 'success' | 'error' | 'info' =
+        statusText.includes('declin') || statusText.includes('reject') || statusText.includes('remov')
+          ? 'info'
+          : 'success';
+
+      if (evt.message) {
+        window.dispatchEvent(
+          new CustomEvent('buyoll:notify', {
+            detail: { type: notifyType, message: `${evt.title ? `${evt.title}: ` : ''}${evt.message}` },
+          })
+        );
+      }
+
+      if (entity === 'deposit') {
+        window.dispatchEvent(new CustomEvent('buyoll:deposit-updated', { detail: evt.payload || evt }));
+        window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
+      } else if (entity === 'subscription') {
+        window.dispatchEvent(new CustomEvent('buyoll:subscription-activated', { detail: evt.payload || evt }));
+      } else if (entity === 'verification') {
+        window.dispatchEvent(new CustomEvent('buyoll:verification-updated', { detail: evt.payload || evt }));
+      } else if (entity === 'featured') {
+        window.dispatchEvent(new CustomEvent('buyoll:featured-updated', { detail: evt.payload || evt }));
+      } else if (entity === 'refund') {
+        window.dispatchEvent(new CustomEvent('buyoll:refund-updated', { detail: evt.payload || evt }));
+        window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
+      } else if (entity === 'announcement') {
+        window.dispatchEvent(new CustomEvent('buyoll:announcement-updated', { detail: evt.payload || evt }));
+      }
+      window.dispatchEvent(new CustomEvent('buyoll:outbox-notification', { detail: evt }));
+    };
+
+    const pullPendingOutbox = async () => {
+      if (!currentUserRef.current) return;
+      try {
+        const res = await api.getPendingUserOutbox();
+        const events = res?.events || [];
+        if (events.length > 0) {
+          for (const evt of events) {
+            dispatchOutboxEvent(evt);
+          }
+          await refreshUser();
+          const ackIds = events.map((e) => e.id).filter(Boolean);
+          if (ackIds.length > 0) {
+            await api.ackUserOutbox(ackIds).catch(() => {});
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+    };
+    pullPendingOutboxRef.current = pullPendingOutbox;
+
     let es: EventSource | null = null;
     if ('EventSource' in window) {
       try {
         es = new EventSource('/api/events', { withCredentials: true });
+        es.addEventListener('connected', () => {
+          void pullPendingOutbox();
+        });
         es.addEventListener('user.profile.updated', (ev) => {
           try {
             const parsed = JSON.parse((ev as MessageEvent).data);
@@ -323,7 +395,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const merged = { ...active, ...payload.user } as User;
               setCurrentUser(merged);
               setStoredUser(merged);
+            } else if (!payload?.userId || (active && payload.userId === active.id)) {
+              void refreshUser();
             }
+            window.dispatchEvent(new CustomEvent('buyoll:profile-updated', { detail: payload }));
           } catch {
             // ignore
           }
@@ -335,14 +410,105 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const active = currentUserRef.current;
             if (active && payload?.userId === active.id) {
               if (typeof payload.balanceKes === 'number') {
-                const updated = { ...active, credit: payload.balanceKes };
+                const targetRole = String(payload.role || active.activeRole || active.role || 'member').toLowerCase() as keyof NonNullable<User['roleWallets']>;
+                const prevRoleWallets = active.roleWallets || {};
+                const prevRoleEntry = prevRoleWallets[targetRole] || { credit: 0, balance: 0, coins: active.coins || 0, points: active.points || 0 };
+                const activeRoleNow = String(active.activeRole || active.role || 'member').toLowerCase();
+                const updated: User = {
+                  ...active,
+                  credit: targetRole === activeRoleNow ? payload.balanceKes : active.credit,
+                  roleWallets: {
+                    ...prevRoleWallets,
+                    [targetRole]: {
+                      ...prevRoleEntry,
+                      credit: payload.balanceKes,
+                      balance: payload.balanceKes,
+                    },
+                  },
+                };
                 setCurrentUser(updated);
                 setStoredUser(updated);
               } else {
-                refreshUser();
+                void refreshUser();
               }
             }
             window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: payload }));
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('outbox.notification', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            const active = currentUserRef.current;
+            if (active && (!payload?.userId || payload.userId === active.id)) {
+              dispatchOutboxEvent(payload);
+              void refreshUser();
+              if (payload?.id) {
+                void api.ackUserOutbox([String(payload.id)]).catch(() => {});
+              }
+            }
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('deposit.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            const active = currentUserRef.current;
+            window.dispatchEvent(new CustomEvent('buyoll:deposit-updated', { detail: payload }));
+            if (active && payload?.userId === active.id) {
+              void refreshUser();
+            }
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('verification.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            const active = currentUserRef.current;
+            window.dispatchEvent(new CustomEvent('buyoll:verification-updated', { detail: payload }));
+            if (active && (payload?.merchantId === active.id || payload?.userId === active.id)) {
+              void refreshUser();
+            }
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('refund.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            const active = currentUserRef.current;
+            window.dispatchEvent(new CustomEvent('buyoll:refund-updated', { detail: payload }));
+            if (active && payload?.userId === active.id) {
+              void refreshUser();
+            }
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('featured.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            const active = currentUserRef.current;
+            window.dispatchEvent(new CustomEvent('buyoll:featured-updated', { detail: payload }));
+            if (active && payload?.merchantId === active.id) {
+              void refreshUser();
+            }
+          } catch {
+            // ignore
+          }
+        });
+        es.addEventListener('admin.wallet.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            window.dispatchEvent(new CustomEvent('buyoll:admin-wallet-updated', { detail: parsed?.payload }));
           } catch {
             // ignore
           }
@@ -354,7 +520,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             window.dispatchEvent(new CustomEvent('buyoll:subscription-activated', { detail: payload }));
             const active = currentUserRef.current;
             if (active && payload?.merchantId === active.id) {
-              refreshUser();
+              void refreshUser();
             }
           } catch {
             // ignore
@@ -367,7 +533,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             window.dispatchEvent(new CustomEvent('buyoll:subscription-expired', { detail: payload }));
             const active = currentUserRef.current;
             if (active && payload?.merchantId === active.id) {
-              refreshUser();
+              void refreshUser();
             }
           } catch {
             // ignore
@@ -423,7 +589,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [applyUserUpdate, refreshUser]);
 
   // 20-minute idle timeout, 60-second warning modal, activity keepalive & tab wake re-check
-  const currentUserId = currentUser?.id;
   useEffect(() => {
     if (typeof window === 'undefined' || !currentUserId) {
       setIdleWarningSecondsLeft(null);

@@ -19,7 +19,9 @@ import {
   SUBSCRIPTION_RENEWAL_MODE,
   toCents,
 } from './config.js';
-import { debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
+import { creditWalletCents, debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
+import { findDuplicateMpesaCodeInTx, recordIncomeInTx } from './admin_wallet_service.js';
+import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
 import { paginateList, parsePaginationQuery } from './admin_control_center.js';
 
 export const subscriptionsRouter = wrapRouterAsync(Router());
@@ -374,6 +376,8 @@ export function activateSubscriptionInTx(
     actorId: number;
     actorName: string;
     paymentSummary: string;
+    amountKes?: number;
+    paymentChannel?: 'WALLET' | 'MPESA_DIRECT';
     now?: number;
   }
 ): {
@@ -382,6 +386,7 @@ export function activateSubscriptionInTx(
   restoredProductIds: number[];
   activationNotice: SubscriptionActivationNotice;
   statusPayload: ReturnType<typeof computeSubscriptionStatusEat>;
+  outboxEvent?: any;
 } {
   const now = params.now ?? Date.now();
   const durationDays = params.billingPeriod === 'yearly' ? 365 : 30;
@@ -450,14 +455,43 @@ export function activateSubscriptionInTx(
 
   if (!db.userNotifications) db.userNotifications = [];
   const durationLabel = params.billingPeriod === 'yearly' ? '1-year (365 days)' : '30-day';
-  db.userNotifications.unshift({
-    id: `notif_${now}_${crypto.randomBytes(3).toString('hex')}`,
+  const notifTitle = `Thank you! ${params.planName} Approved`;
+  const notifMessage = `Your payment (${params.paymentSummary}) has been verified! Your ${durationLabel} selling window is active until ${new Date(expiresAt).toLocaleDateString()}.${restoredProductIds.length > 0 ? ` ${restoredProductIds.length} paused listing(s) have been restored live.` : ''}`;
+
+  if (params.amountKes && params.amountKes > 0 && params.paymentChannel) {
+    recordIncomeInTx(db, {
+      source: 'SUBSCRIPTION',
+      paymentChannel: params.paymentChannel,
+      amountCents: toCents(params.amountKes),
+      userId: params.merchantUser.id,
+      userName: params.merchantUser.shopName || params.merchantUser.name,
+      referenceId: params.subscriptionId,
+      description: `${params.planName} (${params.billingPeriod}) via ${params.paymentSummary}`,
+      idempotencyKey: `inc_sub_${params.subscriptionId}`,
+      actorId: params.actorId,
+      createdAt: now,
+      creditAdminWalletIfDirect: params.paymentChannel === 'MPESA_DIRECT',
+    });
+  }
+
+  const outboxEvent = enqueueOutboxInTx(db, {
     userId: params.merchantUser.id,
-    title: `Thank you! ${params.planName} Approved`,
-    message: `Your payment (${params.paymentSummary}) has been verified! Your ${durationLabel} selling window is active until ${new Date(expiresAt).toLocaleDateString()}.${restoredProductIds.length > 0 ? ` ${restoredProductIds.length} paused listing(s) have been restored live.` : ''}`,
-    type: 'payment',
-    read: false,
-    timestamp: now,
+    eventType: 'subscription.activated',
+    entityType: 'subscription',
+    entityId: params.subscriptionId,
+    title: notifTitle,
+    message: notifMessage,
+    notificationType: 'payment',
+    link: '/vendor-dashboard',
+    payload: {
+      merchantId: params.merchantUser.id,
+      subscriptionId: params.subscriptionId,
+      planId: params.planId,
+      expiresAt,
+      restoredProductIds,
+    },
+    alsoAddNotification: true,
+    now,
   });
 
   logAudit(
@@ -475,6 +509,7 @@ export function activateSubscriptionInTx(
     restoredProductIds,
     activationNotice,
     statusPayload,
+    outboxEvent,
   };
 }
 
@@ -566,23 +601,14 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         };
       }
 
-      // 3. Prevent duplicate M-Pesa codes across all pending or approved requests
+      // 3. Prevent duplicate M-Pesa codes globally across deposits, payments, and subscriptions
       if (normalizedMethod === 'mpesa' && cleanedCode) {
-        const codeInReqs = db.subscriptionRequests.some(
-          (r) => r.mpesaCode === cleanedCode && (r.status === 'pending' || r.status === 'approved')
-        );
-        const codeInSubs = db.merchantSubscriptions.some(
-          (s) => s.paymentCode === cleanedCode && (s.status === 'pending' || s.status === 'active')
-        );
-        const codeInPayments = db.payments.some(
-          (p) => p.code === cleanedCode && (p.status === 'pending' || p.status === 'approved')
-        );
-
-        if (codeInReqs || codeInSubs || codeInPayments) {
+        const dup = findDuplicateMpesaCodeInTx(db, cleanedCode);
+        if (dup.duplicate) {
           throw {
             status: 409,
             code: 'DUPLICATE_CODE',
-            message: 'This M-Pesa transaction code has already been submitted and is currently pending or approved.',
+            message: `This M-Pesa transaction code (${cleanedCode}) has already been used (${dup.entity}).`,
           };
         }
       }
@@ -743,6 +769,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           actorId: merchantUser.id,
           actorName: merchantUser.name,
           paymentSummary: `Wallet KSh ${amountExpected.toLocaleString()}`,
+          amountKes: amountExpected,
+          paymentChannel: 'WALLET',
           now,
         });
 
@@ -1093,6 +1121,26 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
       }
 
       const subId = targetSub?.id || targetReq?.id || reqId;
+      const expectedKes = Number(targetReq?.amountExpected ?? targetSub?.amount ?? plan?.monthlyFee ?? 0);
+      const isWalletCredit = targetSub?.paymentMethod === 'wallet_credit' || targetReq?.paymentMethod === 'wallet';
+      const isCoins = targetSub?.paymentMethod === 'wallet_coins' || targetReq?.paymentMethod === 'coins';
+
+      if (isWalletCredit && expectedKes > 0) {
+        const adminUser = findPlatformAdminUser(db);
+        if (adminUser && adminUser.id !== merchantUser.id) {
+          creditWalletCents(db, {
+            userId: adminUser.id,
+            role: 'admin',
+            amountCents: toCents(expectedKes),
+            category: 'SUBSCRIPTION_REVENUE',
+            referenceId: subId,
+            idempotencyKey: `sub_rev_${subId}`,
+            note: `Settled merchant subscription payment from ${merchantUser.name}`,
+            actorId: user.id,
+          });
+        }
+      }
+
       const activation = activateSubscriptionInTx(db, {
         merchantUser,
         planId,
@@ -1102,6 +1150,8 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         actorId: user.id,
         actorName: user.name,
         paymentSummary: mpesaCode ? `M-Pesa ${mpesaCode}` : 'Admin Approval',
+        amountKes: isCoins ? 0 : expectedKes,
+        paymentChannel: isWalletCredit ? 'WALLET' : isCoins ? undefined : 'MPESA_DIRECT',
         now,
       });
 
@@ -1200,6 +1250,9 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
     if ((result as any).merchantId && (result as any).activation) {
       const mId = (result as any).merchantId;
       const act = (result as any).activation;
+      if (act.outboxEvent) {
+        flushOutboxEvents([act.outboxEvent]);
+      }
       emitPlatformEvent(
         'subscription.activated',
         {
@@ -1286,7 +1339,8 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/reject', async (req:
         }
       }
 
-      // Set merchant subscription status to inactive if no other active sub
+      let outboxEvent: any = null;
+      // Settle held wallet_credit refund & set merchant subscription status to inactive if no other active sub
       if (merchantUser) {
         const hasOtherActive = (db.merchantSubscriptions || []).some(
           (s) => s.id !== reqId && s.merchantId === merchantId && s.status === 'active' && s.expiresAt && s.expiresAt > now
@@ -1295,16 +1349,38 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/reject', async (req:
           merchantUser.merchantSubscriptionStatus = 'inactive';
         }
 
-        // Notify merchant in-app
-        if (!db.userNotifications) db.userNotifications = [];
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        const wasHeldWallet = targetSub?.paymentMethod === 'wallet_credit' || targetReq?.paymentMethod === 'wallet';
+        const refundKes = Number(targetSub?.amount ?? targetReq?.amountExpected ?? 0);
+        if (wasHeldWallet && refundKes > 0 && targetSub?.status === 'declined') {
+          creditWalletCents(db, {
+            userId: merchantUser.id,
+            role: 'merchant',
+            amountCents: toCents(refundKes),
+            category: 'REFUND',
+            referenceId: `REF-${reqId}`,
+            idempotencyKey: `sub_refund_${reqId}`,
+            note: `Refunded KSh ${refundKes.toLocaleString()} for rejected subscription (${trimmedReason})`,
+            actorId: user.id,
+          });
+        }
+
+        outboxEvent = enqueueOutboxInTx(db, {
           userId: merchantUser.id,
-          title: '⚠️ Subscription Request Rejected',
+          eventType: 'subscription.updated',
+          entityType: 'subscription',
+          entityId: reqId,
+          title: 'Subscription Request Rejected',
           message: `Your merchant plan request was rejected by Admin. Reason: ${trimmedReason}. Please check your transaction details and resubmit.`,
-          type: 'system',
-          read: false,
-          timestamp: now,
+          notificationType: 'system',
+          link: '/vendor-dashboard',
+          payload: {
+            merchantId: merchantUser.id,
+            subscriptionId: reqId,
+            status: 'rejected',
+            reason: trimmedReason,
+          },
+          alsoAddNotification: true,
+          now,
         });
       }
 
@@ -1317,10 +1393,17 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/reject', async (req:
       );
 
       return {
+        merchantId,
+        outboxEvent,
         request: targetReq || targetSub,
         message: 'Subscription request has been rejected.',
       };
     });
+
+    if (result.outboxEvent) {
+      flushOutboxEvents([result.outboxEvent]);
+    }
+    emitPlatformEvent('subscription.updated', { merchantId: result.merchantId, status: 'REJECTED' }, [result.merchantId]);
 
     return res.json({
       success: true,
@@ -1498,6 +1581,17 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
 
+      if (normalizedMethod === 'mpesa' && cleanedCode) {
+        const dup = findDuplicateMpesaCodeInTx(db, cleanedCode);
+        if (dup.duplicate) {
+          throw {
+            status: 409,
+            code: 'DUPLICATE_CODE',
+            message: `This M-Pesa transaction code (${cleanedCode}) has already been used (${dup.entity}).`,
+          };
+        }
+      }
+
       const amountExpected = normalizedPeriod === 'yearly' ? targetPlan.yearlyFee : targetPlan.monthlyFee;
       const amountCents = toCents(amountExpected);
       const billingInterval = normalizedPeriod === 'yearly' ? 'YEARLY' : 'MONTHLY';
@@ -1616,6 +1710,8 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
           actorId: merchantUser.id,
           actorName: merchantUser.name,
           paymentSummary: normalizedMethod === 'wallet' ? 'Merchant Wallet Credit' : 'Wallet Coins',
+          amountKes: normalizedMethod === 'wallet' ? amountExpected : 0,
+          paymentChannel: normalizedMethod === 'wallet' ? 'WALLET' : undefined,
           now,
         });
         subRecord.startDate = activationInfo.startDate;
@@ -1642,6 +1738,9 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
     });
 
     if (result.isInstant && result.activationInfo) {
+      if (result.activationInfo.outboxEvent) {
+        flushOutboxEvents([result.activationInfo.outboxEvent]);
+      }
       emitPlatformEvent(
         'subscription.activated',
         {

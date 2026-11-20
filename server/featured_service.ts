@@ -16,6 +16,8 @@ import {
   findPlatformAdminUser,
 } from './wallet_service.js';
 import { emitPlatformEvent } from './events.js';
+import { recordIncomeInTx } from './admin_wallet_service.js';
+import { enqueueOutboxInTx } from './outbox_service.js';
 import type {
   ChamaGroup,
   FeaturedPlacement,
@@ -992,7 +994,7 @@ export function approveFeaturedRequestInTx(
     };
     now?: number;
   }
-): { alreadyProcessed: boolean; req: FeaturedRequest; product?: Product } {
+): { alreadyProcessed: boolean; req: FeaturedRequest; product?: Product; outboxEvent?: any } {
   const now = params.now ?? Date.now();
   const { req, adminUser } = params;
 
@@ -1100,21 +1102,47 @@ export function approveFeaturedRequestInTx(
     isFeaturedBadge: req.status === 'ACTIVE',
   });
 
+  // Record official platform income in incomeLedger idempotently
+  recordIncomeInTx(db, {
+    source: 'FEATURED',
+    paymentChannel: 'WALLET',
+    amountCents: req.amountPaidCents,
+    userId: req.merchantId,
+    userName: merchant.shopName || merchant.name,
+    referenceId: req.id,
+    description: `Featured placement "${product.title}" (${req.durationDays}d, ${placement.name})`,
+    idempotencyKey: `inc_feat_${req.id}`,
+    actorId: adminUser.id,
+    createdAt: now,
+  });
+
   if (!db.userNotifications) db.userNotifications = [];
   const eatEnd = getEatDateParts(endsAt).dateKey;
   const eatStart = getEatDateParts(startsAt).dateKey;
-  db.userNotifications.unshift({
-    id: `notif_feat_appr_${req.id}`,
+  const notifTitle = req.status === 'ACTIVE' ? 'Featured Placement Live!' : 'Featured Placement Approved & Scheduled';
+  const notifMessage =
+    req.status === 'ACTIVE'
+      ? `Your featured placement for "${product.title}" (${req.durationDays}d) is now LIVE until ${eatEnd} (EAT).`
+      : `Your featured placement for "${product.title}" (${req.durationDays}d) is approved and scheduled to start on ${eatStart} until ${eatEnd} (EAT).`;
+
+  const outboxEvent = enqueueOutboxInTx(db, {
     userId: req.merchantId,
-    title: req.status === 'ACTIVE' ? 'Featured Placement Live!' : 'Featured Placement Approved & Scheduled',
-    message:
-      req.status === 'ACTIVE'
-        ? `Your featured placement for "${product.title}" (${req.durationDays}d) is now LIVE until ${eatEnd} (EAT).`
-        : `Your featured placement for "${product.title}" (${req.durationDays}d) is approved and scheduled to start on ${eatStart} until ${eatEnd} (EAT).`,
+    eventType: 'featured.updated',
+    entityType: 'featured',
+    entityId: req.id,
+    title: notifTitle,
+    message: notifMessage,
+    notificationType: 'payment',
     link: '/vendor-dashboard',
-    type: 'payment',
-    read: false,
-    timestamp: now,
+    payload: {
+      id: req.id,
+      productId: req.productId,
+      status: req.status,
+      startsAt,
+      endsAt,
+    },
+    alsoAddNotification: true,
+    now,
   });
 
   logAudit(
@@ -1125,5 +1153,5 @@ export function approveFeaturedRequestInTx(
     `Approved featured request #${req.id} for "${product.title}" (${req.durationDays}d, KSh ${fromCents(req.amountPaidCents)} -> ${req.status}, ${eatStart} to ${eatEnd} EAT)`
   );
 
-  return { alreadyProcessed: false, req, product };
+  return { alreadyProcessed: false, req, product, outboxEvent };
 }

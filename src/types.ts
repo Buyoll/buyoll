@@ -1307,3 +1307,111 @@ export interface MerchantLimitsSummary {
   featuredDiscountPercent: number;
 }
 
+// ==============================================================
+// UNIFIED ADMIN WALLET, INCOME LEDGER, OUTBOX & EXPORTS
+// ==============================================================
+export type IncomeSource =
+  | 'SUBSCRIPTION'
+  | 'FEATURED'
+  | 'LOAN_FEE'
+  | 'TRIP_DATING'
+  | 'AIRBUS_PLUS'
+  | 'ADVERTISING'
+  | 'OTHER';
+
+export interface PlatformIncomeRecord {
+  id: string;
+  source: IncomeSource;
+  paymentChannel: 'WALLET' | 'MPESA_DIRECT';
+  amountCents: number;
+  currency: 'KES';
+  userId?: number | null;
+  userName?: string;
+  referenceId: string;
+  description: string;
+  eatDateKey: string; // YYYY-MM-DD in Africa/Nairobi
+  eatHourKey: string; // YYYY-MM-DD HH in Africa/Nairobi
+  eatMonthKey: string; // YYYY-MM in Africa/Nairobi
+  eatYearKey: string; // YYYY in Africa/Nairobi
+  idempotencyKey: string;
+  actorId?: number | null;
+  createdAt: number;
+}
+
+export interface SpecialRefundCreditRecord {
+  id: string;
+  refundRequestId?: number;
+  userId: number;
+  role: UserRole;
+  amountCents: number;
+  kind: 'SPECIAL_EXTERNAL_REFUND' | 'DEFAULT_STORE_CREDIT' | 'GROUP_REMOVAL_REFUND' | 'POINTS_REDEMPTION';
+  referenceId: string;
+  note: string;
+  idempotencyKey: string;
+  createdAt: number;
+}
+
+export interface OutboxEventRecord {
+  id: string;
+  userId: number;
+  eventType: string;
+  entityType: 'deposit' | 'payment' | 'subscription' | 'featured' | 'refund' | 'verification' | 'announcement' | 'wallet';
+  entityId: string;
+  title: string;
+  message: string;
+  notificationType: UserNotification['type'];
+  link?: string;
+  payload?: Record<string, any>;
+  deliveredAt?: number | null;
+  acknowledgedAt?: number | null;
+  createdAt: number;
+}
+
+export interface WalletReconciliationMismatch {
+  walletId: string;
+  userId: number;
+  role: UserRole;
+  walletBalanceCents: number;
+  ledgerNetCents: number;
+  diffCents: number;
+}
+
+export interface ReconciliationReport {
+  id: string;
+  status: 'PASSED' | 'MISMATCH';
+  trigger: 'scheduled' | 'manual' | 'mutation';
+  checkedAt: number;
+  eatTimestamp: string;
+  approvedDepositsCents: number;
+  openingUserWalletCents: number;
+  approvedSpecialRefundsCents: number;
+  totalUserWalletsHeldCents: number;
+  nonAdminAvailableHeldCents: number;
+  restrictedHeldCents: number;
+  platformWalletBalanceCents: number;
+  walletFundedRevenueCents: number;
+  directMpesaRevenueCents: number;
+  totalIncomeRevenueCents: number;
+  leftSideCents: number;
+  rightSideCents: number;
+  diffCents: number;
+  walletMismatchCount: number;
+  walletMismatches: WalletReconciliationMismatch[];
+  notes: string;
+}
+
+export interface AdminExportJob {
+  id: string;
+  type: 'wallets' | 'users' | 'admin_wallet';
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  createdBy: number;
+  filename: string;
+  mimeType: string;
+  totalRows: number;
+  csvContent?: string;
+  error?: string;
+  createdAt: number;
+  completedAt?: number | null;
+}
+
+

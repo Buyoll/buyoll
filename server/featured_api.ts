@@ -5,6 +5,7 @@ import { getDatabase, logAudit, runDatabaseTransaction } from './db.js';
 import { resolveAuthenticatedUser } from './auth_utils.js';
 import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
+import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
 import { fromCents, getEatDateParts, toCents } from './config.js';
 import {
   debitWalletCents,
@@ -767,10 +768,14 @@ featuredRouter.post('/admin/featured/:id/approve', async (req: Request, res: Res
       return {
         alreadyProcessed: resAppr.alreadyProcessed,
         request: enrichFeaturedRequest(db, resAppr.req, now),
+        outboxEvent: resAppr.outboxEvent,
       };
     });
 
     if (!outcome.alreadyProcessed) {
+      if (outcome.outboxEvent) {
+        flushOutboxEvents([outcome.outboxEvent]);
+      }
       emitPlatformEvent('featured.updated', { id: reqId, status: outcome.request.status });
     }
 
@@ -809,6 +814,7 @@ featuredRouter.post('/admin/featured/bulk-approve', async (req: Request, res: Re
     sweepFeaturedPlacementsInTx(db, now);
     const approvedIds: string[] = [];
     const failed: Array<{ id: string; code: string; message: string }> = [];
+    const outboxEvents: any[] = [];
 
     for (const id of parsed.data.ids) {
       const target = (db.featuredRequests || []).find((r) => r.id === id);
@@ -817,12 +823,13 @@ featuredRouter.post('/admin/featured/bulk-approve', async (req: Request, res: Re
         continue;
       }
       try {
-        approveFeaturedRequestInTx(db, {
+        const resAppr = approveFeaturedRequestInTx(db, {
           req: target,
           adminUser: admin,
           getMerchantLimitsFn: (innerDb, mId) => getMerchantLimits(innerDb, mId, now),
           now,
         });
+        if (resAppr.outboxEvent) outboxEvents.push(resAppr.outboxEvent);
         approvedIds.push(id);
       } catch (err: any) {
         failed.push({
@@ -833,9 +840,12 @@ featuredRouter.post('/admin/featured/bulk-approve', async (req: Request, res: Re
       }
     }
 
-    return { approvedIds, failed };
+    return { approvedIds, failed, outboxEvents };
   });
 
+  if (outcome.outboxEvents.length > 0) {
+    flushOutboxEvents(outcome.outboxEvents);
+  }
   if (outcome.approvedIds.length > 0) {
     emitPlatformEvent('featured.updated', { bulkApprovedIds: outcome.approvedIds });
   }
@@ -887,16 +897,18 @@ featuredRouter.post('/admin/featured/:id/reject', async (req: Request, res: Resp
       target.rejectionReason = parsed.data.reason;
       target.updatedAt = now;
 
-      if (!db.userNotifications) db.userNotifications = [];
-      db.userNotifications.unshift({
-        id: `notif_feat_rej_${target.id}`,
+      const outboxEvent = enqueueOutboxInTx(db, {
         userId: target.merchantId,
+        eventType: 'featured.updated',
+        entityType: 'featured',
+        entityId: target.id,
         title: 'Featured Request Rejected (Refunded)',
         message: `Your featured placement request for "${product?.title || `#${target.productId}`}" was rejected. Reason: ${parsed.data.reason}. KSh ${fromCents(target.amountPaidCents).toLocaleString()} has been refunded to your merchant wallet.`,
+        notificationType: 'system',
         link: '/vendor-dashboard',
-        type: 'system',
-        read: false,
-        timestamp: now,
+        payload: { id: target.id, status: 'REJECTED', reason: parsed.data.reason },
+        alsoAddNotification: true,
+        now,
       });
 
       logAudit(
@@ -907,13 +919,17 @@ featuredRouter.post('/admin/featured/:id/reject', async (req: Request, res: Resp
         `Rejected featured request #${target.id} for "${product?.title || `#${target.productId}`}" (Reason: ${parsed.data.reason}); refunded KSh ${fromCents(target.amountPaidCents)}`
       );
 
-      return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now) };
+      return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now), outboxEvent };
     });
 
+    if (outcome.outboxEvent) {
+      flushOutboxEvents([outcome.outboxEvent]);
+    }
     emitPlatformEvent('featured.updated', { id: reqId, status: 'REJECTED' });
     return res.json({
       success: true,
-      ...outcome,
+      request: outcome.request,
+      alreadyProcessed: outcome.alreadyProcessed,
       message: `Featured request rejected and KSh ${outcome.request.refundedKes.toLocaleString()} refunded to merchant wallet.`,
     });
   } catch (err: any) {
@@ -983,16 +999,18 @@ featuredRouter.post('/admin/featured/:id/remove', async (req: Request, res: Resp
 
       sweepFeaturedPlacementsInTx(db, now);
 
-      if (!db.userNotifications) db.userNotifications = [];
-      db.userNotifications.unshift({
-        id: `notif_feat_rem_${target.id}`,
+      const outboxEvent = enqueueOutboxInTx(db, {
         userId: target.merchantId,
+        eventType: 'featured.updated',
+        entityType: 'featured',
+        entityId: target.id,
         title: 'Featured Placement Removed by Moderation',
         message: `Your featured placement for "${product?.title || `#${target.productId}`}" was removed by Admin. Reason: ${parsed.data.reason}.${refundCents > 0 ? ` Refunded KSh ${fromCents(refundCents).toLocaleString()} to your wallet.` : ''}`,
+        notificationType: 'system',
         link: '/vendor-dashboard',
-        type: 'system',
-        read: false,
-        timestamp: now,
+        payload: { id: target.id, status: 'REMOVED', reason: parsed.data.reason, refundedCents: refundCents },
+        alsoAddNotification: true,
+        now,
       });
 
       logAudit(
@@ -1003,13 +1021,17 @@ featuredRouter.post('/admin/featured/:id/remove', async (req: Request, res: Resp
         `Removed featured placement #${target.id} (prev=${prevStatus}, reason="${parsed.data.reason}", refundMode=${settings.takedownRefundMode}, refundedCents=${refundCents})`
       );
 
-      return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now) };
+      return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now), outboxEvent };
     });
 
+    if (outcome.outboxEvent) {
+      flushOutboxEvents([outcome.outboxEvent]);
+    }
     emitPlatformEvent('featured.updated', { id: reqId, status: 'REMOVED' });
     return res.json({
       success: true,
-      ...outcome,
+      request: outcome.request,
+      alreadyProcessed: outcome.alreadyProcessed,
       message: `Featured placement removed${outcome.request.refundedKes > 0 ? ` and KSh ${outcome.request.refundedKes.toLocaleString()} refunded` : ''}.`,
     });
   } catch (err: any) {

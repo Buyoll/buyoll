@@ -45,6 +45,11 @@ import {
   FeaturedStatsDaily,
   TierFeaturedLimits,
   FeaturedSettings,
+  PlatformIncomeRecord,
+  OutboxEventRecord,
+  ReconciliationReport,
+  AdminExportJob,
+  SpecialRefundCreditRecord,
 } from '../src/types.js';
 import { SUPPORT_EMAIL } from './config.js';
 import { runPendingMigrations, MigrationRecord } from './migrations.js';
@@ -130,6 +135,11 @@ export interface DatabaseSchema {
   featuredStatsDaily?: FeaturedStatsDaily[];
   tierFeaturedLimits?: Record<string, TierFeaturedLimits>;
   featuredSettings?: FeaturedSettings;
+  incomeLedger?: PlatformIncomeRecord[];
+  specialRefundCredits?: SpecialRefundCreditRecord[];
+  outboxEvents?: OutboxEventRecord[];
+  reconciliationReports?: ReconciliationReport[];
+  exportJobs?: AdminExportJob[];
   migrationsApplied?: MigrationRecord[];
   controlCenterIndexes?: ControlCenterIndexSnapshot;
   auditLogs: AuditLog[];
@@ -769,6 +779,11 @@ function getInitialDatabase(): DatabaseSchema {
     featuredRequests: [],
     featuredStatsDaily: [],
     tierFeaturedLimits: {},
+    incomeLedger: [],
+    specialRefundCredits: [],
+    outboxEvents: [],
+    reconciliationReports: [],
+    exportJobs: [],
   };
 }
 
@@ -1030,6 +1045,11 @@ async function loadOrInitializeDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.featuredRequests) dbCache!.featuredRequests = [];
     if (!dbCache!.featuredStatsDaily) dbCache!.featuredStatsDaily = [];
     if (!dbCache!.tierFeaturedLimits) dbCache!.tierFeaturedLimits = {};
+    if (!dbCache!.incomeLedger) dbCache!.incomeLedger = [];
+    if (!dbCache!.specialRefundCredits) dbCache!.specialRefundCredits = [];
+    if (!dbCache!.outboxEvents) dbCache!.outboxEvents = [];
+    if (!dbCache!.reconciliationReports) dbCache!.reconciliationReports = [];
+    if (!dbCache!.exportJobs) dbCache!.exportJobs = [];
     if (!dbCache!.announcementRevisions) dbCache!.announcementRevisions = [];
     if (!dbCache!.announcementCards || dbCache!.announcementCards.length === 0) {
       dbCache!.announcementCards = [
@@ -1140,10 +1160,8 @@ export function logAudit(db: DatabaseSchema, actorId: number, actorName: string,
     action,
     details,
   };
+  // Append-only audit log: newest first without truncation
   db.auditLogs.unshift(entry);
-  if (db.auditLogs.length > 500) {
-    db.auditLogs.pop();
-  }
 }
 
 /**

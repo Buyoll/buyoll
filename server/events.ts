@@ -13,7 +13,12 @@ export type PlatformEventType =
   | 'subscription.expired'
   | 'user.wallet.updated'
   | 'featured.request.submitted'
-  | 'featured.updated';
+  | 'featured.updated'
+  | 'outbox.notification'
+  | 'verification.updated'
+  | 'refund.updated'
+  | 'deposit.updated'
+  | 'admin.wallet.updated';
 
 interface SseClient {
   id: string;

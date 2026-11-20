@@ -15,6 +15,7 @@ import {
 } from '../src/types.js';
 import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { emitPlatformEvent } from './events.js';
+import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
 import {
   activateSubscriptionInTx,
   getComputedSubscriptionTiers,
@@ -27,6 +28,7 @@ import {
   debitWalletCents,
   findPlatformAdminUser,
 } from './wallet_service.js';
+import { findDuplicateMpesaCodeInTx } from './admin_wallet_service.js';
 import { paginateList, parsePaginationQuery } from './admin_control_center.js';
 import { recordFeaturedEventInTx, sweepFeaturedPlacements } from './featured_service.js';
 import { broadcastGroupChatDelta } from './group_chat_service.js';
@@ -973,55 +975,86 @@ prompt2Router.post('/admin/merchant-verifications/:id/decide', async (req: Reque
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
   const mid = Number(req.params.id);
-  const { action, declineReason } = req.body; // 'verify' | 'decline'
-
-  const db = await getDatabase();
-  const rec = (db.merchantVerifications || []).find((v) => v.merchantId === mid);
-  if (!rec) return res.status(404).json({ error: 'Record not found' });
-
-  const merchantUser = db.users.find((u) => u.id === mid);
-  if (!merchantUser) return res.status(404).json({ error: 'Merchant user not found' });
-
-  if (action === 'verify') {
-    rec.status = 'verified';
-    rec.reviewedAt = Date.now();
-    merchantUser.verified = true;
-    merchantUser.verificationNotes = 'Verified by Buyoll Admin following physical shop visit and document inspection.';
-
-    if (!db.userNotifications) db.userNotifications = [];
-    db.userNotifications.unshift({
-      id: `notif_${Date.now()}`,
-      userId: mid,
-      title: '🌟 Buyoll Verified Merchant Status Approved!',
-      message: 'Congratulations! Your store is now verified. The "Buyoll Verified Merchant" badge is active on your profile and products.',
-      type: 'verification',
-      read: false,
-      timestamp: Date.now(),
-    });
-
-    logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `Granted "Buyoll Verified Merchant" status to merchant #${mid} (${merchantUser.shopName || merchantUser.name})`);
-  } else {
-    rec.status = 'declined';
-    rec.declineReason = declineReason || 'Requirements not fully met.';
-    rec.reviewedAt = Date.now();
-    merchantUser.verified = false;
-
-    if (!db.userNotifications) db.userNotifications = [];
-    db.userNotifications.unshift({
-      id: `notif_${Date.now()}`,
-      userId: mid,
-      title: 'Merchant Verification Declined',
-      message: `Your verification application was declined: ${rec.declineReason}. Please update your details to reapply.`,
-      type: 'verification',
-      read: false,
-      timestamp: Date.now(),
-    });
-
-    logAudit(db, user.id, user.name, 'MERCHANT_VERIFICATION_DECLINED', `Declined verification for merchant #${mid}: ${rec.declineReason}`);
+  const { action, declineReason } = req.body || {}; // 'verify' | 'decline'
+  if (action !== 'verify' && action !== 'decline') {
+    return res.status(400).json({ error: 'Action must be "verify" or "decline".' });
+  }
+  const cleanReason = String(declineReason || '').trim();
+  if (action === 'decline' && cleanReason.length < 3) {
+    return res.status(400).json({ error: 'A clear reason (at least 3 characters) is required when declining verification.' });
   }
 
-  await saveDatabase(db);
-  res.json({ success: true, verification: rec, user: merchantUser, message: `Merchant has been ${action === 'verify' ? 'verified' : 'declined'}.` });
+  try {
+    const out = await runDatabaseTransaction((db) => {
+      const rec = (db.merchantVerifications || []).find((v) => v.merchantId === mid);
+      if (!rec) throw { status: 404, message: 'Verification record not found' };
+
+      const merchantUser = db.users.find((u) => u.id === mid);
+      if (!merchantUser) throw { status: 404, message: 'Merchant user not found' };
+
+      const now = Date.now();
+      let outboxEvent: any = null;
+
+      if (action === 'verify') {
+        rec.status = 'verified';
+        rec.reviewedAt = now;
+        rec.declineReason = undefined;
+        merchantUser.verified = true;
+        merchantUser.verifiedAt = now;
+        merchantUser.starRating = merchantUser.starRating || 5;
+        merchantUser.verificationNotes = 'Verified by Buyoll Admin following physical shop visit and document inspection.';
+
+        outboxEvent = enqueueOutboxInTx(db, {
+          userId: mid,
+          eventType: 'verification.updated',
+          entityType: 'verification',
+          entityId: String(mid),
+          title: '🌟 Buyoll Verified Merchant Status Approved!',
+          message: 'Congratulations! Your store is now verified. The "Buyoll Verified Merchant" badge is active on your profile and products.',
+          notificationType: 'verification',
+          link: '/vendor-dashboard',
+          payload: { merchantId: mid, status: 'verified', verified: true },
+          alsoAddNotification: true,
+          now,
+        });
+
+        logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `Granted "Buyoll Verified Merchant" status to merchant #${mid} (${merchantUser.shopName || merchantUser.name})`);
+      } else {
+        rec.status = 'declined';
+        rec.declineReason = cleanReason;
+        rec.reviewedAt = now;
+        merchantUser.verified = false;
+        merchantUser.verificationNotes = cleanReason;
+
+        outboxEvent = enqueueOutboxInTx(db, {
+          userId: mid,
+          eventType: 'verification.updated',
+          entityType: 'verification',
+          entityId: String(mid),
+          title: 'Merchant Verification Declined',
+          message: `Your verification application was declined: ${cleanReason}. Please update your details to reapply.`,
+          notificationType: 'verification',
+          link: '/vendor-dashboard',
+          payload: { merchantId: mid, status: 'declined', verified: false, declineReason: cleanReason },
+          alsoAddNotification: true,
+          now,
+        });
+
+        logAudit(db, user.id, user.name, 'MERCHANT_VERIFICATION_DECLINED', `Declined verification for merchant #${mid}: ${cleanReason}`);
+      }
+
+      return { verification: rec, user: sanitizeUser(merchantUser), outboxEvent };
+    });
+
+    if (out.outboxEvent) {
+      flushOutboxEvents([out.outboxEvent], [
+        { type: 'user.profile.updated', payload: { user: out.user }, targetUserIds: [mid] },
+      ]);
+    }
+    res.json({ success: true, verification: out.verification, user: out.user, message: `Merchant has been ${action === 'verify' ? 'verified' : 'declined'}.` });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err?.message || 'Failed to decide merchant verification' });
+  }
 });
 
 // Admin lists all verifications (paginated, O(1) user map)
@@ -1092,11 +1125,9 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
       }
 
       if (targetSub.paymentCode) {
-        const duplicateActive = (db.merchantSubscriptions || []).some(
-          (s) => s.id !== targetSub.id && s.paymentCode === targetSub.paymentCode && s.status === 'active'
-        );
-        if (duplicateActive) {
-          throw { status: 400, message: `Payment code ${targetSub.paymentCode} has already been approved for an active subscription.` };
+        const dup = findDuplicateMpesaCodeInTx(db, targetSub.paymentCode, targetSub.id);
+        if (dup.duplicate) {
+          throw { status: 409, message: `Payment code ${targetSub.paymentCode} has already been approved/pending (${dup.entity}).` };
         }
       }
 
@@ -1116,6 +1147,8 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
           ? 'Wallet Coins'
           : targetSub.paymentCode || 'M-Pesa Till';
 
+      const isWalletCredit = targetSub.paymentMethod === 'wallet_credit';
+      const isCoins = targetSub.paymentMethod === 'wallet_coins';
       const activation = activateSubscriptionInTx(db, {
         merchantUser,
         planId: targetTier.id,
@@ -1125,6 +1158,8 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
         actorId: user.id,
         actorName: user.name,
         paymentSummary: methodDesc,
+        amountKes: isCoins ? 0 : targetSub.amount,
+        paymentChannel: isWalletCredit ? 'WALLET' : isCoins ? undefined : 'MPESA_DIRECT',
         now,
       });
 
@@ -1166,6 +1201,9 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
       return { sub: targetSub, merchantName: merchantUser.name || 'merchant', merchantId: merchantUser.id, durationLabel, activation };
     });
 
+    if (result.activation.outboxEvent) {
+      flushOutboxEvents([result.activation.outboxEvent]);
+    }
     emitPlatformEvent(
       'subscription.activated',
       {
@@ -1177,7 +1215,7 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/approve', async (req: Requ
       },
       [result.merchantId]
     );
-    emitPlatformEvent('subscription.updated', { merchantId: result.merchantId, subscription: result.sub });
+    emitPlatformEvent('subscription.updated', { merchantId: result.merchantId, subscription: result.sub }, [result.merchantId]);
 
     res.json({
       success: true,
@@ -1197,9 +1235,13 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
 
   const subId = req.params.id;
   const { reason } = req.body || {};
+  const cleanReason = String(reason || '').trim();
+  if (cleanReason.length < 3) {
+    return res.status(400).json({ error: 'A clear reason (at least 3 characters) is required when declining a subscription.' });
+  }
 
   try {
-    const sub = await runDatabaseTransaction(async (db) => {
+    const out = await runDatabaseTransaction(async (db) => {
       const targetSub = (db.merchantSubscriptions || []).find((s) => s.id === subId);
       if (!targetSub) throw { status: 404, message: 'Subscription not found' };
 
@@ -1208,7 +1250,16 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
       }
 
       targetSub.status = 'declined';
+      targetSub.notes = cleanReason;
       const now = Date.now();
+
+      const matchingReq = (db.subscriptionRequests || []).find((r) => r.id === subId);
+      if (matchingReq) {
+        matchingReq.status = 'rejected';
+        matchingReq.rejectionReason = cleanReason;
+        matchingReq.reviewedAt = now;
+        matchingReq.adminId = user.id;
+      }
 
       if (db.payments) {
         const payment = db.payments.find(
@@ -1216,10 +1267,11 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
         );
         if (payment) {
           payment.status = 'rejected';
-          payment.rejectionReason = reason || 'Declined by Admin';
+          payment.rejectionReason = cleanReason;
         }
       }
 
+      let outboxEvent: any = null;
       const merchantUser = db.users.find((u) => u.id === targetSub.merchantId);
       if (merchantUser) {
         const hasOtherActive = (db.merchantSubscriptions || []).some(
@@ -1274,30 +1326,37 @@ prompt2Router.post('/admin/merchant-subscriptions/:id/decline', async (req: Requ
           });
         }
 
-        if (!db.userNotifications) db.userNotifications = [];
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        outboxEvent = enqueueOutboxInTx(db, {
           userId: merchantUser.id,
-          title: '⚠️ Subscription Request Declined',
+          eventType: 'subscription.updated',
+          entityType: 'subscription',
+          entityId: targetSub.id,
+          title: 'Subscription Request Declined',
           message: `Your subscription request was declined by Admin. ${
             targetSub.paymentMethod === 'wallet_credit'
               ? 'Your KSh store credit has been refunded to your merchant wallet.'
               : targetSub.paymentMethod === 'wallet_coins'
               ? 'Your wallet coins have been fully refunded.'
               : 'Please check your transaction details and resubmit.'
-          }${reason ? ` Reason: ${reason}` : ''}`,
-          type: 'system',
-          read: false,
-          timestamp: now,
+          } Reason: ${cleanReason}`,
+          notificationType: 'system',
+          link: '/vendor-dashboard',
+          payload: { merchantId: merchantUser.id, subscriptionId: targetSub.id, status: 'declined', reason: cleanReason },
+          alsoAddNotification: true,
+          now,
         });
       }
 
-      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_DECLINED', `Declined subscription #${targetSub.id} for merchant #${targetSub.merchantId}`);
+      logAudit(db, user.id, user.name, 'MERCHANT_SUBSCRIPTION_DECLINED', `Declined subscription #${targetSub.id} for merchant #${targetSub.merchantId}: ${cleanReason}`);
 
-      return targetSub;
+      return { targetSub, outboxEvent };
     });
 
-    res.json({ success: true, subscription: sub, message: 'Subscription request declined.' });
+    if (out.outboxEvent) {
+      flushOutboxEvents([out.outboxEvent]);
+    }
+
+    res.json({ success: true, subscription: out.targetSub, message: 'Subscription request declined.' });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to decline subscription' });
   }

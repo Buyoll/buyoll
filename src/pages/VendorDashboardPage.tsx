@@ -440,14 +440,25 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
 
   useEffect(() => {
     if (!currentUserId || typeof window === 'undefined') return;
-    const handleSubEvent = () => {
-      loadVendorData();
+    const handleLiveVendorEvent = () => {
+      void loadVendorData();
+      setFeaturedRefreshTick((t) => t + 1);
     };
-    window.addEventListener('buyoll:subscription-activated', handleSubEvent);
-    window.addEventListener('buyoll:subscription-expired', handleSubEvent);
+    window.addEventListener('buyoll:subscription-activated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:subscription-expired', handleLiveVendorEvent);
+    window.addEventListener('buyoll:wallet-updated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:deposit-updated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:verification-updated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:featured-updated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:outbox-notification', handleLiveVendorEvent);
     return () => {
-      window.removeEventListener('buyoll:subscription-activated', handleSubEvent);
-      window.removeEventListener('buyoll:subscription-expired', handleSubEvent);
+      window.removeEventListener('buyoll:subscription-activated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:subscription-expired', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:wallet-updated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:deposit-updated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:verification-updated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:featured-updated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:outbox-notification', handleLiveVendorEvent);
     };
   }, [currentUserId]);
 
@@ -594,6 +605,20 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => onNavigate('wallet')}
+            data-testid="merchant-deposit-wallet-btn"
+            title="View Merchant Operating Wallet and submit an M-Pesa deposit"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:border-[#ff6600] text-slate-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+          >
+            <Wallet className="w-3.5 h-3.5 text-[#ff6600]" />
+            <span className="tabular-nums">
+              Wallet: KSh {(currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0).toLocaleString()}
+            </span>
+            <span className="text-[#ff6600] font-extrabold">+ Deposit</span>
+          </button>
+
           {subscriptionInfo?.subscription && !subscriptionInfo.isExpired ? (
             <button
               onClick={() => setIsSubscriptionModalOpen(true)}

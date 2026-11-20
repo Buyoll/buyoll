@@ -38,6 +38,11 @@ import {
   GroupChatTopic,
   GroupChatPresenceMember,
   GroupChatGoalSummary,
+  IncomeSource,
+  PlatformIncomeRecord,
+  ReconciliationReport,
+  OutboxEventRecord,
+  AdminExportJob,
 } from './types.ts';
 import {
   getFallbackAnnouncements,
@@ -1100,17 +1105,24 @@ export const api = {
     return await fetchApi<any>(`/admin/refunds${buildAdminQuery(params)}`);
   },
 
-  async getAdminAuditLogs(params?: { page?: number; limit?: number }): Promise<{
+  async getAdminAuditLogs(params?: {
+    page?: number;
+    limit?: number;
+    before?: string | number;
+    after?: string | number;
+    action?: string;
+    search?: string;
+  }): Promise<{
     auditLogs: AuditLog[];
     pagination: AdminPaginationMeta;
   }> {
     return await fetchApi<any>(`/admin/audit-logs${buildAdminQuery(params)}`);
   },
 
-  async adminPaymentDecision(paymentId: number, decision: 'approve' | 'reject'): Promise<{ payment: PaymentRecord; message: string }> {
+  async adminPaymentDecision(paymentId: number, decision: 'approve' | 'reject', reason?: string): Promise<{ payment: PaymentRecord; message: string }> {
     return await fetchApi<any>(`/admin/payments/${paymentId}/decision`, {
       method: 'POST',
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, ...(reason ? { reason } : {}) }),
     });
   },
 
@@ -1469,11 +1481,17 @@ export const api = {
     return await fetchApi<{ deposits: WalletDepositRequest[] }>('/wallet/deposits');
   },
 
-  async getAdminWalletDeposits(params?: { page?: number; limit?: number; status?: string }): Promise<{ deposits: WalletDepositRequest[]; pagination?: AdminPaginationMeta }> {
+  async getAdminWalletDeposits(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    role?: string;
+    search?: string;
+  }): Promise<{ deposits: WalletDepositRequest[]; pagination?: AdminPaginationMeta }> {
     return await fetchApi<{ deposits: WalletDepositRequest[]; pagination?: AdminPaginationMeta }>(`/admin/wallet-deposits${buildAdminQuery(params)}`);
   },
 
-  async decideWalletDeposit(id: string, data: { action: 'approve' | 'decline'; notes?: string }): Promise<any> {
+  async decideWalletDeposit(id: string | number, data: { action: 'approve' | 'decline'; notes?: string; reason?: string }): Promise<any> {
     return await fetchApi<any>(`/admin/wallet-deposits/${id}/decide`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -2671,7 +2689,235 @@ export const api = {
     }
     return res;
   },
+
+  // -------------------------------------------------------------------
+  // UNIFIED ADMIN WALLET, INCOME LEDGER, RECONCILIATION & ASYNC EXPORTS
+  // -------------------------------------------------------------------
+  async getAdminWalletSummary(): Promise<{
+    kpis: {
+      totalDepositsApprovedCents: number;
+      totalDepositsApprovedKes: number;
+      totalDepositsPendingCents: number;
+      totalDepositsPendingKes: number;
+      totalDepositsDeclinedCents: number;
+      totalDepositsDeclinedKes: number;
+      approvedDepositCount: number;
+      pendingDepositCount: number;
+      declinedDepositCount: number;
+      totalIncomeRevenueCents: number;
+      totalIncomeRevenueKes: number;
+      walletFundedIncomeKes: number;
+      directMpesaIncomeKes: number;
+      totalHeldInUserWalletsCents: number;
+      totalHeldInUserWalletsKes: number;
+      availableHeldCents: number;
+      availableHeldKes: number;
+      restrictedHeldCents: number;
+      restrictedHeldKes: number;
+      platformWalletBalanceCents: number;
+      platformWalletBalanceKes: number;
+    };
+    bySourceCents: Record<IncomeSource, number>;
+    bySourceKes: Record<IncomeSource, number>;
+    heldByRoleKes: Record<'member' | 'merchant' | 'lender' | 'admin', number>;
+    latestReconciliation: ReconciliationReport | null;
+  }> {
+    return await fetchApi('/admin/wallet/summary');
+  },
+
+  async getAdminWalletDepositsPage(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    role?: string;
+    search?: string;
+  }): Promise<{ deposits: WalletDepositRequest[]; pagination: AdminPaginationMeta }> {
+    return await fetchApi(`/admin/wallet/deposits${buildAdminQuery(params)}`);
+  },
+
+  async getAdminWalletIncome(params?: {
+    granularity?: 'hour' | 'day' | 'month' | 'year';
+    source?: string;
+    channel?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    granularity: 'hour' | 'day' | 'month' | 'year';
+    timezone: string;
+    totalsBySource: Array<{
+      source: IncomeSource;
+      label: string;
+      totalCents: number;
+      totalKes: number;
+      count: number;
+    }>;
+    series: Array<{
+      bucket: string;
+      totalCents: number;
+      totalKes: number;
+      walletKes: number;
+      mpesaDirectKes: number;
+      count: number;
+      bySourceKes: Record<IncomeSource, number>;
+    }>;
+    entries: Array<PlatformIncomeRecord & { amountKes: number; sourceLabel: string }>;
+    pagination: AdminPaginationMeta;
+  }> {
+    return await fetchApi(`/admin/wallet/income${buildAdminQuery(params)}`);
+  },
+
+  async recordAdminWalletIncome(payload: {
+    source: IncomeSource;
+    amountKes: number;
+    referenceId: string;
+    description: string;
+    userId?: number;
+    idempotencyKey?: string;
+  }): Promise<{ record: PlatformIncomeRecord; deduplicated: boolean }> {
+    return await fetchApi('/admin/wallet/income', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminWalletHeld(params?: {
+    page?: number;
+    limit?: number;
+    role?: string;
+    search?: string;
+  }): Promise<{
+    summaryByRole: Array<{
+      role: 'member' | 'merchant' | 'lender' | 'admin';
+      walletCount: number;
+      availableCents: number;
+      availableKes: number;
+      restrictedCents: number;
+      restrictedKes: number;
+      totalHeldCents: number;
+      totalHeldKes: number;
+    }>;
+    wallets: Array<{
+      userId: number;
+      platformId: string;
+      name: string;
+      shopName: string;
+      phone: string;
+      email: string;
+      role: string;
+      availableCents: number;
+      availableKes: number;
+      restrictedCents: number;
+      restrictedKes: number;
+      totalCents: number;
+      totalKes: number;
+      coins: number;
+      points: number;
+      updatedAt: number;
+    }>;
+    pagination: AdminPaginationMeta;
+  }> {
+    return await fetchApi(`/admin/wallet/held${buildAdminQuery(params)}`);
+  },
+
+  async getAdminWalletReconciliation(): Promise<{
+    latest: ReconciliationReport | null;
+    history: ReconciliationReport[];
+  }> {
+    return await fetchApi('/admin/wallet/reconciliation');
+  },
+
+  async runAdminWalletReconciliation(): Promise<{ report: ReconciliationReport }> {
+    return await fetchApi('/admin/wallet/reconciliation/run', { method: 'POST' });
+  },
+
+  async createAdminExportJob(type: AdminExportJob['type']): Promise<{ job: AdminExportJob }> {
+    return await fetchApi('/admin/exports', {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    });
+  },
+
+  async getAdminExportJob(id: string): Promise<{ job: AdminExportJob }> {
+    return await fetchApi(`/admin/exports/${encodeURIComponent(id)}`);
+  },
+
+  async downloadAuthenticatedCsv(endpoint: string, fallbackFilename: string): Promise<{ filename: string; rowsDownloaded?: boolean }> {
+    const token = getAccessToken();
+    const activeRole = getActiveRoleHeader() || 'admin';
+    const headers: Record<string, string> = { 'x-buyoll-role': activeRole };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+    try {
+      const normalized = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      const res = await fetch(`${API_BASE}${normalized}`, {
+        credentials: 'include',
+        headers,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || `Export failed (HTTP ${res.status})`);
+      }
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1] || fallbackFilename;
+      const blob = await res.blob();
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      }
+      return { filename, rowsDownloaded: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
+  async runAsyncCsvDownload(type: AdminExportJob['type']): Promise<{ filename: string; totalRows: number }> {
+    const { job } = await this.createAdminExportJob(type);
+    let current = job;
+    const deadline = Date.now() + DEFAULT_REQUEST_TIMEOUT_MS;
+    while (current.status !== 'completed' && current.status !== 'failed' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 150));
+      const res = await this.getAdminExportJob(current.id);
+      current = res.job;
+    }
+    if (current.status === 'failed') {
+      throw new Error(current.error || 'CSV export generation failed');
+    }
+    if (current.status !== 'completed') {
+      throw new Error('CSV export timed out. Please try again.');
+    }
+    await this.downloadAuthenticatedCsv(
+      `/admin/exports/${encodeURIComponent(current.id)}/download`,
+      current.filename || `buyoll_${type}.csv`
+    );
+    return { filename: current.filename, totalRows: current.totalRows || 0 };
+  },
+
+  // -------------------------------------------------------------------
+  // TRANSACTIONAL USER OUTBOX DELIVERY & ACK
+  // -------------------------------------------------------------------
+  async getPendingUserOutbox(): Promise<{ events: OutboxEventRecord[] }> {
+    return await fetchApi('/user/outbox/pending');
+  },
+
+  async ackUserOutbox(ids: string[]): Promise<{ success: boolean; acknowledged: number }> {
+    if (!ids.length) return { success: true, acknowledged: 0 };
+    return await fetchApi('/user/outbox/ack', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
 };
+
 
 
 

@@ -70,9 +70,18 @@ import {
   creditWalletCents,
   debitWalletCents,
   ensureWallet,
+  findPlatformAdminUser,
   getWalletBalanceCents,
   normalizeRoleValue,
 } from './wallet_service.js';
+import { adminWalletRouter, queueWalletDepositDecisionOutboxInTx } from './admin_wallet_api.js';
+import { findDuplicateMpesaCodeInTx, recordIncomeInTx } from './admin_wallet_service.js';
+import {
+  acknowledgeOutboxForUser,
+  enqueueOutboxInTx,
+  flushOutboxEvents,
+  getPendingOutboxForUser,
+} from './outbox_service.js';
 import {
   STANDARD_MEMBER_SPEEDS,
   buildAllSpeedOptions,
@@ -89,7 +98,23 @@ apiRouter.get('/events', async (req: Request, res: Response) => {
   const user = await resolveAuthenticatedUser(req).catch(() => null);
   handleEventsSse(req, res, user?.id ?? null);
 });
+apiRouter.get('/user/outbox/pending', async (req: Request, res: Response) => {
+  const user = await resolveAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const db = await getDatabase();
+  const events = getPendingOutboxForUser(db, user.id, 50);
+  res.json({ events });
+});
+apiRouter.post('/user/outbox/ack', async (req: Request, res: Response) => {
+  const user = await resolveAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  if (ids.length === 0) return res.json({ acknowledged: 0 });
+  const acknowledged = await runDatabaseTransaction((db) => acknowledgeOutboxForUser(db, user.id, ids));
+  res.json({ acknowledged });
+});
 apiRouter.use(authRouter);
+apiRouter.use(adminWalletRouter);
 apiRouter.use(groupMembershipRouter);
 apiRouter.use(groupLoansRouter);
 apiRouter.use(groupChatRouter);
@@ -2798,15 +2823,38 @@ apiRouter.post('/groups/:id/remove-member', async (req: Request, res: Response) 
   const removedUserName = slot.userName || 'Member';
   const paidAmount = slot.paidAmount || 0;
 
-  // 1. Immediately refund paid contribution into member's wallet credit balance
+  // 1. Immediately refund paid contribution into member's wallet credit balance via canonical ledger
   const memberUser = db.users.find(u => u.id === removedUserId);
   if (memberUser && paidAmount > 0) {
-    memberUser.credit = (memberUser.credit || 0) + paidAmount;
+    const memberRole = normalizeRoleValue(memberUser.activeRole || memberUser.role || 'member');
+    const amountCents = toCents(paidAmount);
+    const { wallet: creditedWallet } = creditWalletCents(db, {
+      userId: memberUser.id,
+      role: memberRole,
+      amountCents,
+      category: 'REFUND',
+      referenceId: `REFUND_REMOVE_${group.id}_S${slot.slotNumber}`,
+      idempotencyKey: `remove_refund_${group.id}_S${slot.slotNumber}_${removedUserId}`,
+      note: `Automatic wallet refund of KSh ${paidAmount.toLocaleString()} upon removal from Chama #${group.id}`,
+      actorId: user.id,
+    });
+    if (!db.specialRefundCredits) db.specialRefundCredits = [];
+    db.specialRefundCredits.push({
+      id: `src_rem_${Date.now()}_${memberUser.id}`,
+      userId: memberUser.id,
+      role: memberRole,
+      amountCents,
+      kind: 'GROUP_REMOVAL_REFUND',
+      referenceId: `REFUND_REMOVE_${group.id}_S${slot.slotNumber}`,
+      note: `Group removal refund Chama #${group.id}`,
+      idempotencyKey: `src_rem_${group.id}_S${slot.slotNumber}_${removedUserId}`,
+      createdAt: Date.now(),
+    });
     db.storeCreditLedger.unshift({
       id: db.nextIds.ledger++,
       userId: memberUser.id,
       amount: paidAmount,
-      balanceAfter: memberUser.credit,
+      balanceAfter: fromCents(creditedWallet.balanceCents),
       type: 'default_conversion',
       referenceId: `REFUND_REMOVE_${group.id}_S${slot.slotNumber}`,
       note: `Automatic wallet refund of KSh ${paidAmount.toLocaleString()} upon removal from Chama #${group.id} (${group.name}) for non-payment. Usable to join another group.`,
@@ -2945,13 +2993,37 @@ apiRouter.post('/defaults/resolve', async (req: Request, res: Response) => {
     });
   } else if (option === 'store_credit') {
     // Option B: Retain eligible value as store credit in persistent ledger
-    user.credit = (user.credit || 0) + record.amountPaid;
+    const targetRole = normalizeRoleValue(user.activeRole || user.role || 'member');
+    const amountCents = toCents(record.amountPaid);
+    const { wallet: creditedWallet } = creditWalletCents(db, {
+      userId: user.id,
+      role: targetRole,
+      amountCents,
+      category: 'REFUND',
+      referenceId: `DEF_${record.id}`,
+      idempotencyKey: `def_sc_${record.id}`,
+      note: `Converted defaulted Chama #${record.groupId} payment to store credit`,
+      actorId: user.id,
+    });
+    if (!db.specialRefundCredits) db.specialRefundCredits = [];
+    db.specialRefundCredits.push({
+      id: `src_def_${record.id}`,
+      userId: user.id,
+      role: targetRole,
+      amountCents,
+      kind: 'DEFAULT_STORE_CREDIT',
+      referenceId: `DEF_${record.id}`,
+      note: `Default resolution store credit #${record.id}`,
+      idempotencyKey: `src_def_${record.id}`,
+      createdAt: Date.now(),
+    });
 
+    const newBalance = fromCents(creditedWallet.balanceCents);
     const ledgerEntry = {
       id: db.nextIds.ledger++,
       userId: user.id,
       amount: record.amountPaid,
-      balanceAfter: user.credit,
+      balanceAfter: newBalance,
       type: 'default_conversion' as const,
       referenceId: `DEF_${record.id}`,
       note: `Converted defaulted Chama #${record.groupId} payment to store credit`,
@@ -2962,21 +3034,46 @@ apiRouter.post('/defaults/resolve', async (req: Request, res: Response) => {
     record.resolutionOption = 'store_credit';
     record.resolutionStatus = 'completed';
 
-    logAudit(db, user.id, user.name, 'STORE_CREDIT_ISSUED', `Converted KSh ${record.amountPaid} into store credit. New balance: KSh ${user.credit}`);
+    logAudit(db, user.id, user.name, 'STORE_CREDIT_ISSUED', `Converted KSh ${record.amountPaid} into store credit. New balance: KSh ${newBalance}`);
     await saveDatabase(db);
 
     return res.json({
-      message: `KSh ${record.amountPaid.toLocaleString()} successfully credited to your Alibaird store credit balance!`,
-      creditBalance: user.credit,
+      message: `KSh ${record.amountPaid.toLocaleString()} successfully credited to your Buyoll store credit balance!`,
+      creditBalance: newBalance,
     });
   } else if (option === 'alternate_purchase') {
     // Option C: Transfer towards another purchase / group
-    user.credit = (user.credit || 0) + record.amountPaid;
+    const targetRole = normalizeRoleValue(user.activeRole || user.role || 'member');
+    const amountCents = toCents(record.amountPaid);
+    const { wallet: creditedWallet } = creditWalletCents(db, {
+      userId: user.id,
+      role: targetRole,
+      amountCents,
+      category: 'REFUND',
+      referenceId: `DEF_ALT_${record.id}`,
+      idempotencyKey: `def_alt_${record.id}`,
+      note: `Applied to wallet balance for alternate purchase from Chama #${record.groupId}`,
+      actorId: user.id,
+    });
+    if (!db.specialRefundCredits) db.specialRefundCredits = [];
+    db.specialRefundCredits.push({
+      id: `src_defalt_${record.id}`,
+      userId: user.id,
+      role: targetRole,
+      amountCents,
+      kind: 'DEFAULT_STORE_CREDIT',
+      referenceId: `DEF_ALT_${record.id}`,
+      note: `Default resolution alternate purchase #${record.id}`,
+      idempotencyKey: `src_defalt_${record.id}`,
+      createdAt: Date.now(),
+    });
+
+    const newBalance = fromCents(creditedWallet.balanceCents);
     const ledgerEntry = {
       id: db.nextIds.ledger++,
       userId: user.id,
       amount: record.amountPaid,
-      balanceAfter: user.credit,
+      balanceAfter: newBalance,
       type: 'default_conversion' as const,
       referenceId: `DEF_ALT_${record.id}`,
       note: `Applied to wallet balance for alternate purchase from Chama #${record.groupId}`,
@@ -2986,12 +3083,12 @@ apiRouter.post('/defaults/resolve', async (req: Request, res: Response) => {
     record.resolutionOption = 'alternate_purchase';
     record.resolutionStatus = 'completed';
 
-    logAudit(db, user.id, user.name, 'ALTERNATE_PURCHASE_APPLIED', `Applied KSh ${record.amountPaid} for alternate purchase. New credit: KSh ${user.credit}`);
+    logAudit(db, user.id, user.name, 'ALTERNATE_PURCHASE_APPLIED', `Applied KSh ${record.amountPaid} for alternate purchase. New credit: KSh ${newBalance}`);
     await saveDatabase(db);
 
     return res.json({
       message: `KSh ${record.amountPaid.toLocaleString()} is now ready in your store balance to apply toward any product or Chama group!`,
-      creditBalance: user.credit,
+      creditBalance: newBalance,
     });
   }
 
@@ -3337,44 +3434,67 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
   const platformCommission = Math.round(totalAmount * 0.03);
   const borrowerNet = totalAmount;
 
+  const totalCents = toCents(totalAmount);
+  const feeCents = Math.round(totalCents * 0.03);
+  const borrowerNetCents = totalCents - feeCents;
+
   // Enforce lender balance check
-  const currentLenderBalance = lender.credit || 0;
-  if (currentLenderBalance < totalAmount) {
+  const lenderWalletCents = getWalletBalanceCents(db, lender, 'lender');
+  if (lenderWalletCents < totalCents) {
     return res.status(400).json({
-      error: `Insufficient wallet balance. You have KSh ${currentLenderBalance.toLocaleString()} but need KSh ${totalAmount.toLocaleString()} to fund this loan. Please deposit funds into your wallet to proceed.`,
+      error: `Insufficient wallet balance. You have KSh ${fromCents(lenderWalletCents).toLocaleString()} but need KSh ${totalAmount.toLocaleString()} to fund this loan. Please deposit funds into your wallet to proceed.`,
       requiredAmount: totalAmount,
-      currentBalance: currentLenderBalance,
+      currentBalance: fromCents(lenderWalletCents),
     });
   }
 
-  // 1. Debit lender wallet by the approved loan amount
-  lender.credit = currentLenderBalance - totalAmount;
-  if (!lender.roleWallets) {
-    lender.roleWallets = {
-      member: { credit: 0, coins: 0, points: 0 },
-      merchant: { credit: 0, coins: 0, points: 0 },
-      lender: { credit: lender.credit, coins: 0, points: 0 },
-    };
-  }
-  if (!lender.roleWallets.lender) {
-    lender.roleWallets.lender = { credit: lender.credit, coins: 0, points: 0 };
-  } else {
-    lender.roleWallets.lender.credit = lender.credit;
-  }
+  // 1. Debit lender wallet via canonical wallet service
+  const { wallet: debitedLender } = debitWalletCents(db, {
+    userId: lender.id,
+    role: 'lender',
+    amountCents: totalCents,
+    category: 'LOAN_FUNDING',
+    referenceId: `LOAN_FUND_${loan.id}`,
+    idempotencyKey: `legacy_loan_fund_${loan.id}`,
+    note: `Loan disbursement to borrower member ${requester.name} for Group #${resolvedGroupId || group?.id || ''}`,
+    actorId: lender.id,
+  });
 
-  // 2. Credit borrower member wallet with the loan approved for shopping in the group
-  requester.credit = (requester.credit || 0) + totalAmount;
-  if (!requester.roleWallets) {
-    requester.roleWallets = {
-      member: { credit: requester.credit, coins: 0, points: 0 },
-      merchant: { credit: 0, coins: 0, points: 0 },
-      lender: { credit: 0, coins: 0, points: 0 },
-    };
-  }
-  if (!requester.roleWallets.member) {
-    requester.roleWallets.member = { credit: requester.credit, coins: 0, points: 0 };
-  } else {
-    requester.roleWallets.member.credit = requester.credit;
+  // 2. Credit borrower member wallet via canonical wallet service
+  const { wallet: creditedRequester } = creditWalletCents(db, {
+    userId: requester.id,
+    role: 'member',
+    amountCents: borrowerNetCents,
+    category: 'LOAN_DISBURSEMENT',
+    referenceId: `LOAN_RECV_${loan.id}`,
+    idempotencyKey: `legacy_loan_recv_${loan.id}`,
+    note: `Loan received from Lender ${lender.name}`,
+    actorId: lender.id,
+  });
+
+  const platformAdmin = findPlatformAdminUser(db);
+  if (platformAdmin && feeCents > 0) {
+    creditWalletCents(db, {
+      userId: platformAdmin.id,
+      role: 'admin',
+      amountCents: feeCents,
+      category: 'PLATFORM_FEE',
+      referenceId: `LOAN_FEE_${loan.id}`,
+      idempotencyKey: `legacy_loan_fee_${loan.id}`,
+      note: `3% platform fee on loan #${loan.id}`,
+      actorId: lender.id,
+    });
+    recordIncomeInTx(db, {
+      source: 'LOAN_FEE',
+      paymentChannel: 'WALLET',
+      amountCents: feeCents,
+      userId: lender.id,
+      userName: lender.name,
+      referenceId: `LOAN_FEE_${loan.id}`,
+      description: `Loan #${loan.id} platform fee`,
+      idempotencyKey: `inc_loan_fee_${loan.id}`,
+      actorId: lender.id,
+    });
   }
 
   // Write atomic ledger entries for lender debit and borrower credit
@@ -3384,7 +3504,7 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
       id: db.nextIds.ledger++,
       userId: lender.id,
       amount: -totalAmount,
-      balanceAfter: lender.credit,
+      balanceAfter: fromCents(debitedLender.balanceCents),
       type: 'admin_adjustment',
       referenceId: `LOAN_FUND_${loan.id}`,
       note: `Loan disbursement to borrower member ${requester.name} for Group #${resolvedGroupId || group?.id || ''} (Debited KSh ${totalAmount.toLocaleString()}). External repayment terms apply.`,
@@ -3393,11 +3513,11 @@ async function processLoanFunding(lender: User, loanId: number, groupId: number 
     {
       id: db.nextIds.ledger++,
       userId: requester.id,
-      amount: totalAmount,
-      balanceAfter: requester.credit,
+      amount: fromCents(borrowerNetCents),
+      balanceAfter: fromCents(creditedRequester.balanceCents),
       type: 'admin_adjustment',
       referenceId: `LOAN_RECV_${loan.id}`,
-      note: `Loan received from Lender ${lender.name} (Credited KSh ${totalAmount.toLocaleString()}). Usable to pay for shopping & Group installments.`,
+      note: `Loan received from Lender ${lender.name} (Credited KSh ${fromCents(borrowerNetCents).toLocaleString()}). Usable to pay for shopping & Group installments.`,
       createdAt: now,
     }
   );
@@ -3836,30 +3956,46 @@ apiRouter.post('/wallet/redeem-points', async (req: Request, res: Response) => {
   }
 
   const db = await getDatabase();
-  const blocks = Math.floor(user.points / 100);
+  const dbUser = db.users.find((u) => u.id === user.id);
+  if (!dbUser || (dbUser.points || 0) < 100) {
+    return res.status(400).json({ error: 'You need at least 100 points to redeem (100 pts = KSh 10).' });
+  }
+  const blocks = Math.floor((dbUser.points || 0) / 100);
   const pointsDeducted = blocks * 100;
   const creditEarned = blocks * 10;
+  const amountCents = toCents(creditEarned);
+  const targetRole = normalizeRoleValue(dbUser.activeRole || dbUser.role || 'member');
+  const now = Date.now();
 
-  user.points -= pointsDeducted;
-  user.credit = (user.credit || 0) + creditEarned;
+  dbUser.points = (dbUser.points || 0) - pointsDeducted;
+  const { wallet: creditedWallet } = creditWalletCents(db, {
+    userId: dbUser.id,
+    role: targetRole,
+    amountCents,
+    category: 'ADMIN_ADJUSTMENT',
+    referenceId: `PTS_${now}`,
+    note: `Redeemed ${pointsDeducted} reward points for KSh ${creditEarned} store credit`,
+    actorId: dbUser.id,
+  });
 
+  const newBalance = fromCents(creditedWallet.balanceCents);
   const ledgerEntry = {
     id: db.nextIds.ledger++,
-    userId: user.id,
+    userId: dbUser.id,
     amount: creditEarned,
-    balanceAfter: user.credit,
+    balanceAfter: newBalance,
     type: 'point_redemption' as const,
     note: `Redeemed ${pointsDeducted} reward points for KSh ${creditEarned} store credit`,
-    createdAt: Date.now(),
+    createdAt: now,
   };
 
   db.storeCreditLedger.unshift(ledgerEntry);
-  logAudit(db, user.id, user.name, 'POINTS_REDEEMED', `Redeemed ${pointsDeducted} pts for KSh ${creditEarned} store credit.`);
+  logAudit(db, dbUser.id, dbUser.name, 'POINTS_REDEEMED', `Redeemed ${pointsDeducted} pts for KSh ${creditEarned} store credit.`);
   await saveDatabase(db);
 
   res.json({
-    credit: user.credit,
-    points: user.points,
+    credit: newBalance,
+    points: dbUser.points,
     message: `Successfully redeemed ${pointsDeducted} points for KSh ${creditEarned} store credit!`,
   });
 });
@@ -4099,7 +4235,25 @@ apiRouter.get('/admin/audit-logs', async (req: Request, res: Response) => {
   const { db } = auth;
 
   const { page, limit } = parsePaginationQuery(req.query, 20, 100);
-  const paged = paginateList(db.auditLogs || [], page, limit);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+  const actionFilter = typeof req.query.action === 'string' ? req.query.action.trim().toUpperCase() : '';
+  const afterMs = req.query.after ? Number(req.query.after) : null;
+  const beforeMs = req.query.before ? Number(req.query.before) : null;
+
+  const filtered = (db.auditLogs || []).filter((log) => {
+    if (afterMs && Number.isFinite(afterMs) && log.timestamp < afterMs) return false;
+    if (beforeMs && Number.isFinite(beforeMs) && log.timestamp > beforeMs) return false;
+    if (actionFilter && actionFilter !== 'ALL' && !String(log.action || '').toUpperCase().includes(actionFilter)) {
+      return false;
+    }
+    if (search) {
+      const hay = `${log.action || ''} ${log.details || ''} ${log.actorName || ''} ${log.actorId || ''}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  const paged = paginateList(filtered, page, limit);
 
   res.json({
     auditLogs: paged.items,
@@ -4112,9 +4266,13 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
   if (!auth) return;
   const { user } = auth;
 
-  const { decision, reason } = req.body; // 'approve' | 'reject'
+  const { decision, reason } = req.body || {}; // 'approve' | 'reject'
   if (decision !== 'approve' && decision !== 'reject') {
     return res.status(400).json({ error: 'Decision must be "approve" or "reject".' });
+  }
+  const cleanReason = String(reason || '').trim();
+  if (decision === 'reject' && cleanReason.length < 3) {
+    return res.status(400).json({ error: 'A clear rejection reason (at least 3 characters) is required.' });
   }
 
   try {
@@ -4226,19 +4384,42 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
           const sub = (db.merchantSubscriptions || []).find(
             (s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending')
           );
+          const matchingReq = (db.subscriptionRequests || []).find(
+            (r) => (r.mpesaCode && r.mpesaCode === payment.code) || (r.merchantId === payment.userId && r.status === 'pending')
+          );
           const billingPeriod: 'monthly' | 'yearly' = sub?.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
           const planId = sub?.tierId || merchant?.merchantSubscriptionPlan || 'tier_500';
           const planObj = SUBSCRIPTION_TIERS.find((t) => t.id === planId) || SUBSCRIPTION_TIERS[0];
           if (merchant) {
+            const subId = sub?.id || matchingReq?.id || `pay_sub_${payment.id}`;
+            const expectedKes = Number(sub?.amount ?? matchingReq?.amountExpected ?? payment.amount ?? planObj.monthlyFee);
+            const isWalletCredit = sub?.paymentMethod === 'wallet_credit';
+            if (isWalletCredit && expectedKes > 0) {
+              const adminUser = findPlatformAdminUser(db);
+              if (adminUser && adminUser.id !== merchant.id) {
+                creditWalletCents(db, {
+                  userId: adminUser.id,
+                  role: 'admin',
+                  amountCents: toCents(expectedKes),
+                  category: 'SUBSCRIPTION_REVENUE',
+                  referenceId: subId,
+                  idempotencyKey: `sub_rev_${subId}`,
+                  note: `Settled merchant subscription payment from ${merchant.name}`,
+                  actorId: user.id,
+                });
+              }
+            }
             const activation = activateSubscriptionInTx(db, {
               merchantUser: merchant,
               planId: planObj.id,
               planName: planObj.name,
               billingPeriod,
-              subscriptionId: sub?.id || `pay_sub_${payment.id}`,
+              subscriptionId: subId,
               actorId: user.id,
               actorName: user.name,
               paymentSummary: `M-Pesa Code ${payment.code}`,
+              amountKes: expectedKes,
+              paymentChannel: isWalletCredit ? 'WALLET' : 'MPESA_DIRECT',
               now,
             });
             if (sub) {
@@ -4249,7 +4430,16 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
               sub.approvedBy = user.id;
               sub.approvedAt = now;
             }
+            if (matchingReq) {
+              matchingReq.status = 'approved';
+              matchingReq.adminId = user.id;
+              matchingReq.reviewedAt = now;
+              matchingReq.updatedAt = now;
+            }
             merchant.starRating = merchant.starRating || 5;
+            if (activation.outboxEvent) {
+              (payment as any).__outbox = activation.outboxEvent;
+            }
           }
         } else if (payment.type === 'wallet_deposit') {
           const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
@@ -4270,13 +4460,14 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
                 note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved by Admin`,
                 actorId: user.id,
               });
+              const newBalanceKes = fromCents(creditedWallet.balanceCents);
 
               if (!db.storeCreditLedger) db.storeCreditLedger = [];
               db.storeCreditLedger.unshift({
                 id: db.nextIds.ledger++,
                 userId: targetUser.id,
                 amount: dep.amount,
-                balanceAfter: fromCents(creditedWallet.balanceCents),
+                balanceAfter: newBalanceKes,
                 type: 'refund_credit' as const,
                 referenceId: dep.mpesaCode,
                 note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved by Admin in payments`,
@@ -4293,6 +4484,16 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
                 read: false,
                 timestamp: now,
               });
+
+              (payment as any).__outbox = queueWalletDepositDecisionOutboxInTx(db, {
+                userId: targetUser.id,
+                depositId: dep.id as any,
+                amountKes: dep.amount,
+                mpesaCode: dep.mpesaCode,
+                role: depRole,
+                decision: 'approve',
+                balanceKes: newBalanceKes,
+              });
             }
           }
         } else if (payment.type === 'loan_fee') {
@@ -4300,6 +4501,21 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
           if (loan) {
             loan.platformFeeStatus = 'approved';
             loan.status = 'fee_verified';
+          }
+          if (payment.amount > 0) {
+            recordIncomeInTx(db, {
+              source: 'LOAN_FEE',
+              paymentChannel: 'MPESA_DIRECT',
+              amountCents: toCents(payment.amount),
+              userId: payment.userId,
+              userName: payment.userName,
+              referenceId: payment.code,
+              description: `Loan verification fee payment ${payment.code}`,
+              idempotencyKey: `inc_pay_loanfee_${payment.id}`,
+              actorId: user.id,
+              createdAt: now,
+              creditAdminWalletIfDirect: true,
+            });
           }
         } else if (payment.type === 'coin_purchase') {
           const payer = db.users.find((u) => u.id === payment.userId);
@@ -4324,7 +4540,7 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
         logAudit(db, user.id, user.name, 'PAYMENT_APPROVED', `Approved payment ${payment.code} for KSh ${payment.amount}`);
       } else {
         payment.status = 'rejected';
-        payment.rejectionReason = (reason || 'Statement mismatch or unverified transaction code').trim();
+        payment.rejectionReason = cleanReason;
 
         // If it's a group installment, revert pending days
         if (payment.type === 'group_installment' && payment.groupId && payment.slotNumber) {
@@ -4344,20 +4560,56 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
         } else if (payment.type === 'merchant_subscription') {
           const merchant = db.users.find((u) => u.id === payment.userId);
           const sub = (db.merchantSubscriptions || []).find((s) => (s.paymentCode && s.paymentCode === payment.code) || (s.merchantId === payment.userId && s.status === 'pending'));
+          const matchingReq = (db.subscriptionRequests || []).find((r) => (r.mpesaCode && r.mpesaCode === payment.code) || (r.merchantId === payment.userId && r.status === 'pending'));
           if (sub) {
             sub.status = 'declined';
-            if (sub.paymentMethod === 'wallet_credit' && merchant) {
+            if (sub.paymentMethod === 'wallet_credit' && merchant && (sub.amount || 0) > 0) {
               const refundAmt = sub.amount || 0;
-              if (!merchant.roleWallets) merchant.roleWallets = {};
-              if (!merchant.roleWallets.merchant) merchant.roleWallets.merchant = { credit: 0, coins: 0, points: 0 };
-              merchant.roleWallets.merchant.credit = (merchant.roleWallets.merchant.credit || 0) + refundAmt;
-              merchant.credit = (merchant.credit || 0) + refundAmt;
+              const { wallet: refWal } = creditWalletCents(db, {
+                userId: merchant.id,
+                role: 'merchant',
+                amountCents: toCents(refundAmt),
+                category: 'REFUND',
+                referenceId: `REF-${sub.id}`,
+                idempotencyKey: `sub_refund_${sub.id}`,
+                note: `Refunded held subscription payment (${cleanReason})`,
+                actorId: user.id,
+              });
+              if (!db.storeCreditLedger) db.storeCreditLedger = [];
+              db.storeCreditLedger.unshift({
+                id: db.nextIds.ledger++,
+                userId: merchant.id,
+                amount: refundAmt,
+                balanceAfter: fromCents(refWal.balanceCents),
+                type: 'refund_credit' as any,
+                referenceId: `REF-${sub.id}`,
+                note: `Refunded held subscription payment (${cleanReason})`,
+                createdAt: now,
+              });
             } else if (sub.paymentMethod === 'wallet_coins' && merchant) {
               merchant.coins = (merchant.coins || 0) + (sub.amount || 0);
             }
           }
+          if (matchingReq) {
+            matchingReq.status = 'rejected';
+            matchingReq.rejectionReason = cleanReason;
+            matchingReq.reviewedAt = now;
+          }
           if (merchant) {
             merchant.merchantSubscriptionStatus = 'inactive';
+            (payment as any).__outbox = enqueueOutboxInTx(db, {
+              userId: merchant.id,
+              eventType: 'subscription.updated',
+              entityType: 'subscription',
+              entityId: sub?.id || String(payment.id),
+              title: 'Subscription Payment Rejected',
+              message: `Your subscription payment (${payment.code}) was rejected: ${cleanReason}.`,
+              notificationType: 'system',
+              link: '/vendor-dashboard',
+              payload: { merchantId: merchant.id, status: 'rejected', reason: cleanReason },
+              alsoAddNotification: true,
+              now,
+            });
           }
         } else if (payment.type === 'wallet_deposit') {
           const dep = (db.walletDeposits || []).find((d) => d.mpesaCode === payment.code && d.status === 'pending');
@@ -4366,16 +4618,31 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
             dep.processedAt = now;
             dep.processedBy = user.name;
             dep.notes = payment.rejectionReason;
+            const depRole = normalizeRoleValue(dep.role || 'member');
+            (payment as any).__outbox = queueWalletDepositDecisionOutboxInTx(db, {
+              userId: dep.userId,
+              depositId: dep.id as any,
+              amountKes: dep.amount,
+              mpesaCode: dep.mpesaCode,
+              role: depRole,
+              decision: 'decline',
+              reason: payment.rejectionReason,
+            });
           }
         }
 
         logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}: ${payment.rejectionReason}`);
       }
 
-      return payment;
+      const outboxEvt = (payment as any).__outbox;
+      if (outboxEvt) delete (payment as any).__outbox;
+      return { payment, outboxEvt };
     });
 
-    res.json({ payment: result, message: `Payment ${result.code} was ${decision}d.` });
+    if (result.outboxEvt) {
+      flushOutboxEvents([result.outboxEvt]);
+    }
+    res.json({ payment: result.payment, message: `Payment ${result.payment.code} was ${decision}d.` });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Payment decision failed' });
   }
@@ -4384,25 +4651,82 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
 apiRouter.post('/admin/refunds/:id/status', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
-  const { user, db } = auth;
+  const { user } = auth;
 
-  const { status, adminNote } = req.body;
-  const refund = db.refundRequests.find(r => r.id === Number(req.params.id));
-
-  if (!refund) return res.status(404).json({ error: 'Refund request not found' });
-
-  refund.status = status;
-  if (adminNote) refund.adminNote = adminNote;
-  if (status === 'completed') {
-    refund.processedAt = Date.now();
-    const def = db.defaultRecords.find(d => d.id === refund.defaultRecordId);
-    if (def) def.resolutionStatus = 'completed';
+  const { status, adminNote } = req.body || {};
+  const allowedStatuses = ['under_review', 'approved', 'completed', 'rejected'];
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid refund status.' });
+  }
+  const cleanNote = String(adminNote || '').trim();
+  if (status === 'rejected' && cleanNote.length < 3) {
+    return res.status(400).json({ error: 'A clear reason (at least 3 characters) is required when rejecting a refund request.' });
   }
 
-  logAudit(db, user.id, user.name, 'REFUND_STATUS_UPDATED', `Updated refund #${refund.id} status to ${status}`);
-  await saveDatabase(db);
+  try {
+    const out = await runDatabaseTransaction((db) => {
+      const refund = (db.refundRequests || []).find((r) => r.id === Number(req.params.id));
+      if (!refund) throw { status: 404, message: 'Refund request not found' };
 
-  res.json({ refund, message: `Refund #${refund.id} status updated to ${status}.` });
+      if (refund.status === status) {
+        return { refund, outboxEvent: null, alreadyProcessed: true };
+      }
+
+      const now = Date.now();
+      refund.status = status;
+      if (cleanNote) refund.adminNote = cleanNote;
+      if (status === 'completed' || status === 'approved') {
+        refund.processedAt = now;
+        const def = (db.defaultRecords || []).find((d) => d.id === refund.defaultRecordId);
+        if (def) def.resolutionStatus = 'completed';
+
+        if (!db.specialRefundCredits) db.specialRefundCredits = [];
+        const existingSpecial = db.specialRefundCredits.some((s) => s.refundRequestId === refund.id);
+        if (!existingSpecial) {
+          const rUser = db.users.find((u) => u.id === refund.userId);
+          db.specialRefundCredits.push({
+            id: `src_ref_${refund.id}`,
+            refundRequestId: refund.id,
+            userId: refund.userId,
+            role: normalizeRoleValue(rUser?.activeRole || rUser?.role || 'member'),
+            amountCents: toCents(refund.eligibleRefundAmount || refund.amountPaid || 0),
+            kind: 'SPECIAL_EXTERNAL_REFUND',
+            referenceId: `REFUND_REQ_${refund.id}`,
+            note: cleanNote || `Approved external refund request #${refund.id}`,
+            idempotencyKey: `src_ref_${refund.id}`,
+            createdAt: now,
+          });
+        }
+      }
+
+      const outboxEvent = enqueueOutboxInTx(db, {
+        userId: refund.userId,
+        eventType: 'refund.updated',
+        entityType: 'refund',
+        entityId: String(refund.id),
+        title: `Refund Request ${status === 'rejected' ? 'Rejected' : status === 'completed' ? 'Completed' : status === 'approved' ? 'Approved' : 'Updated'}`,
+        message:
+          status === 'rejected'
+            ? `Your refund request #${refund.id} for KSh ${(refund.eligibleRefundAmount || refund.amountPaid).toLocaleString()} was rejected: ${cleanNote}.`
+            : `Your refund request #${refund.id} (KSh ${(refund.eligibleRefundAmount || refund.amountPaid).toLocaleString()}) status is now "${status}".`,
+        notificationType: status === 'rejected' ? 'warning' : 'payment',
+        link: '/wallet',
+        payload: { refundId: refund.id, status, adminNote: cleanNote },
+        alsoAddNotification: true,
+        now,
+      });
+
+      logAudit(db, user.id, user.name, 'REFUND_STATUS_UPDATED', `Updated refund #${refund.id} status to ${status}${cleanNote ? ` (${cleanNote})` : ''}`);
+      return { refund, outboxEvent, alreadyProcessed: false };
+    });
+
+    if (out.outboxEvent) {
+      flushOutboxEvents([out.outboxEvent]);
+    }
+    res.json({ refund: out.refund, message: `Refund #${out.refund.id} status updated to ${status}.` });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err?.message || 'Failed to update refund status' });
+  }
 });
 
 // -------------------------------------------------------------
@@ -4440,28 +4764,60 @@ apiRouter.get('/admin/users', async (req: Request, res: Response) => {
 apiRouter.post('/admin/merchants/:id/verify', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
-  const { user, db } = auth;
+  const { user } = auth;
 
-  const { verified, notes } = req.body;
-  const merchant = db.users.find(u => u.id === Number(req.params.id) && u.role === 'merchant');
-
-  if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
-
-  merchant.verified = Boolean(verified);
-  merchant.starRating = verified ? 5 : undefined;
-  if (verified) {
-    merchant.verifiedAt = Date.now();
-    merchant.merchantSubscriptionStatus = 'active';
+  const { verified, notes } = req.body || {};
+  const isVerified = Boolean(verified);
+  const cleanNotes = String(notes || '').trim();
+  if (!isVerified && cleanNotes.length < 3) {
+    return res.status(400).json({ error: 'A clear reason is required when revoking merchant verification.' });
   }
-  if (notes) merchant.verificationNotes = String(notes).trim();
 
-  logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `${verified ? 'Verified (Buyoll Verified badge awarded)' : 'Revoked verification for'} merchant ${merchant.shopName || merchant.name}`);
-  await saveDatabase(db);
+  try {
+    const out = await runDatabaseTransaction((db) => {
+      const merchant = db.users.find((u) => u.id === Number(req.params.id) && (u.role === 'merchant' || u.activeRole === 'merchant'));
+      if (!merchant) throw { status: 404, message: 'Merchant not found' };
 
-  res.json({
-    merchant,
-    message: verified ? 'Merchant verified with 5 stars & Buyoll Verified badge.' : 'Merchant verification revoked.',
-  });
+      const now = Date.now();
+      merchant.verified = isVerified;
+      merchant.starRating = isVerified ? 5 : undefined;
+      if (isVerified) {
+        merchant.verifiedAt = now;
+      }
+      if (cleanNotes) merchant.verificationNotes = cleanNotes;
+
+      const outboxEvent = enqueueOutboxInTx(db, {
+        userId: merchant.id,
+        eventType: 'verification.updated',
+        entityType: 'verification',
+        entityId: String(merchant.id),
+        title: isVerified ? '🌟 Merchant Storefront Verified!' : 'Merchant Verification Revoked',
+        message: isVerified
+          ? 'Your Buyoll merchant storefront is now verified with the 5-star Buyoll Verified badge.'
+          : `Your merchant verification was revoked: ${cleanNotes}`,
+        notificationType: 'verification',
+        link: '/vendor-dashboard',
+        payload: { merchantId: merchant.id, verified: isVerified, notes: cleanNotes },
+        alsoAddNotification: true,
+        now,
+      });
+
+      logAudit(db, user.id, user.name, 'MERCHANT_VERIFIED', `${isVerified ? 'Verified (Buyoll Verified badge awarded)' : 'Revoked verification for'} merchant ${merchant.shopName || merchant.name}`);
+      return { merchant: sanitizeUser(merchant), outboxEvent };
+    });
+
+    if (out.outboxEvent) {
+      flushOutboxEvents([out.outboxEvent], [
+        { type: 'user.profile.updated', payload: { user: out.merchant }, targetUserIds: [out.merchant.id] },
+      ]);
+    }
+    res.json({
+      merchant: out.merchant,
+      message: isVerified ? 'Merchant verified with 5 stars & Buyoll Verified badge.' : 'Merchant verification revoked.',
+    });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err?.message || 'Verification update failed' });
+  }
 });
 
 apiRouter.post('/admin/users/:id/verify', async (req: Request, res: Response) => {
@@ -5446,30 +5802,18 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
     const result = await runDatabaseTransaction(async (db) => {
       if (!db.walletDeposits) db.walletDeposits = [];
 
-      // Check duplicate code in deposits (only pending or approved block duplicate; declined can be resubmitted)
-      const existingDeposit = db.walletDeposits.find(
-        (d) => d.mpesaCode === trimmedCode && (d.status === 'pending' || d.status === 'approved')
-      );
-      if (existingDeposit) {
+      // Global duplicate check across pending or approved deposits, payments, and subscriptions
+      const dup = findDuplicateMpesaCodeInTx(db, trimmedCode);
+      if (dup.duplicate) {
         throw {
-          status: 400,
-          message: `This M-Pesa transaction code has already been submitted for a wallet deposit (${existingDeposit.status}).`,
+          status: 409,
+          message: `This M-Pesa transaction code (${trimmedCode}) has already been used (${dup.entity}).`,
         };
       }
 
-      // Check duplicate in payments
-      const existingPayment = (db.payments || []).find(
-        (p) => p.code === trimmedCode && (p.status === 'pending' || p.status === 'approved')
-      );
-      if (existingPayment) {
-        throw {
-          status: 400,
-          message: `This transaction code has already been recorded in platform payments (${existingPayment.status}).`,
-        };
-      }
-
-      const activeRole = role || user.activeRole || user.role || 'member';
+      const activeRole = normalizeRoleValue(role || user.activeRole || user.role || 'member');
       const now = Date.now();
+      const normalizedKes = fromCents(toCents(numAmount));
 
       const newDeposit: WalletDepositRequest = {
         id: `dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
@@ -5477,7 +5821,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         userName: user.name,
         userPhone: user.phone || '',
         role: activeRole,
-        amount: numAmount,
+        amount: normalizedKes,
         mpesaCode: trimmedCode,
         status: 'pending',
         createdAt: now,
@@ -5495,11 +5839,11 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         userName: user.name,
         userPhone: user.phone || undefined,
         code: trimmedCode,
-        amount: numAmount,
+        amount: normalizedKes,
         status: 'pending',
         channel: 'M-Pesa Deposit Till 196853',
         createdAt: now,
-        notes: `Wallet deposit of KSh ${numAmount} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
+        notes: `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
       };
       db.payments.unshift(paymentRecord);
 
@@ -5509,7 +5853,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         title: '⏳ Wallet Deposit Request Submitted',
-        message: `Your deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) has been received. Buyoll Admin will verify against statements and credit your ${activeRole} wallet.`,
+        message: `Your deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) has been received. Buyoll Admin will verify against statements and credit your ${activeRole} wallet.`,
         type: 'payment',
         read: false,
         timestamp: now,
@@ -5520,15 +5864,16 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         user.id,
         user.name,
         'WALLET_DEPOSIT_SUBMITTED',
-        `Submitted wallet deposit of KSh ${numAmount} for ${activeRole} wallet (Code: ${trimmedCode})`
+        `Submitted wallet deposit of KSh ${normalizedKes} for ${activeRole} wallet (Code: ${trimmedCode})`
       );
 
       return {
         deposit: newDeposit,
-        message: `Deposit request of KSh ${numAmount.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your ${activeRole} wallet automatically.`,
+        message: `Deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your ${activeRole} wallet automatically.`,
       };
     });
 
+    emitPlatformEvent('admin.wallet.updated', { depositId: result.deposit.id, status: 'pending' });
     res.status(201).json({ success: true, ...result });
   } catch (err: any) {
     const statusCode = err.status || 500;
@@ -5570,9 +5915,13 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
   if (!auth) return;
   const { user } = auth;
 
-  const { action, notes } = req.body;
+  const { action, notes, reason } = req.body || {};
   if (action !== 'approve' && action !== 'decline') {
     return res.status(400).json({ error: 'Action must be "approve" or "decline".' });
+  }
+  const cleanNotes = String(reason || notes || '').trim();
+  if (action === 'decline' && cleanNotes.length < 3) {
+    return res.status(400).json({ error: 'A clear reason (at least 3 characters) is required when declining a wallet deposit.' });
   }
 
   try {
@@ -5590,22 +5939,25 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
       const targetUser = db.users.find((u) => u.id === deposit.userId);
       if (!targetUser) throw { status: 404, message: 'Target user not found' };
 
-      // Prevent duplicate code approval on different deposit records
+      const payment = (db.payments || []).find((p) => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
+
+      // Prevent duplicate code approval on different records globally
       if (action === 'approve') {
-        const duplicateApproved = db.walletDeposits.some(
-          (d) => d.id !== deposit.id && d.mpesaCode === deposit.mpesaCode && d.status === 'approved'
+        const dup = findDuplicateMpesaCodeInTx(
+          db,
+          deposit.mpesaCode,
+          payment ? [deposit.id, payment.id] : [deposit.id]
         );
-        if (duplicateApproved) {
-          throw { status: 400, message: 'Another deposit with this M-Pesa transaction code has already been approved.' };
+        if (dup.duplicate) {
+          throw { status: 409, message: `M-Pesa transaction code ${deposit.mpesaCode} is already approved/pending (${dup.entity}).` };
         }
       }
 
       const now = Date.now();
       deposit.processedAt = now;
       deposit.processedBy = user.name;
-      if (notes) deposit.notes = notes;
+      if (cleanNotes) deposit.notes = cleanNotes;
 
-      const payment = (db.payments || []).find((p) => p.code === deposit.mpesaCode && p.type === 'wallet_deposit');
       const depRole = normalizeRoleValue(deposit.role || targetUser.activeRole || targetUser.role);
 
       if (action === 'approve') {
@@ -5630,7 +5982,7 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
         const newBalance = fromCents(creditedWallet.balanceCents);
 
         if (!db.storeCreditLedger) db.storeCreditLedger = [];
-        const ledgerEntry = {
+        db.storeCreditLedger.unshift({
           id: db.nextIds.ledger++,
           userId: targetUser.id,
           amount: deposit.amount,
@@ -5639,8 +5991,7 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
           referenceId: deposit.mpesaCode,
           note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
           createdAt: now,
-        };
-        db.storeCreditLedger.unshift(ledgerEntry);
+        });
 
         if (!db.userNotifications) db.userNotifications = [];
         db.userNotifications.unshift({
@@ -5651,6 +6002,16 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
           type: 'payment',
           read: false,
           timestamp: now,
+        });
+
+        const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
+          userId: targetUser.id,
+          depositId: deposit.id as any,
+          amountKes: deposit.amount,
+          mpesaCode: deposit.mpesaCode,
+          role: depRole,
+          decision: 'approve',
+          balanceKes: newBalance,
         });
 
         logAudit(
@@ -5664,25 +6025,35 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
         return {
           deposit,
           newBalance,
+          outboxEvent,
           message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s ${depRole} wallet. New balance: KSh ${newBalance.toLocaleString()}.`,
         };
       } else {
         deposit.status = 'declined';
         if (payment) {
           payment.status = 'rejected';
-          payment.rejectionReason = notes || 'Declined by Admin verification';
+          payment.rejectionReason = cleanNotes;
         }
 
-        // Private notification to user
         if (!db.userNotifications) db.userNotifications = [];
         db.userNotifications.unshift({
           id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: targetUser.id,
           title: '❌ Wallet Deposit Declined',
-          message: `Your deposit request of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) was declined. Reason/Note: ${notes || 'Statement mismatch or invalid transaction code'}. Please check your M-Pesa receipt and try again.`,
+          message: `Your deposit request of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) was declined. Reason: ${cleanNotes}. Please check your M-Pesa receipt and try again.`,
           type: 'system',
           read: false,
           timestamp: now,
+        });
+
+        const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
+          userId: targetUser.id,
+          depositId: deposit.id as any,
+          amountKes: deposit.amount,
+          mpesaCode: deposit.mpesaCode,
+          role: depRole,
+          decision: 'decline',
+          reason: cleanNotes,
         });
 
         logAudit(
@@ -5690,17 +6061,22 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
           user.id,
           user.name,
           'WALLET_DEPOSIT_DECLINED',
-          `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode})`
+          `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode}): ${cleanNotes}`
         );
 
         return {
           deposit,
+          outboxEvent,
           message: `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetUser.name}.`,
         };
       }
     });
 
-    res.json({ success: true, ...result });
+    if (result.outboxEvent) {
+      flushOutboxEvents([result.outboxEvent]);
+    }
+    emitPlatformEvent('admin.wallet.updated', { depositId: result.deposit.id, status: result.deposit.status });
+    res.json({ success: true, deposit: result.deposit, newBalance: (result as any).newBalance, message: result.message });
   } catch (err: any) {
     const statusCode = err.status || 500;
     return res.status(statusCode).json({ error: err.message || 'Failed to process deposit decision' });

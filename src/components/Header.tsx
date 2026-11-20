@@ -470,11 +470,18 @@ export const Header: React.FC<HeaderProps> = ({
                       </button>
 
                       <button
+                        onMouseEnter={activeRole === 'admin' ? prefetchAdminControlCenter : undefined}
+                        onFocus={activeRole === 'admin' ? prefetchAdminControlCenter : undefined}
                         onClick={() => {
                           setIsUserMenuOpen(false);
-                          onNavigate('profile', 'overview');
+                          if (activeRole === 'admin') {
+                            onNavigate('admin-dashboard', 'wallet');
+                          } else {
+                            onNavigate('profile', 'overview');
+                          }
                         }}
-                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[var(--text)] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] hover:text-[#ff6600] transition-colors"
+                        data-testid={activeRole === 'admin' ? 'admin-menu-wallet-item' : undefined}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-[var(--text)] hover:bg-[#fff4ec] dark:hover:bg-[#2a1608] hover:text-[#ff6600] transition-colors cursor-pointer"
                       >
                         My {userRoleLabel} Wallet
                       </button>

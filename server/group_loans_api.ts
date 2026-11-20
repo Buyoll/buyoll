@@ -10,6 +10,7 @@ import {
   debitWalletCents,
   findPlatformAdminUser,
 } from './wallet_service.js';
+import { recordIncomeInTx } from './admin_wallet_service.js';
 import {
   ChamaGroup,
   GroupLenderAuthorization,
@@ -722,6 +723,17 @@ async function processAtomicLoanFunding(authUser: User, loanId: number, explicit
         referenceId: `LOAN_FEE_${loan.id}`,
         idempotencyKey: `loan_fee_${loan.id}`,
         note: `1% platform fee on loan #${loan.id} (Group #${resolvedGroupId})`,
+        actorId: lender.id,
+      });
+      recordIncomeInTx(db, {
+        source: 'LOAN_FEE',
+        paymentChannel: 'WALLET',
+        amountCents: feeCents,
+        userId: lender.id,
+        userName: lender.name,
+        referenceId: `LOAN_FEE_${loan.id}`,
+        description: `1% loan commission fee on Loan #${loan.id} (Group #${resolvedGroupId})`,
+        idempotencyKey: `inc_loan_fee_${loan.id}`,
         actorId: lender.id,
       });
     }

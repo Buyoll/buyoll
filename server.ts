@@ -15,6 +15,8 @@ import {
 import { FEATURED_EXPIRY_SWEEP_MS, SUBSCRIPTION_EXPIRY_SWEEP_MS } from './server/config.js';
 import { enforceExpiredSubscriptions } from './server/subscriptions_api.js';
 import { sweepFeaturedPlacements } from './server/featured_service.js';
+import { runWalletReconciliationInTx } from './server/admin_wallet_service.js';
+import { runDatabaseTransaction } from './server/db.js';
 import { attachGroupChatWebSocketServer } from './server/group_chat_ws.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -137,9 +139,21 @@ async function startServer() {
   }, FEATURED_EXPIRY_SWEEP_MS);
   featuredSweepTimer.unref?.();
 
+  // Schedule background Admin Wallet reconciliation check (every 10 minutes)
+  const RECONCILE_INTERVAL_MS = 10 * 60 * 1000;
+  const reconcileSweepTimer = setInterval(() => {
+    runDatabaseTransaction((db) => {
+      runWalletReconciliationInTx(db, 'scheduled');
+    }).catch((err) => {
+      console.warn('Scheduled wallet reconciliation warning:', err);
+    });
+  }, RECONCILE_INTERVAL_MS);
+  reconcileSweepTimer.unref?.();
+
   const shutdown = () => {
     clearInterval(expirySweepTimer);
     clearInterval(featuredSweepTimer);
+    clearInterval(reconcileSweepTimer);
     cleanupGroupChatWs();
     if (vite) {
       vite.close().catch(() => {});

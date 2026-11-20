@@ -580,6 +580,7 @@ export default function App() {
                   currentUser={currentUser}
                   onNavigate={handleNavigate}
                   onNotify={handleNotify}
+                  initialTab={typeof viewArg === 'string' ? (viewArg as any) : undefined}
                 />
               </React.Suspense>
             </AdminControlCenterErrorBoundary>

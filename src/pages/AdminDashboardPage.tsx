@@ -12,8 +12,23 @@ import {
 } from '../types.ts';
 import { api, AdminControlCenterSummary, AdminPaginationMeta } from '../api.ts';
 import { useUser } from '../context/UserContext.tsx';
-import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager.tsx';
-import { AdminFeaturedModeration } from '../components/AdminFeaturedModeration.tsx';
+import { lazyWithChunkRetry } from '../components/AdminErrorBoundary.tsx';
+
+const AdminAnnouncementsManager = lazyWithChunkRetry(() =>
+  import('../components/AdminAnnouncementsManager.tsx').then((m) => ({
+    default: m.AdminAnnouncementsManager,
+  }))
+);
+const AdminFeaturedModeration = lazyWithChunkRetry(() =>
+  import('../components/AdminFeaturedModeration.tsx').then((m) => ({
+    default: m.AdminFeaturedModeration,
+  }))
+);
+const AdminWalletPanel = lazyWithChunkRetry(() =>
+  import('../components/AdminWalletPanel.tsx').then((m) => ({
+    default: m.AdminWalletPanel,
+  }))
+);
 import {
   Shield,
   Check,
@@ -56,9 +71,11 @@ interface AdminDashboardPageProps {
   currentUser: User | null;
   onNavigate: (view: string, arg?: any) => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
+  initialTab?: AdminTabKey;
 }
 
-type AdminTabKey =
+export type AdminTabKey =
+  | 'wallet'
   | 'payments'
   | 'deposits'
   | 'wallets'
@@ -188,12 +205,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   currentUser,
   onNavigate,
   onNotify,
+  initialTab,
 }) => {
   const isAdmin = currentUser?.activeRole === 'admin' || currentUser?.role === 'admin';
   const { logoutRole } = useUser();
 
-  const [activeTab, setActiveTab] = useState<AdminTabKey>('payments');
+  const [activeTab, setActiveTab] = useState<AdminTabKey>(initialTab || 'payments');
   const [processingId, setProcessingId] = useState<number | string | null>(null);
+  const [exportingCsvType, setExportingCsvType] = useState<'wallets' | 'users' | null>(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Lightweight KPI Summary State
   const [summary, setSummary] = useState<AdminControlCenterSummary | null>(null);
@@ -215,6 +240,27 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   // Refunds & Audit state
   const [refundsList, setRefundsList] = useState<RefundRequest[]>([]);
   const [auditLogsList, setAuditLogsList] = useState<AuditLog[]>([]);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('');
+  const [auditAfterDate, setAuditAfterDate] = useState('');
+  const [auditBeforeDate, setAuditBeforeDate] = useState('');
+
+  // Mandatory reason modal for rejections / declines (zero window.prompt)
+  const [declineReasonModal, setDeclineReasonModal] = useState<{
+    open: boolean;
+    kind: 'deposit' | 'payment' | 'refund' | 'verification';
+    targetId: number | string;
+    title: string;
+    subtitle: string;
+    reason: string;
+  }>({
+    open: false,
+    kind: 'deposit',
+    targetId: '',
+    title: '',
+    subtitle: '',
+    reason: '',
+  });
 
   // Settings & Security State
   const [adminName, setAdminName] = useState(currentUser?.name || 'Administrator');
@@ -350,12 +396,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     walletSearch,
     userSearch,
     roleFilter,
+    auditSearch,
+    auditActionFilter,
+    auditAfterDate,
+    auditBeforeDate,
   });
   filtersRef.current = {
     paymentStatusFilter,
     walletSearch,
     userSearch,
     roleFilter,
+    auditSearch,
+    auditActionFilter,
+    auditAfterDate,
+    auditBeforeDate,
   };
 
   const loadSummary = useCallback(async (forceRefresh = false) => {
@@ -392,6 +446,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         statusOverride?: string;
         searchOverride?: string;
         roleOverride?: string;
+        actionOverride?: string;
+        afterOverride?: string;
+        beforeOverride?: string;
       } = {}
     ) => {
       if (inFlightSectionsRef.current[section] && !options.force) return;
@@ -508,7 +565,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             featured: { loading: false, error: null, loaded: true, pagination: null },
           }));
         } else if (section === 'audit') {
-          const res = await api.getAdminAuditLogs({ page: targetPage, limit: DEFAULT_PAGE_LIMIT });
+          const searchVal = options.searchOverride !== undefined ? options.searchOverride : f.auditSearch;
+          const actionVal = options.actionOverride !== undefined ? options.actionOverride : f.auditActionFilter;
+          const afterStr = options.afterOverride !== undefined ? options.afterOverride : f.auditAfterDate;
+          const beforeStr = options.beforeOverride !== undefined ? options.beforeOverride : f.auditBeforeDate;
+          const afterMs = afterStr ? new Date(`${afterStr}T00:00:00+03:00`).getTime() : undefined;
+          const beforeMs = beforeStr ? new Date(`${beforeStr}T23:59:59.999+03:00`).getTime() : undefined;
+          const res = await api.getAdminAuditLogs({
+            page: targetPage,
+            limit: DEFAULT_PAGE_LIMIT,
+            search: searchVal.trim() || undefined,
+            action: actionVal.trim() || undefined,
+            after: Number.isFinite(afterMs) ? afterMs : undefined,
+            before: Number.isFinite(beforeMs) ? beforeMs : undefined,
+          });
           setAuditLogsList(res.auditLogs || []);
           setSectionStates((prev) => ({
             ...prev,
@@ -544,19 +614,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }, [onNotify]);
 
-  // Initial lightweight boot: Summary + Security Settings + Active Tab ONLY (via Promise.allSettled)
+  // Initial lightweight boot: Summary + Security Settings (and active section only when needed)
   useEffect(() => {
     if (!isAdmin) return;
     void Promise.allSettled([
       loadSummary(false),
       loadSecuritySettings(),
-      loadSection('payments', { page: 1 }),
     ]);
-  }, [isAdmin, loadSummary, loadSecuritySettings, loadSection]);
+  }, [isAdmin, loadSummary, loadSecuritySettings]);
 
   // Lazy load each tab when opened for the first time
   useEffect(() => {
     if (!isAdmin) return;
+    if (activeTab === 'wallet') return;
     if (activeTab === 'announcements') {
       if (!heroCardsLoadedRef.current) {
         void loadAdminHeroCards();
@@ -618,19 +688,42 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     } else if (activeTab === 'settings') {
       securityLoadedRef.current = false;
       tasks.push(loadSecuritySettings());
-    } else {
+    } else if (activeTab !== 'wallet') {
       const currentPage = sectionStates[activeTab]?.pagination?.page || 1;
       tasks.push(loadSection(activeTab, { page: currentPage, force: true }));
     }
     await Promise.allSettled(tasks);
   }, [activeTab, loadSummary, loadAdminHeroCards, loadSecuritySettings, loadSection, sectionStates]);
 
+  async function handleAsyncCsvExport(type: 'wallets' | 'users') {
+    setExportingCsvType(type);
+    try {
+      await api.runAsyncCsvDownload(type);
+      onNotify('success', `${type === 'wallets' ? 'Wallets' : 'Users'} CSV exported successfully.`);
+    } catch (err: any) {
+      onNotify('error', err?.message || `Failed to export ${type} CSV`);
+    } finally {
+      setExportingCsvType(null);
+    }
+  }
+
   // Handle Wallet Deposit Decision
-  async function handleDepositDecision(depositId: string, action: 'approve' | 'decline') {
+  async function handleDepositDecision(depositId: string, action: 'approve' | 'decline', label?: string) {
+    if (action === 'decline') {
+      setDeclineReasonModal({
+        open: true,
+        kind: 'deposit',
+        targetId: depositId,
+        title: 'Decline Wallet Deposit',
+        subtitle: label || `Deposit #${depositId}`,
+        reason: '',
+      });
+      return;
+    }
     setProcessingId(depositId);
     try {
       const res = await api.decideWalletDeposit(depositId, { action });
-      onNotify('success', res.message || `Deposit request ${action}d!`);
+      onNotify('success', res.message || `Deposit request approved!`);
       await refreshActiveView();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to process deposit request');
@@ -640,11 +733,22 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   }
 
   // Handle Payment Decision
-  async function handlePaymentDecision(paymentId: number, decision: 'approve' | 'reject') {
+  async function handlePaymentDecision(paymentId: number, decision: 'approve' | 'reject', label?: string) {
+    if (decision === 'reject') {
+      setDeclineReasonModal({
+        open: true,
+        kind: 'payment',
+        targetId: paymentId,
+        title: 'Decline M-Pesa Payment Submission',
+        subtitle: label || `Payment #${paymentId}`,
+        reason: '',
+      });
+      return;
+    }
     setProcessingId(paymentId);
     try {
       const res = await api.adminDecidePayment(paymentId, decision);
-      onNotify('success', res.message || `Payment #${paymentId} ${decision}d`);
+      onNotify('success', res.message || `Payment #${paymentId} approved`);
       await refreshActiveView();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to process payment');
@@ -654,7 +758,18 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   }
 
   // Handle Refund Status
-  async function handleRefundStatus(refundId: number, status: string) {
+  async function handleRefundStatus(refundId: number, status: string, label?: string) {
+    if (status === 'rejected') {
+      setDeclineReasonModal({
+        open: true,
+        kind: 'refund',
+        targetId: refundId,
+        title: 'Reject Refund Claim',
+        subtitle: label || `Refund Claim #${refundId}`,
+        reason: '',
+      });
+      return;
+    }
     setProcessingId(refundId);
     try {
       const res = await api.adminRefundStatus(refundId, status);
@@ -662,6 +777,38 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       await refreshActiveView();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to update refund status');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function submitDeclineReasonModal(e: React.FormEvent) {
+    e.preventDefault();
+    const reason = declineReasonModal.reason.trim();
+    if (reason.length < 3) {
+      onNotify('error', 'Please enter a clear reason (at least 3 characters).');
+      return;
+    }
+    const { kind, targetId } = declineReasonModal;
+    setProcessingId(kind === 'verification' ? `dec_${targetId}` : targetId);
+    try {
+      if (kind === 'deposit') {
+        const res = await api.decideWalletDeposit(String(targetId), { action: 'decline', reason });
+        onNotify('success', res.message || 'Deposit request declined.');
+      } else if (kind === 'payment') {
+        const res = await api.adminDecidePayment(Number(targetId), 'reject', reason);
+        onNotify('success', res.message || `Payment #${targetId} declined.`);
+      } else if (kind === 'refund') {
+        const res = await api.adminRefundStatus(Number(targetId), 'rejected', reason);
+        onNotify('success', res.message || `Refund #${targetId} rejected.`);
+      } else if (kind === 'verification') {
+        const res = await api.adminDecideVerification(Number(targetId), { action: 'decline', declineReason: reason });
+        onNotify('success', res.message || 'Merchant verification declined.');
+      }
+      setDeclineReasonModal((prev) => ({ ...prev, open: false, reason: '' }));
+      await refreshActiveView();
+    } catch (err: any) {
+      onNotify('error', err?.message || 'Failed to submit decision');
     } finally {
       setProcessingId(null);
     }
@@ -809,17 +956,22 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   }
 
   // Handle Verification Decision
-  async function handleVerificationDecision(merchantId: number, action: 'verify' | 'decline') {
-    let declineReason = '';
+  async function handleVerificationDecision(merchantId: number, action: 'verify' | 'decline', label?: string) {
     if (action === 'decline') {
-      const promptRes = window.prompt('Enter reason for declining verification:');
-      if (promptRes === null) return;
-      declineReason = promptRes;
+      setDeclineReasonModal({
+        open: true,
+        kind: 'verification',
+        targetId: merchantId,
+        title: 'Decline Merchant Verification',
+        subtitle: label || `Merchant #${merchantId}`,
+        reason: '',
+      });
+      return;
     }
     setProcessingId(`dec_${merchantId}`);
     try {
-      const res = await api.adminDecideVerification(merchantId, { action, declineReason });
-      onNotify('success', res.message || `Merchant verification ${action === 'verify' ? 'approved' : 'declined'}`);
+      const res = await api.adminDecideVerification(merchantId, { action });
+      onNotify('success', res.message || 'Merchant verification approved');
       await refreshActiveView();
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to update verification status');
@@ -1363,6 +1515,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       <div className="flex gap-2 border-b border-slate-200 mb-6 overflow-x-auto pb-1 scrollbar-none">
         <button
           type="button"
+          data-testid="admin-tab-wallet"
+          onMouseEnter={() => { void import('../components/AdminWalletPanel.tsx'); }}
+          onClick={() => setActiveTab('wallet')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+            activeTab === 'wallet' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          <span>Admin Wallet</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('payments')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'payments' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
@@ -1451,6 +1616,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <button
           type="button"
+          onMouseEnter={() => { void import('../components/AdminFeaturedModeration.tsx'); }}
           onClick={() => setActiveTab('featured')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'featured' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
@@ -1462,6 +1628,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <button
           type="button"
+          onMouseEnter={() => { void import('../components/AdminAnnouncementsManager.tsx'); }}
           onClick={() => setActiveTab('announcements')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
             activeTab === 'announcements' ? 'bg-[#ff6600] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
@@ -1654,7 +1821,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => handlePaymentDecision(p.id, 'reject')}
+                                      onClick={() => handlePaymentDecision(p.id, 'reject', `${p.userName} · ${p.code} (KSh ${p.amount})`)}
                                       disabled={processingId === p.id}
                                       className="px-2.5 py-1.5 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                                     >
@@ -1823,7 +1990,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDepositDecision(dep.id, 'decline')}
+                                    onClick={() => handleDepositDecision(dep.id, 'decline', `${dep.userName} · ${dep.mpesaCode} (KSh ${dep.amount})`)}
                                     disabled={processingId === dep.id}
                                     className="px-2.5 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-semibold rounded-lg text-xs disabled:opacity-50 cursor-pointer"
                                   >
@@ -1914,14 +2081,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               />
             </div>
 
-            <a
-              href="/api/admin/wallets/export-csv"
-              download="buyoll_wallets_export.csv"
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
+            <button
+              type="button"
+              onClick={() => void handleAsyncCsvExport('wallets')}
+              disabled={exportingCsvType === 'wallets'}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
             >
-              <Download className="w-4 h-4" />
-              <span>Download Wallets CSV</span>
-            </a>
+              {exportingCsvType === 'wallets' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>{exportingCsvType === 'wallets' ? 'Preparing CSV...' : 'Export Wallets CSV'}</span>
+            </button>
           </div>
 
           {sectionStates.wallets.loading && !sectionStates.wallets.loaded ? (
@@ -2026,8 +2194,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </select>
             </div>
 
-            <div className="text-xs text-slate-500 font-medium">
-              Showing <b>{usersList.length}</b> of <b>{sectionStates.users.pagination?.total ?? usersList.length}</b> accounts
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500 font-medium">
+                Showing <b>{usersList.length}</b> of <b>{sectionStates.users.pagination?.total ?? usersList.length}</b> accounts
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleAsyncCsvExport('users')}
+                disabled={exportingCsvType === 'users'}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {exportingCsvType === 'users' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>{exportingCsvType === 'users' ? 'Exporting...' : 'Export Users CSV'}</span>
+              </button>
             </div>
           </div>
 
@@ -2350,7 +2529,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRefundStatus(r.id, 'rejected')}
+                                  onClick={() => handleRefundStatus(r.id, 'rejected', `${r.userName} · ${r.productTitle} (KSh ${r.eligibleRefundAmount})`)}
                                   className="px-2 py-1 text-red-600 hover:bg-red-50 text-xs font-semibold rounded cursor-pointer"
                                 >
                                   Reject
@@ -2517,7 +2696,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             {verif.status !== 'declined' && (
                               <button
                                 type="button"
-                                onClick={() => handleVerificationDecision(verif.merchantId, 'decline')}
+                                onClick={() => handleVerificationDecision(verif.merchantId, 'decline', verif.shopName || verif.merchantName)}
                                 disabled={processingId === `dec_${verif.merchantId}`}
                                 className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
                               >
@@ -2789,18 +2968,32 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       )}
 
+      {/* TAB: UNIFIED ADMIN WALLET */}
+      {activeTab === 'wallet' && (
+        <React.Suspense fallback={<SectionTableSkeleton />}>
+          <AdminWalletPanel
+            onNotify={onNotify}
+            onChanged={() => void loadSummary(true)}
+          />
+        </React.Suspense>
+      )}
+
       {/* TAB 9: FEATURED MODERATION & PLACEMENT CONTROL */}
       {activeTab === 'featured' && (
-        <AdminFeaturedModeration
-          onNotify={onNotify}
-          onChanged={() => void loadSummary(true)}
-        />
+        <React.Suspense fallback={<SectionTableSkeleton />}>
+          <AdminFeaturedModeration
+            onNotify={onNotify}
+            onChanged={() => void loadSummary(true)}
+          />
+        </React.Suspense>
       )}
 
       {/* TAB 10: ADMIN-ONLY ANNOUNCEMENTS, PROMOTIONS & HERO SLOTS */}
       {activeTab === 'announcements' && (
         <div className="space-y-6">
-          <AdminAnnouncementsManager onNotify={onNotify} />
+          <React.Suspense fallback={<SectionTableSkeleton rows={3} />}>
+            <AdminAnnouncementsManager onNotify={onNotify} />
+          </React.Suspense>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -3259,17 +3452,94 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         ) : (
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
             <div className="p-6">
-              <h2 className="text-sm font-bold text-slate-900 mb-4">
-                System Security & Group Activity Audit Trail
-              </h2>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">
+                    System Security & Group Activity Audit Trail
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Append-only platform event log with East Africa Time (EAT) filtering.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={(e) => setAuditSearch(e.target.value)}
+                      placeholder="Search actor or details..."
+                      className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] w-44"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={auditActionFilter}
+                    onChange={(e) => setAuditActionFilter(e.target.value)}
+                    placeholder="Action prefix (e.g. WALLET_)"
+                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600] w-40"
+                  />
+                  <input
+                    type="date"
+                    aria-label="Audit start date"
+                    value={auditAfterDate}
+                    onChange={(e) => setAuditAfterDate(e.target.value)}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-700"
+                  />
+                  <input
+                    type="date"
+                    aria-label="Audit end date"
+                    value={auditBeforeDate}
+                    onChange={(e) => setAuditBeforeDate(e.target.value)}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void loadSection('audit', { page: 1, force: true })}
+                    className="px-3 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-lg cursor-pointer"
+                  >
+                    Filter
+                  </button>
+                  {(auditSearch || auditActionFilter || auditAfterDate || auditBeforeDate) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuditSearch('');
+                        setAuditActionFilter('');
+                        setAuditAfterDate('');
+                        setAuditBeforeDate('');
+                        void loadSection('audit', {
+                          page: 1,
+                          force: true,
+                          searchOverride: '',
+                          actionOverride: '',
+                          afterOverride: '',
+                          beforeOverride: '',
+                        });
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {auditLogsList.length === 0 ? (
-                <p className="text-xs text-slate-400 py-8 text-center">No audit events recorded yet.</p>
+                <p className="text-xs text-slate-400 py-8 text-center">No audit events matching this filter.</p>
               ) : (
                 <div className="space-y-2 text-xs">
                   {auditLogsList.map((log) => (
                     <div key={log.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-start gap-3">
-                      <span className="font-mono text-[10px] text-slate-400 shrink-0 mt-0.5">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <span className="font-mono text-[10px] text-slate-400 shrink-0 mt-0.5 tabular-nums">
+                        {new Date(log.timestamp).toLocaleString('en-KE', {
+                          timeZone: 'Africa/Nairobi',
+                          month: 'short',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </span>
                       <span className="font-bold text-indigo-700 shrink-0 font-mono text-[11px]">{log.action}</span>
                       <div className="flex-1 text-slate-700">
@@ -4023,6 +4293,66 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL: MANDATORY DECLINE / REJECTION REASON */}
+      {declineReasonModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={submitDeclineReasonModal}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <XCircle className="w-5 h-5 text-red-600" />
+                <h3 className="text-base font-bold text-slate-900">{declineReasonModal.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeclineReasonModal((prev) => ({ ...prev, open: false, reason: '' }))}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
+              {declineReasonModal.subtitle}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Mandatory Written Reason *
+              </label>
+              <textarea
+                rows={3}
+                required
+                minLength={3}
+                value={declineReasonModal.reason}
+                onChange={(e) => setDeclineReasonModal((prev) => ({ ...prev, reason: e.target.value }))}
+                placeholder="Explain why this submission is declined (recorded in Audit Trail and sent to user)..."
+                className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeclineReasonModal((prev) => ({ ...prev, open: false, reason: '' }))}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={declineReasonModal.reason.trim().length < 3 || processingId !== null}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {processingId !== null ? 'Submitting...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

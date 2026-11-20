@@ -13,6 +13,7 @@ import { ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
 import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 import { buildControlCenterIndexSnapshot } from './admin_control_center.js';
+import { getEatTimeKeys, recordIncomeInTx, runWalletReconciliationInTx } from './admin_wallet_service.js';
 import {
   DEFAULT_FEATURED_PLACEMENTS,
   DEFAULT_FEATURED_PRICING,
@@ -931,6 +932,127 @@ export const MIGRATIONS: MigrationDefinition[] = [
       delete db.featuredStatsDaily;
       delete db.tierFeaturedLimits;
       delete db.featuredSettings;
+      return true;
+    },
+  },
+  {
+    id: '014_admin_wallet_outbox_and_indexes',
+    name: 'Initialize unified Admin Wallet incomeLedger, specialRefundCredits, transactional outboxEvents, reconciliationReports, exportJobs, and backfill ledger totals',
+    up(db, ctx) {
+      let changed = false;
+      if (!db.incomeLedger) {
+        db.incomeLedger = [];
+        changed = true;
+      }
+      if (!db.specialRefundCredits) {
+        db.specialRefundCredits = [];
+        changed = true;
+      }
+      if (!db.outboxEvents) {
+        db.outboxEvents = [];
+        changed = true;
+      }
+      if (!db.reconciliationReports) {
+        db.reconciliationReports = [];
+        changed = true;
+      }
+      if (!db.exportJobs) {
+        db.exportJobs = [];
+        changed = true;
+      }
+
+      if (!ctx.alreadyApplied) {
+        // Backfill historical subscription revenue (KES channels only so coin-only plans stay separate)
+        const usersById = new Map((db.users || []).map((u) => [u.id, u]));
+        for (const sub of db.merchantSubscriptions || []) {
+          if ((sub.status === 'active' || sub.status === 'expired') && Number(sub.amount || 0) > 0) {
+            if (sub.paymentMethod === 'wallet_coins') continue;
+            const channel = sub.paymentMethod === 'wallet_credit' ? 'WALLET' : 'MPESA_DIRECT';
+            const merchant = usersById.get(sub.merchantId);
+            const res = recordIncomeInTx(db, {
+              source: 'SUBSCRIPTION',
+              paymentChannel: channel,
+              amountCents: toCents(sub.amount),
+              userId: sub.merchantId,
+              userName: merchant?.shopName || merchant?.name || `Merchant #${sub.merchantId}`,
+              referenceId: sub.paymentCode || sub.id,
+              description: `Subscription: ${sub.tierName}`,
+              idempotencyKey: `mig014_sub_${sub.id}`,
+              createdAt: sub.approvedAt || sub.startDate || sub.createdAt,
+            });
+            if (!res.deduplicated) changed = true;
+          }
+        }
+
+        // Backfill settled Featured Placements
+        for (const fr of db.featuredRequests || []) {
+          if (
+            (fr.status === 'ACTIVE' || fr.status === 'APPROVED' || fr.status === 'EXPIRED') &&
+            Number(fr.amountPaidCents || 0) > 0
+          ) {
+            const merchant = usersById.get(fr.merchantId);
+            const isSeeded = fr.id.startsWith('freq_seed_');
+            const res = recordIncomeInTx(db, {
+              source: 'FEATURED',
+              paymentChannel: isSeeded ? 'MPESA_DIRECT' : 'WALLET',
+              amountCents: fr.amountPaidCents,
+              userId: fr.merchantId,
+              userName: merchant?.shopName || merchant?.name || `Merchant #${fr.merchantId}`,
+              referenceId: fr.id,
+              description: `Featured Placement #${fr.id} (${fr.durationDays}d)`,
+              idempotencyKey: `mig014_feat_${fr.id}`,
+              createdAt: fr.approvedAt || fr.createdAt,
+            });
+            if (!res.deduplicated) changed = true;
+          }
+        }
+
+        // Backfill Group Loan 1% platform commission fees
+        for (const fee of db.platformFees || []) {
+          if (Number(fee.feeAmountCents || 0) > 0) {
+            const lender = usersById.get(fee.lenderId);
+            const res = recordIncomeInTx(db, {
+              source: 'LOAN_FEE',
+              paymentChannel: 'WALLET',
+              amountCents: fee.feeAmountCents,
+              userId: fee.lenderId,
+              userName: lender?.name || `Lender #${fee.lenderId}`,
+              referenceId: `LOAN_FEE_${fee.loanId}`,
+              description: `Loan #${fee.loanId} platform commission fee`,
+              idempotencyKey: `mig014_loanfee_${fee.loanId}`,
+              createdAt: fee.createdAt,
+            });
+            if (!res.deduplicated) changed = true;
+          }
+        }
+
+        // Backfill EAT keys on any income record missing them
+        for (const inc of db.incomeLedger) {
+          if (!inc.eatDateKey || !inc.eatHourKey || !inc.eatMonthKey || !inc.eatYearKey) {
+            const keys = getEatTimeKeys(inc.createdAt);
+            inc.eatDateKey = keys.eatDateKey;
+            inc.eatHourKey = keys.eatHourKey;
+            inc.eatMonthKey = keys.eatMonthKey;
+            inc.eatYearKey = keys.eatYearKey;
+            changed = true;
+          }
+        }
+
+        db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+        if (db.reconciliationReports.length === 0) {
+          runWalletReconciliationInTx(db, 'scheduled');
+        }
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      delete db.incomeLedger;
+      delete db.specialRefundCredits;
+      delete db.outboxEvents;
+      delete db.reconciliationReports;
+      delete db.exportJobs;
       return true;
     },
   },
