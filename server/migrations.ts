@@ -13,6 +13,13 @@ import { ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
 import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 import { buildControlCenterIndexSnapshot } from './admin_control_center.js';
+import {
+  DEFAULT_FEATURED_PLACEMENTS,
+  DEFAULT_FEATURED_PRICING,
+  DEFAULT_TIER_FEATURED_LIMITS,
+  getFeaturedSettings,
+  sweepFeaturedPlacementsInTx,
+} from './featured_service.js';
 
 export interface MigrationRecord {
   id: string;
@@ -831,6 +838,99 @@ export const MIGRATIONS: MigrationDefinition[] = [
     },
     down(db) {
       delete db.controlCenterIndexes;
+      return true;
+    },
+  },
+  {
+    id: '013_featured_paid_placements',
+    name: 'Initialize paid Featured placements, duration pricing, subscription tier featured limits, stats store, and active seeded featured requests',
+    up(db) {
+      let changed = false;
+      const now = Date.now();
+
+      if (!db.featuredPlacements || db.featuredPlacements.length === 0) {
+        db.featuredPlacements = DEFAULT_FEATURED_PLACEMENTS.map((p) => ({ ...p, updatedAt: now }));
+        changed = true;
+      }
+
+      if (!db.featuredPricing || db.featuredPricing.length === 0) {
+        db.featuredPricing = DEFAULT_FEATURED_PRICING.map((p) => ({ ...p, updatedAt: now }));
+        changed = true;
+      }
+
+      if (!db.tierFeaturedLimits || Object.keys(db.tierFeaturedLimits).length === 0) {
+        db.tierFeaturedLimits = {};
+        for (const [tierId, cfg] of Object.entries(DEFAULT_TIER_FEATURED_LIMITS)) {
+          db.tierFeaturedLimits[tierId] = { ...cfg, updatedAt: now };
+        }
+        changed = true;
+      }
+
+      if (!db.featuredSettings) {
+        db.featuredSettings = {
+          ...getFeaturedSettings(db),
+          updatedAt: now,
+        };
+        changed = true;
+      }
+
+      if (!db.featuredRequests) {
+        db.featuredRequests = [];
+        changed = true;
+      }
+
+      if (!db.featuredStatsDaily) {
+        db.featuredStatsDaily = [];
+        changed = true;
+      }
+
+      // Non-destructive backfill: migrate existing seeded featured live products into 30-day ACTIVE placements
+      if (db.featuredRequests.length === 0) {
+        const dayMs = 24 * 60 * 60 * 1000;
+        const cap = db.featuredPlacements[0]?.maxSlots || 10;
+        let seededCount = 0;
+        for (const p of db.products || []) {
+          if (seededCount >= cap) break;
+          if (p.isFeatured && p.live !== false && p.publicationStatus !== 'draft') {
+            const reqId = `freq_seed_${p.id}`;
+            db.featuredRequests.push({
+              id: reqId,
+              merchantId: p.vendorId,
+              productId: p.id,
+              placementKey: 'homepage_featured',
+              durationDays: 30,
+              tierIdSnapshot: 'tier_500',
+              basePriceCents: 50000,
+              discountPercent: 0,
+              amountPaidCents: 50000,
+              currency: 'KES',
+              status: 'ACTIVE',
+              startsAt: now - dayMs,
+              endsAt: now + 29 * dayMs,
+              approvedAt: now - dayMs,
+              approvedBy: 1,
+              createdAt: now - dayMs,
+              updatedAt: now,
+            });
+            seededCount++;
+            changed = true;
+          }
+        }
+      }
+
+      if (sweepFeaturedPlacementsInTx(db, now).changed) {
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      delete db.featuredPlacements;
+      delete db.featuredPricing;
+      delete db.featuredRequests;
+      delete db.featuredStatsDaily;
+      delete db.tierFeaturedLimits;
+      delete db.featuredSettings;
       return true;
     },
   },

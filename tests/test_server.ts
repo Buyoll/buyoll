@@ -14,6 +14,7 @@ import {
 import { resetDatabaseCacheForTest, getDatabase, runDatabaseTransaction } from '../server/db.js';
 import { PUBLIC_DIR } from '../server/config.js';
 import { createDbSession, createAccessToken } from '../server/auth_utils.js';
+import { attachGroupChatWebSocketServer } from '../server/group_chat_ws.js';
 import type { UserRole } from '../src/types.ts';
 
 export interface TestHarness {
@@ -61,6 +62,7 @@ export async function startTestServer(): Promise<TestHarness> {
   app.use(globalJsonErrorHandler);
 
   const server = http.createServer(app);
+  const cleanupGroupChatWs = attachGroupChatWebSocketServer(server);
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve());
   });
@@ -109,6 +111,7 @@ export async function startTestServer(): Promise<TestHarness> {
     issueToken,
     loginAdmin,
     close: async () => {
+      cleanupGroupChatWs();
       server.closeAllConnections?.();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await fs.rm(dbFile, { force: true }).catch(() => {});

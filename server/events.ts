@@ -11,7 +11,9 @@ export type PlatformEventType =
   | 'subscription.updated'
   | 'subscription.activated'
   | 'subscription.expired'
-  | 'user.wallet.updated';
+  | 'user.wallet.updated'
+  | 'featured.request.submitted'
+  | 'featured.updated';
 
 interface SseClient {
   id: string;

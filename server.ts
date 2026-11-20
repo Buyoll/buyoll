@@ -12,8 +12,10 @@ import {
   globalJsonErrorHandler,
   securityAndCorsMiddleware,
 } from './server/http_middleware.js';
-import { SUBSCRIPTION_EXPIRY_SWEEP_MS } from './server/config.js';
+import { FEATURED_EXPIRY_SWEEP_MS, SUBSCRIPTION_EXPIRY_SWEEP_MS } from './server/config.js';
 import { enforceExpiredSubscriptions } from './server/subscriptions_api.js';
+import { sweepFeaturedPlacements } from './server/featured_service.js';
+import { attachGroupChatWebSocketServer } from './server/group_chat_ws.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,6 +32,7 @@ function resolvePort(): number {
 async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
+  const cleanupGroupChatWs = attachGroupChatWebSocketServer(httpServer);
   const PORT = resolvePort();
 
   app.set('trust proxy', 1);
@@ -123,8 +126,21 @@ async function startServer() {
   }, SUBSCRIPTION_EXPIRY_SWEEP_MS);
   expirySweepTimer.unref?.();
 
+  // Schedule background Featured Placements activation/expiry sweep
+  sweepFeaturedPlacements().catch((err) => {
+    console.warn('Initial featured expiry sweep warning:', err);
+  });
+  const featuredSweepTimer = setInterval(() => {
+    sweepFeaturedPlacements().catch((err) => {
+      console.warn('Scheduled featured expiry sweep warning:', err);
+    });
+  }, FEATURED_EXPIRY_SWEEP_MS);
+  featuredSweepTimer.unref?.();
+
   const shutdown = () => {
     clearInterval(expirySweepTimer);
+    clearInterval(featuredSweepTimer);
+    cleanupGroupChatWs();
     if (vite) {
       vite.close().catch(() => {});
     }

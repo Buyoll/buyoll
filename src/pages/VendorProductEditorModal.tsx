@@ -44,7 +44,6 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
       ? product.videos.slice(0, 2)
       : []
   );
-  const [isFeatured, setIsFeatured] = useState<boolean>(product?.isFeatured || false);
   const [promotionType, setPromotionType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>(product?.promotionType || 'none');
   const [promotionDiscount, setPromotionDiscount] = useState<number>(product?.promotionDiscount || 0);
   const [bonusGift, setBonusGift] = useState<string>(product?.bonusGift || '');
@@ -274,7 +273,6 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
         images: images.length > 0 ? images : ['/src/assets/images/stainless_cookware_set_1792852473733.jpg'],
         videos: videos.length > 0 ? videos : [],
         attributes: attributesObj,
-        isFeatured,
         speedOptions,
         paymentReceiving,
         promotionType: promotionType === 'none' ? undefined : promotionType,
@@ -801,24 +799,14 @@ export const VendorProductEditorModal: React.FC<VendorProductEditorModalProps> =
             </div>
           </div>
 
-          {/* FEATURED ANNOUNCEMENT OPTION (KSh 500 Placement) */}
-          <div className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-xl">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isFeatured}
-                onChange={(e) => setIsFeatured(e.target.checked)}
-                className="mt-0.5 rounded text-[#ff6600] focus:ring-[#ff6600]"
-              />
-              <div>
-                <span className="text-xs font-bold text-slate-900 block">
-                  Place in Hero Featured Deals Carousel (KSh 500 / image placement)
-                </span>
-                <span className="text-[11px] text-slate-600 leading-relaxed block mt-0.5">
-                  Featured products rotate automatically right-to-left at 2.5s intervals on the main hero banner for maximum member visibility across over 100,000 deals.
-                </span>
-              </div>
-            </label>
+          {/* FEATURED PLACEMENT NOTICE (PAID VIA MERCHANT WALLET + ADMIN APPROVAL) */}
+          <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl">
+            <span className="text-xs font-bold text-slate-900 block">
+              Featured Hero Placement (Paid from Merchant Wallet)
+            </span>
+            <span className="text-[11px] text-slate-600 leading-relaxed block mt-0.5">
+              Once this product is published with at least 1 active group, open <b>My Featured Placements</b> in your Merchant Dashboard to request a paid 1–7 or 30-day Featured slot (subject to subscription tier limits and Admin approval).
+            </span>
           </div>
 
           {/* PART 6: SPEED OPTIONS CONFIGURATION */}

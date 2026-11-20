@@ -32,6 +32,7 @@ import {
 import { User, Announcement, PlatformAnnouncementSlot } from '../types.ts';
 import { useSearchHistory } from '../hooks/useSearchHistory.ts';
 import { getLowestGroupDailyAmount } from '../utils/speedOptions.ts';
+import { getFeaturedSessionId, rememberFeaturedAttribution } from '../utils/featuredAttribution.ts';
 
 interface HomePageProps {
   currentUser?: User | null;
@@ -55,7 +56,7 @@ const CATEGORIES = [
   'Baby',
 ];
 
-type DayFilter = 'all' | 0 | 1 | 2 | 3 | 5 | 6 | 7;
+type DayFilter = 'all' | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 
 
@@ -127,10 +128,22 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [annImageUrl, setAnnImageUrl] = useState('');
   const [submittingAnn, setSubmittingAnn] = useState(false);
 
-  // Featured announcements slider state
+  // Paid Featured placements slider state
+  const [featuredItems, setFeaturedItems] = useState<Array<{
+    featuredRequestId: string;
+    placementKey: string;
+    durationDays: number;
+    startsAt: number;
+    endsAt: number;
+    endsAtEat: string;
+    daysRemaining: number;
+    product: Product;
+  }>>([]);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [jumpIndexInput, setJumpIndexInput] = useState('');
   const [isFeaturedPaused, setIsFeaturedPaused] = useState(false);
+  const impressedFeaturedRef = useRef<Set<string>>(new Set());
+  const featuredHeroRef = useRef<HTMLElement | null>(null);
 
   // Admin-controlled Hero Announcement Cards
   const [heroSlots, setHeroSlots] = useState<PlatformAnnouncementSlot[]>([]);
@@ -171,19 +184,22 @@ export const HomePage: React.FC<HomePageProps> = ({
   async function loadHomeData() {
     setLoading(true);
     try {
-      const [prodRes, grpRes, annRes] = await Promise.all([
+      const [prodRes, grpRes, annRes, featRes] = await Promise.all([
         api.getProducts({
           category: selectedCategory !== 'All' ? selectedCategory : undefined,
           search: searchQuery || undefined,
         }),
         api.getGroups(),
         api.getAnnouncements().catch(() => ({ announcements: [] })),
+        api.getPublicFeatured({ placement: 'homepage_featured', limit: 50 }).catch(() => ({ items: [] })),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
       setAnnouncements(annRes.announcements || []);
+      setFeaturedItems(featRes.items || []);
     } catch {
       setProducts([]);
+      setFeaturedItems([]);
     } finally {
       setLoading(false);
     }
@@ -284,20 +300,62 @@ export const HomePage: React.FC<HomePageProps> = ({
     }
   }
 
-  // Featured announcements (items with isFeatured === true, or fallback to all)
-  const featuredAnnouncements = products.filter(p => p.isFeatured);
-  const displayFeatured = featuredAnnouncements.length > 0 ? featuredAnnouncements : products;
+  // Paid active Featured placements (strictly server-verified active slots; no unfeatured fallback)
+  const activeFeaturedProductIds = new Set<number>(featuredItems.map((item) => item.product.id));
+  const currentFeaturedItem = featuredItems[featuredIndex % Math.max(1, featuredItems.length)] || null;
+  const currentFeatured = currentFeaturedItem?.product || null;
 
-  // 2.5-second right-to-left automatic slide for Featured Announcements
+  // 2.5-second right-to-left automatic slide for Featured Deals
   useEffect(() => {
-    if (displayFeatured.length <= 1 || isFeaturedPaused) return;
+    if (featuredItems.length <= 1 || isFeaturedPaused) return;
 
     const timer = setInterval(() => {
-      setFeaturedIndex(prev => (prev + 1) % displayFeatured.length);
-    }, 2500); // Exactly 2.5 second interval as requested
+      setFeaturedIndex(prev => (prev + 1) % featuredItems.length);
+    }, 2500);
 
     return () => clearInterval(timer);
-  }, [displayFeatured.length, isFeaturedPaused]);
+  }, [featuredItems.length, isFeaturedPaused]);
+
+  // Track active slide impression when Featured section is visible in viewport
+  useEffect(() => {
+    if (!currentFeaturedItem?.featuredRequestId || currentFeaturedItem.featuredRequestId.startsWith('fb_')) return;
+    const fid = currentFeaturedItem.featuredRequestId;
+    if (impressedFeaturedRef.current.has(fid)) return;
+
+    const recordImpression = () => {
+      if (impressedFeaturedRef.current.has(fid)) return;
+      impressedFeaturedRef.current.add(fid);
+      void api.trackFeaturedEventsBatch(
+        [{ featuredRequestId: fid, eventType: 'impression' }],
+        getFeaturedSessionId()
+      );
+    };
+
+    const el = featuredHeroRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      recordImpression();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          recordImpression();
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [currentFeaturedItem?.featuredRequestId]);
+
+  function handleSelectFeaturedProduct(item: NonNullable<typeof currentFeaturedItem>) {
+    rememberFeaturedAttribution(item.product.id, item.featuredRequestId);
+    if (!item.featuredRequestId.startsWith('fb_')) {
+      void api.trackFeaturedEvent(item.featuredRequestId, 'click', getFeaturedSessionId());
+    }
+    onSelectProduct(item.product.id);
+  }
 
   // Calculate day difference for newly posted items
   function getDaysAgo(createdAt: number): number {
@@ -324,17 +382,17 @@ export const HomePage: React.FC<HomePageProps> = ({
 
     const timer = setInterval(() => {
       setNewlyPostedIndex(prev => (prev + 1) % filteredNewlyPosted.length);
-    }, 2500); // Exactly 2.5 second interval as requested
+    }, 2500);
 
     return () => clearInterval(timer);
   }, [filteredNewlyPosted.length, isNewPaused]);
 
-  // Jump to specific featured announcement up to 100,000 scale
+  // Jump to specific featured deal index
   function handleJumpToFeatured(e: React.FormEvent) {
     e.preventDefault();
     const parsed = parseInt(jumpIndexInput.trim(), 10);
-    if (!isNaN(parsed) && parsed >= 1 && displayFeatured.length > 0) {
-      const targetIndex = (parsed - 1) % displayFeatured.length;
+    if (!isNaN(parsed) && parsed >= 1 && featuredItems.length > 0) {
+      const targetIndex = (parsed - 1) % featuredItems.length;
       setFeaturedIndex(targetIndex);
       setJumpIndexInput('');
     }
@@ -348,8 +406,6 @@ export const HomePage: React.FC<HomePageProps> = ({
       addSearch(searchQuery.trim());
     }
   }, [searchQuery, addSearch]);
-
-  const currentFeatured = displayFeatured[featuredIndex] || displayFeatured[0];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -558,9 +614,10 @@ export const HomePage: React.FC<HomePageProps> = ({
         </section>
       )}
 
-      {/* 1. FEATURED DEAL SECTION ON HERO (Moving right-to-left at 2.5s interval, KSh 500/image merchant fee, 100k scale) */}
-      {!searchQuery && selectedCategory === 'All' && currentFeatured && (
+      {/* 1. PAID FEATURED DEAL SECTION ON HERO (Strictly active approved placements, EAT-enforced) */}
+      {!searchQuery && selectedCategory === 'All' && currentFeatured && currentFeaturedItem && (
         <section
+          ref={featuredHeroRef}
           id="featured-deals"
           onMouseEnter={() => setIsFeaturedPaused(true)}
           onMouseLeave={() => setIsFeaturedPaused(false)}
@@ -573,30 +630,35 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <Sparkles className="w-3.5 h-3.5" />
                 Featured Deal
               </span>
+              <span className="text-[11px] font-semibold text-emerald-100/90 bg-white/10 px-2.5 py-0.5 rounded-full">
+                {currentFeaturedItem.durationDays}d Showcase · {currentFeaturedItem.daysRemaining}d left
+              </span>
             </div>
 
-            {/* 100,000 Capacity Scale Counter & Direct Jump */}
+            {/* Active Slot Counter & Direct Jump */}
             <div className="flex items-center gap-3">
               <span className="text-xs text-emerald-200 font-mono">
-                Showing Deal <b className="text-amber-300">#{featuredIndex + 1}</b> of <b className="text-white">100,000+</b>
+                Featured <b className="text-amber-300">#{(featuredIndex % featuredItems.length) + 1}</b> of <b className="text-white">{featuredItems.length}</b>
               </span>
-              <form onSubmit={handleJumpToFeatured} className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="1"
-                  max="100000"
-                  value={jumpIndexInput}
-                  onChange={(e) => setJumpIndexInput(e.target.value)}
-                  placeholder="Jump #"
-                  className="w-20 px-2 py-1 text-xs bg-black/40 border border-white/20 rounded-md text-white placeholder-emerald-200/50 focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  type="submit"
-                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-md transition-colors"
-                >
-                  Go
-                </button>
-              </form>
+              {featuredItems.length > 1 && (
+                <form onSubmit={handleJumpToFeatured} className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max={featuredItems.length}
+                    value={jumpIndexInput}
+                    onChange={(e) => setJumpIndexInput(e.target.value)}
+                    placeholder="Jump #"
+                    className="w-20 px-2 py-1 text-xs bg-black/40 border border-white/20 rounded-md text-white placeholder-emerald-200/50 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-md transition-colors"
+                  >
+                    Go
+                  </button>
+                </form>
+              )}
             </div>
           </div>
 
@@ -641,9 +703,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <span>
                     Group savings from{' '}
                     <b className="text-white">
-                      KSh {Math.ceil(currentFeatured.price / 10 / 10).toLocaleString()} / day
+                      KSh {getLowestGroupDailyAmount(currentFeatured.price, currentFeatured.speedOptions).toLocaleString()} / day
                     </b>{' '}
-                    · Instant Slot #1 Activation
+                    · Paid Featured Placement
                   </span>
                 </div>
               </div>
@@ -651,42 +713,43 @@ export const HomePage: React.FC<HomePageProps> = ({
               {/* CTA and Controls */}
               <div className="flex flex-wrap items-center gap-4">
                 <button
-                  onClick={() => onSelectProduct(currentFeatured.id)}
-                  className="flex items-center gap-2 px-6 py-3 bg-[#FF6A00] hover:bg-[#e85f00] text-white font-bold text-sm rounded-xl transition-all shadow-lg hover:shadow-xl active:scale-95"
+                  onClick={() => handleSelectFeaturedProduct(currentFeaturedItem)}
+                  className="flex items-center gap-2 px-6 py-3 bg-[#FF6A00] hover:bg-[#e85f00] text-white font-bold text-sm rounded-xl transition-all shadow-lg hover:shadow-xl active:scale-95 cursor-pointer"
                 >
                   <span>Explore Featured Group Deal</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
-                {/* Manual Navigation Controls (right-to-left) */}
-                <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-2 py-1.5 rounded-xl border border-white/15">
-                  <button
-                    onClick={() =>
-                      setFeaturedIndex(prev => (prev - 1 + displayFeatured.length) % displayFeatured.length)
-                    }
-                    title="Previous announcement"
-                    className="p-1.5 hover:bg-white/20 text-white rounded-lg transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-mono px-2 text-emerald-200">
-                    {featuredIndex + 1} / 100,000+
-                  </span>
-                  <button
-                    onClick={() => setFeaturedIndex(prev => (prev + 1) % displayFeatured.length)}
-                    title="Next announcement (move right to left)"
-                    className="p-1.5 hover:bg-white/20 text-white rounded-lg transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+                {featuredItems.length > 1 && (
+                  <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-2 py-1.5 rounded-xl border border-white/15">
+                    <button
+                      onClick={() =>
+                        setFeaturedIndex(prev => (prev - 1 + featuredItems.length) % featuredItems.length)
+                      }
+                      title="Previous featured deal"
+                      className="p-1.5 hover:bg-white/20 text-white rounded-lg transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs font-mono px-2 text-emerald-200">
+                      {(featuredIndex % featuredItems.length) + 1} / {featuredItems.length}
+                    </span>
+                    <button
+                      onClick={() => setFeaturedIndex(prev => (prev + 1) % featuredItems.length)}
+                      title="Next featured deal"
+                      className="p-1.5 hover:bg-white/20 text-white rounded-lg transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Hero Right Visual */}
             <div className="lg:col-span-5">
               <div
-                onClick={() => onSelectProduct(currentFeatured.id)}
+                onClick={() => handleSelectFeaturedProduct(currentFeaturedItem)}
                 className="group relative bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 cursor-pointer hover:bg-white/15 transition-all shadow-2xl"
               >
                 <div className="relative aspect-4/3 rounded-xl overflow-hidden mb-3 bg-black/20">
@@ -702,7 +765,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     </div>
                   )}
                   <div className="absolute bottom-3 right-3 px-2.5 py-1 bg-black/70 backdrop-blur-md text-amber-300 text-xs font-mono font-bold rounded-lg border border-amber-300/30">
-                    Deal #{featuredIndex + 1}
+                    Deal #{(featuredIndex % featuredItems.length) + 1}
                   </div>
                 </div>
 
@@ -717,23 +780,25 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
 
           {/* Featured Dots Tracker */}
-          <div className="flex items-center justify-center gap-1.5 mt-6 pt-4 border-t border-white/10">
-            {displayFeatured.slice(0, 10).map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setFeaturedIndex(idx)}
-                className={`h-1.5 rounded-full transition-all ${
-                  featuredIndex === idx ? 'w-6 bg-amber-400' : 'w-2 bg-white/30 hover:bg-white/60'
-                }`}
-                title={`Go to featured deal ${idx + 1}`}
-              />
-            ))}
-            {displayFeatured.length > 10 && (
-              <span className="text-[10px] text-emerald-200/70 ml-1 font-mono">
-                +{displayFeatured.length - 10} more
-              </span>
-            )}
-          </div>
+          {featuredItems.length > 1 && (
+            <div className="flex items-center justify-center gap-1.5 mt-6 pt-4 border-t border-white/10">
+              {featuredItems.slice(0, 10).map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setFeaturedIndex(idx)}
+                  className={`h-1.5 rounded-full transition-all ${
+                    (featuredIndex % featuredItems.length) === idx ? 'w-6 bg-amber-400' : 'w-2 bg-white/30 hover:bg-white/60'
+                  }`}
+                  title={`Go to featured deal ${idx + 1}`}
+                />
+              ))}
+              {featuredItems.length > 10 && (
+                <span className="text-[10px] text-emerald-200/70 ml-1 font-mono">
+                  +{featuredItems.length - 10} more
+                </span>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -856,6 +921,19 @@ export const HomePage: React.FC<HomePageProps> = ({
             </button>
             <button
               onClick={() => {
+                setSelectedDayFilter(4);
+                setNewlyPostedIndex(0);
+              }}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                selectedDayFilter === 4
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Posted 4 days ago
+            </button>
+            <button
+              onClick={() => {
                 setSelectedDayFilter(5);
                 setNewlyPostedIndex(0);
               }}
@@ -936,12 +1014,17 @@ export const HomePage: React.FC<HomePageProps> = ({
                             </span>
                           </div>
 
-                          {/* Optional merchant discount */}
-                          {prod.discountPercent && prod.discountPercent > 0 && (
+                          {/* Optional Featured or merchant discount badge */}
+                          {activeFeaturedProductIds.has(prod.id) || prod.isFeatured ? (
+                            <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black rounded flex items-center gap-0.5">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              <span>Featured</span>
+                            </div>
+                          ) : prod.discountPercent && prod.discountPercent > 0 ? (
                             <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-[#FF6A00] text-white text-[10px] font-black rounded">
                               -{prod.discountPercent}%
                             </div>
-                          )}
+                          ) : null}
                         </div>
 
                         {/* Card Info */}

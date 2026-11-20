@@ -28,6 +28,8 @@ import {
   findPlatformAdminUser,
 } from './wallet_service.js';
 import { paginateList, parsePaginationQuery } from './admin_control_center.js';
+import { recordFeaturedEventInTx, sweepFeaturedPlacements } from './featured_service.js';
+import { broadcastGroupChatDelta } from './group_chat_service.js';
 
 export const prompt2Router = wrapRouterAsync(Router());
 
@@ -465,7 +467,7 @@ prompt2Router.post('/user/recently-viewed', async (req: Request, res: Response) 
   const user = await getAuthUser(req);
   if (!user) return res.json({ success: true });
 
-  const { productId } = req.body;
+  const { productId, featuredRequestId } = req.body || {};
   const pid = Number(productId);
   const db = await getDatabase();
   if (!db.recentlyViewed) db.recentlyViewed = [];
@@ -479,6 +481,13 @@ prompt2Router.post('/user/recently-viewed', async (req: Request, res: Response) 
   });
 
   if (db.recentlyViewed.length > 500) db.recentlyViewed = db.recentlyViewed.slice(0, 500);
+  if (typeof featuredRequestId === 'string' && featuredRequestId.trim()) {
+    recordFeaturedEventInTx(db, {
+      featuredRequestId: featuredRequestId.trim(),
+      eventType: 'product_view',
+      viewerKey: `u_${user.id}`,
+    });
+  }
   await saveDatabase(db);
 
   res.json({ success: true });
@@ -773,112 +782,16 @@ prompt2Router.post('/merchant/subscription/submit-manual', async (req: Request, 
 });
 
 
-// Pay Featured Product fee (KES 30 / day) with Wallet Coins or Wallet Credit
+// Legacy direct-featuring bypass disabled: all Featured placements require paid duration + tier checks + Admin moderation
 prompt2Router.post('/products/feature/pay-coins', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user || (!isUserMerchant(user) && !isUserAdmin(user))) {
     return res.status(403).json({ error: 'Merchant authorization required' });
   }
-
-  const { productId, days, paymentMethod } = req.body;
-  const numDays = Math.max(1, Math.min(90, Number(days) || 7));
-  const feePerDay = 30; // STRICT KES 30/day featured fee
-  const totalAmount = numDays * feePerDay;
-
-  try {
-    const updatedProduct = await runDatabaseTransaction(async (db) => {
-      const product = db.products.find((p) => p.id === Number(productId));
-      if (!product) throw { status: 404, message: 'Product not found' };
-      if (product.vendorId !== user.id && !isUserAdmin(user)) {
-        throw { status: 403, message: 'You can only feature your own products.' };
-      }
-
-      const merchantUser = db.users.find((u) => u.id === user.id);
-      if (!merchantUser) throw { status: 404, message: 'User not found' };
-
-      const adminUser = findPlatformAdminUser(db) || db.users[0];
-      const now = Date.now();
-
-      if (paymentMethod === 'wallet_credit') {
-        const refId = `FEAT_${product.id}_${now}`;
-        const { wallet } = debitWalletCents(db, {
-          userId: merchantUser.id,
-          role: 'merchant',
-          amountCents: toCents(totalAmount),
-          category: 'PROMOTION_PAYMENT',
-          referenceId: refId,
-          idempotencyKey: `feat_debit_${refId}`,
-          note: `Featured placement fee for "${product.title}" (${numDays} days @ KSh 30/day)`,
-          actorId: merchantUser.id,
-        });
-        if (adminUser && adminUser.id !== merchantUser.id) {
-          creditWalletCents(db, {
-            userId: adminUser.id,
-            role: 'admin',
-            amountCents: toCents(totalAmount),
-            category: 'PROMOTION_REVENUE',
-            referenceId: refId,
-            idempotencyKey: `feat_rev_${refId}`,
-            note: `Featured product revenue for "${product.title}" (${numDays} days)`,
-            actorId: merchantUser.id,
-          });
-        }
-        if (!db.storeCreditLedger) db.storeCreditLedger = [];
-        db.storeCreditLedger.unshift({
-          id: db.nextIds.ledger++,
-          userId: merchantUser.id,
-          amount: -totalAmount,
-          balanceAfter: wallet.balanceCents / 100,
-          type: 'transfer_out' as any,
-          referenceId: refId,
-          note: `Featured placement fee for "${product.title}" (${numDays} days)`,
-          createdAt: now,
-        });
-      } else {
-        if ((merchantUser.coins || 0) < totalAmount) {
-          throw {
-            status: 400,
-            message: `Insufficient coins. You have ${merchantUser.coins || 0} coins but need ${totalAmount} coins (${numDays} days @ KSh 30/day).`,
-          };
-        }
-        merchantUser.coins = (merchantUser.coins || 0) - totalAmount;
-        if (adminUser) adminUser.coins = (adminUser.coins || 0) + totalAmount;
-        if (!db.coinLedger) db.coinLedger = [];
-        db.coinLedger.push({
-          id: db.coinLedger.length + 1,
-          senderId: merchantUser.id,
-          senderName: merchantUser.name,
-          recipientId: adminUser?.id || 1,
-          recipientName: adminUser?.name || 'Admin Escrow',
-          amount: totalAmount,
-          type: 'transfer',
-          reason: 'featured_product',
-          note: `Featured placement (${numDays} days) for "${product.title}"`,
-          timestamp: now,
-        });
-      }
-
-      product.isFeatured = true;
-      product.updatedAt = now;
-
-      logAudit(
-        db,
-        user.id,
-        user.name,
-        'PRODUCT_FEATURED_PAID',
-        `Paid ${totalAmount} (${paymentMethod === 'wallet_credit' ? 'KSh wallet' : 'coins'}) to feature "${product.title}" for ${numDays} days`
-      );
-      return product;
-    });
-
-    res.json({
-      success: true,
-      product: updatedProduct,
-      message: `"${updatedProduct.title}" is now FEATURED for ${numDays} days! Appears in Featured section and Announcements.`,
-    });
-  } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message || 'Failed to feature product' });
-  }
+  return res.status(400).json({
+    error: 'Direct instant featuring has been upgraded to Paid Featured Placements with duration pricing tiers and Admin moderation. Submit your request in My Featured (/api/merchant/featured).',
+    code: 'FEATURED_MODERATION_REQUIRED',
+  });
 });
 
 // ----------------------------------------------------------------------
@@ -1414,11 +1327,12 @@ prompt2Router.post('/admin/merchant-subscriptions/set-enterprise-price', async (
   res.json({ success: true, message: `Agreed Enterprise pricing KSh ${price.toLocaleString()} for ${merchantUser.name}.` });
 });
 
-// Admin lists and toggles Featured Products (paginated & lean projection)
+// Admin lists Featured Products (paginated & lean projection; synced with strict paid placements)
 prompt2Router.get('/admin/featured-products', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
+  await sweepFeaturedPlacements();
   const db = await getDatabase();
   const { page, limit } = parsePaginationQuery(req.query, 20, 100);
   const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
@@ -1436,6 +1350,8 @@ prompt2Router.get('/admin/featured-products', async (req: Request, res: Response
     vendorId: p.vendorId,
     chamaOptions: (p as any).chamaOptions || '1–10 Member Speeds',
     isFeatured: Boolean(p.isFeatured),
+    featuredRequestId: p.featuredRequestId || null,
+    featuredEndsAt: p.featuredEndsAt || null,
     image: (Array.isArray(p.images) && p.images[0]) || (p as any).image || './images/smart_tv.jpg',
   });
 
@@ -1449,18 +1365,10 @@ prompt2Router.post('/admin/featured-products/:id/toggle', async (req: Request, r
   const user = await getAuthUser(req);
   if (!user || !isUserAdmin(user)) return res.status(403).json({ error: 'Admin role required' });
 
-  const pid = Number(req.params.id);
-  const db = await getDatabase();
-  const product = db.products.find((p) => p.id === pid);
-  if (!product) return res.status(404).json({ error: 'Product not found' });
-
-  product.isFeatured = !product.isFeatured;
-  product.updatedAt = Date.now();
-
-  logAudit(db, user.id, user.name, 'PRODUCT_FEATURED_TOGGLED', `Admin toggled featured status of "${product.title}" to ${product.isFeatured}`);
-  await saveDatabase(db);
-
-  res.json({ success: true, product, message: `"${product.title}" is now ${product.isFeatured ? 'Featured' : 'Standard'}.` });
+  return res.status(400).json({
+    error: 'Direct unscheduled Featured toggling is replaced by Featured Moderation (/api/admin/featured/:id/approve or /remove).',
+    code: 'FEATURED_MODERATION_REQUIRED',
+  });
 });
 
 // ----------------------------------------------------------------------
@@ -1589,5 +1497,6 @@ prompt2Router.post('/groups/:id/chat-moderated', async (req: Request, res: Respo
   }
 
   await saveDatabase(db);
+  broadcastGroupChatDelta(groupId, 'chat:message', { message: newMsg });
   res.status(201).json({ success: true, message: newMsg, censored: containsOffensive });
 });

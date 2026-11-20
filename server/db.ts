@@ -39,6 +39,12 @@ import {
   WalletRecord,
   WalletLedgerRecord,
   EmailOutboxRecord,
+  FeaturedPlacement,
+  FeaturedPricing,
+  FeaturedRequest,
+  FeaturedStatsDaily,
+  TierFeaturedLimits,
+  FeaturedSettings,
 } from '../src/types.js';
 import { SUPPORT_EMAIL } from './config.js';
 import { runPendingMigrations, MigrationRecord } from './migrations.js';
@@ -118,6 +124,12 @@ export interface DatabaseSchema {
   walletLedger?: WalletLedgerRecord[];
   emailOutbox?: EmailOutboxRecord[];
   tierOverrides?: Record<string, { monthlyFee?: number; yearlyFee?: number; yearlyDiscountPercent?: number }>;
+  featuredPlacements?: FeaturedPlacement[];
+  featuredPricing?: FeaturedPricing[];
+  featuredRequests?: FeaturedRequest[];
+  featuredStatsDaily?: FeaturedStatsDaily[];
+  tierFeaturedLimits?: Record<string, TierFeaturedLimits>;
+  featuredSettings?: FeaturedSettings;
   migrationsApplied?: MigrationRecord[];
   controlCenterIndexes?: ControlCenterIndexSnapshot;
   auditLogs: AuditLog[];
@@ -752,6 +764,11 @@ function getInitialDatabase(): DatabaseSchema {
     wallets: [],
     walletLedger: [],
     emailOutbox: [],
+    featuredPlacements: [],
+    featuredPricing: [],
+    featuredRequests: [],
+    featuredStatsDaily: [],
+    tierFeaturedLimits: {},
   };
 }
 
@@ -1008,6 +1025,11 @@ async function loadOrInitializeDatabase(): Promise<DatabaseSchema> {
     if (!dbCache!.trustGroups) dbCache!.trustGroups = [];
     if (!dbCache!.trustGroupMembers) dbCache!.trustGroupMembers = [];
     if (!dbCache!.trustJoinRequests) dbCache!.trustJoinRequests = [];
+    if (!dbCache!.featuredPlacements) dbCache!.featuredPlacements = [];
+    if (!dbCache!.featuredPricing) dbCache!.featuredPricing = [];
+    if (!dbCache!.featuredRequests) dbCache!.featuredRequests = [];
+    if (!dbCache!.featuredStatsDaily) dbCache!.featuredStatsDaily = [];
+    if (!dbCache!.tierFeaturedLimits) dbCache!.tierFeaturedLimits = {};
     if (!dbCache!.announcementRevisions) dbCache!.announcementRevisions = [];
     if (!dbCache!.announcementCards || dbCache!.announcementCards.length === 0) {
       dbCache!.announcementCards = [

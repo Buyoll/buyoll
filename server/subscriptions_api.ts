@@ -2,7 +2,15 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { getDatabase, DatabaseSchema, logAudit, runDatabaseTransaction } from './db.js';
-import { User, SubscriptionRequest, MerchantSubscriptionTier, MerchantSubscriptionRecord, SubscriptionActivationNotice } from '../src/types.js';
+import {
+  User,
+  SubscriptionRequest,
+  MerchantSubscriptionTier,
+  MerchantSubscriptionRecord,
+  SubscriptionActivationNotice,
+  MerchantLimitsSummary,
+} from '../src/types.js';
+import { getTierFeaturedLimits } from './featured_service.js';
 import { resolveAuthenticatedSession, resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
@@ -123,6 +131,7 @@ export function getComputedSubscriptionTiers(db?: DatabaseSchema): MerchantSubsc
       typeof ov.yearlyDiscountPercent === 'number' && typeof ov.yearlyFee !== 'number'
         ? Math.round(ov.yearlyDiscountPercent)
         : computeYearlyDiscountPercent(monthlyFee, yearlyFee);
+    const feat = getTierFeaturedLimits(db, plan.id);
     return {
       id: plan.id as MerchantSubscriptionTier['id'],
       name: plan.name,
@@ -131,10 +140,86 @@ export function getComputedSubscriptionTiers(db?: DatabaseSchema): MerchantSubsc
       yearlyDiscountPercent,
       maxProducts: plan.maxProducts,
       maxGroupsPerProduct: plan.maxGroupsPerProduct,
+      maxActiveFeatured: feat.maxActiveFeatured,
+      maxPendingFeatured: feat.maxPendingFeatured,
+      maxFeaturedDaysPerRequest: feat.maxFeaturedDaysPerRequest,
+      allowedDurations: feat.allowedDurations,
+      allowedPlacements: feat.allowedPlacements,
+      featuredDiscountPercent: feat.featuredDiscountPercent,
       description: plan.description,
       features: plan.features,
     };
   });
+}
+
+/**
+ * Single authoritative server helper returning merchant subscription status, tier,
+ * catalog/group limits, and Featured placement limits & current usage.
+ */
+export function getMerchantLimits(
+  db: DatabaseSchema,
+  merchantId: number,
+  now = Date.now()
+): MerchantLimitsSummary {
+  const merchantUser = (db.users || []).find((u) => u.id === merchantId);
+  const tiers = getComputedSubscriptionTiers(db);
+  const activeSub = (db.merchantSubscriptions || []).find(
+    (s) => s.merchantId === merchantId && s.status === 'active' && (!s.expiresAt || s.expiresAt > now)
+  );
+  const userSubActive = Boolean(
+    merchantUser?.merchantSubscriptionStatus === 'active' &&
+      merchantUser?.merchantSubscriptionExpiresAt &&
+      merchantUser.merchantSubscriptionExpiresAt > now
+  );
+  const hasActiveSubscription = Boolean(activeSub || userSubActive);
+  const isExpired = Boolean(
+    !hasActiveSubscription &&
+      ((merchantUser?.merchantSubscriptionExpiresAt && merchantUser.merchantSubscriptionExpiresAt <= now) ||
+        (db.merchantSubscriptions || []).some((s) => s.merchantId === merchantId && s.status === 'expired'))
+  );
+
+  const rawTierId =
+    activeSub?.tierId ||
+    (merchantUser?.merchantSubscriptionPlan === 'starter' ? 'tier_250' : (merchantUser?.merchantSubscriptionPlan as string)) ||
+    'tier_250';
+  const resolvedTier = tiers.find((t) => t.id === rawTierId) || tiers[0];
+  const feat = getTierFeaturedLimits(db, resolvedTier.id);
+
+  const productsUsed = (db.products || []).filter((p) => p.vendorId === merchantId).length;
+  const activeFeaturedUsed = (db.featuredRequests || []).filter(
+    (r) =>
+      r.merchantId === merchantId &&
+      (r.status === 'ACTIVE' || r.status === 'APPROVED') &&
+      (!r.endsAt || r.endsAt > now)
+  ).length;
+  const pendingFeaturedUsed = (db.featuredRequests || []).filter(
+    (r) => r.merchantId === merchantId && r.status === 'PENDING_APPROVAL'
+  ).length;
+
+  return {
+    merchantId,
+    hasActiveSubscription,
+    isExpired,
+    subscriptionStatus: hasActiveSubscription
+      ? 'active'
+      : isExpired
+      ? 'expired'
+      : merchantUser?.merchantSubscriptionStatus || 'inactive',
+    tierId: resolvedTier.id,
+    tierName: resolvedTier.name,
+    expiresAt: activeSub?.expiresAt || merchantUser?.merchantSubscriptionExpiresAt || null,
+    maxProducts: resolvedTier.maxProducts,
+    productsUsed,
+    maxGroupsPerProduct: resolvedTier.maxGroupsPerProduct,
+    maxActiveFeatured: feat.maxActiveFeatured,
+    activeFeaturedUsed,
+    maxPendingFeatured: feat.maxPendingFeatured,
+    pendingFeaturedUsed,
+    maxFeaturedDaysPerRequest: feat.maxFeaturedDaysPerRequest,
+    allowedDurations: feat.allowedDurations,
+    allowedPlacements: feat.allowedPlacements,
+    featuredDiscountPercent: feat.featuredDiscountPercent,
+  };
 }
 
 export function resolvePlan(keyOrId: string, db?: DatabaseSchema) {
@@ -1320,6 +1405,8 @@ subscriptionsRouter.get('/merchant/subscription', async (req: Request, res: Resp
       ? Math.max(0, Math.ceil((activeSub.expiresAt - now) / 86400000))
       : 0;
 
+  const limits = getMerchantLimits(db, user.id, now);
+
   return res.json({
     hasSubscription: Boolean(activeSub),
     isExpired: !activeSub,
@@ -1333,7 +1420,20 @@ subscriptionsRouter.get('/merchant/subscription', async (req: Request, res: Resp
     pendingSubscription: pendingSub || null,
     tier,
     tiers,
+    limits,
   });
+});
+
+subscriptionsRouter.get('/merchant/limits', async (req: Request, res: Response) => {
+  const user = await getAuthUser(req);
+  if (!user) return sendApiError(res, 401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!isUserMerchant(user) && !isUserAdmin(user)) {
+    return sendApiError(res, 403, 'FORBIDDEN', 'Only merchants can inspect merchant tier limits');
+  }
+  await enforceExpiredSubscriptions(user.id);
+  const db = await getDatabase();
+  const limits = getMerchantLimits(db, user.id);
+  return res.json({ limits });
 });
 
 const CreateMerchantSubscriptionSchema = z.object({

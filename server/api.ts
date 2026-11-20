@@ -41,14 +41,27 @@ import { chamaTrustRouter } from './chama_trust_api.js';
 import {
   subscriptionsRouter,
   getComputedSubscriptionTiers,
+  getMerchantLimits,
   enforceExpiredSubscriptions,
   activateSubscriptionInTx,
 } from './subscriptions_api.js';
+import { featuredRouter } from './featured_api.js';
+import {
+  attributeProductConversionInTx,
+  ensureProductInAnnouncementsInTx,
+  sweepFeaturedPlacements,
+} from './featured_service.js';
 import { announcementsRouter } from './announcements_api.js';
 import { profileAndGroupsRouter } from './profile_and_groups_api.js';
 import { authRouter } from './auth_api.js';
 import { groupMembershipRouter } from './group_membership_api.js';
 import { groupLoansRouter } from './group_loans_api.js';
+import { groupChatRouter } from './group_chat_api.js';
+import {
+  broadcastGroupChatDelta,
+  postGroupChatMessageInTx,
+  resolveSenderGroupRoleLabel,
+} from './group_chat_service.js';
 import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
 import { emitPlatformEvent, handleEventsSse } from './events.js';
 import { SUPPORT_EMAIL, toCents, fromCents } from './config.js';
@@ -79,8 +92,10 @@ apiRouter.get('/events', async (req: Request, res: Response) => {
 apiRouter.use(authRouter);
 apiRouter.use(groupMembershipRouter);
 apiRouter.use(groupLoansRouter);
+apiRouter.use(groupChatRouter);
 apiRouter.use(announcementsRouter);
 apiRouter.use(subscriptionsRouter);
+apiRouter.use(featuredRouter);
 apiRouter.use(profileAndGroupsRouter);
 apiRouter.use(prompt2Router);
 apiRouter.use(chamaTrustRouter);
@@ -583,6 +598,7 @@ apiRouter.get('/search', async (req: Request, res: Response) => {
 // PRODUCTS ROUTES
 // -------------------------------------------------------------
 apiRouter.get('/products', async (req: Request, res: Response) => {
+  await sweepFeaturedPlacements();
   const db = await getDatabase();
   const authUser = await getAuthenticatedUser(req);
   const { category, search, vendorId, merchantId, groupId, includeDrafts, status, limit, offset } = req.query;
@@ -661,6 +677,7 @@ apiRouter.get('/products', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/products/:id', async (req: Request, res: Response) => {
+  await sweepFeaturedPlacements();
   const db = await getDatabase();
   const authUser = await getAuthenticatedUser(req);
   const product = db.products.find(p => p.id === Number(req.params.id));
@@ -886,44 +903,26 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
 
   // Merchant gating check: Subscription must be active, non-expired (30-day or yearly window), and within plan catalog limits
   if (isMerchantActor) {
-    const now = Date.now();
-    const activeSub = (db.merchantSubscriptions || []).find(
-      (s) => s.merchantId === user.id && s.status === 'active' && s.expiresAt && s.expiresAt > now
-    );
-    const userSubActive = Boolean(
-      dbUser.merchantSubscriptionStatus === 'active' &&
-      dbUser.merchantSubscriptionExpiresAt &&
-      dbUser.merchantSubscriptionExpiresAt > now
-    );
+    const limits = getMerchantLimits(db, user.id, Date.now());
 
-    if (!activeSub && !userSubActive) {
-      const isExpired = Boolean(
-        (dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt <= now) ||
-          (db.merchantSubscriptions || []).some((s) => s.merchantId === user.id && s.status === 'expired')
-      );
+    if (!limits.hasActiveSubscription) {
       return res.status(403).json({
-        error: isExpired
+        error: limits.isExpired
           ? 'Your merchant subscription has expired. Please renew a 30-Day or Yearly Merchant Plan to create or post new products.'
           : 'Active 30-day or yearly merchant subscription required to post products. Please choose a Merchant Plan and wait for admin approval.',
-        code: isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
-        subscriptionStatus: dbUser.merchantSubscriptionStatus || 'inactive',
-        isExpired,
+        code: limits.isExpired ? 'SUBSCRIPTION_EXPIRED' : 'SUBSCRIPTION_REQUIRED',
+        subscriptionStatus: limits.subscriptionStatus || 'inactive',
+        isExpired: limits.isExpired,
       });
     }
 
-    const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
-    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
-
-    if (tier && tier.maxProducts !== -1) {
-      const currentProductsCount = db.products.filter((p) => p.vendorId === user.id).length;
-      if (currentProductsCount >= tier.maxProducts) {
-        return res.status(403).json({
-          error: `You have reached your catalog limit of ${tier.maxProducts} product(s) for the ${tier.name}. Upgrade your plan to add more products.`,
-          code: 'PRODUCT_LIMIT_REACHED',
-          used: currentProductsCount,
-          limit: tier.maxProducts,
-        });
-      }
+    if (limits.maxProducts !== -1 && limits.productsUsed >= limits.maxProducts) {
+      return res.status(403).json({
+        error: `You have reached your catalog limit of ${limits.maxProducts} product(s) for the ${limits.tierName}. Upgrade your plan to add more products.`,
+        code: 'PRODUCT_LIMIT_REACHED',
+        used: limits.productsUsed,
+        limit: limits.maxProducts,
+      });
     }
   }
 
@@ -975,7 +974,7 @@ apiRouter.post('/products', async (req: Request, res: Response) => {
     isTripListing: req.body.isTripListing || category.toLowerCase().includes('trip') || category.toLowerCase().includes('aviation') || category.toLowerCase().includes('stay'),
     vendorId: user.id,
     vendorName: dbUser.shopName || dbUser.name,
-    isFeatured: req.body.isFeatured || false,
+    isFeatured: false,
     live: false,
     publicationStatus: 'draft',
     publishedAt: null,
@@ -1064,29 +1063,20 @@ apiRouter.post('/products/:id/publish', async (req: Request, res: Response) => {
   }
 
   const now = Date.now();
+  const isInitialPublish = !product.publishedAt;
   product.live = true;
   product.publicationStatus = 'posted';
+  product.status = 'PUBLISHED';
   product.hiddenReason = null;
   product.hiddenAt = null;
-  product.publishedAt = now;
-  product.createdAt = now; // Appear in Newly Posted Announcements at publish time
+  if (isInitialPublish) {
+    product.publishedAt = now;
+    product.createdAt = now; // Appear in Newly Posted Announcements strictly for 7 days from first publish
+  }
   product.updatedAt = now;
   product.moderationStatus = 'approved';
 
-  if (!db.announcements) db.announcements = [];
-  if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
-  const speedsSummary = productGroups.map(g => `${g.size}-member`).join(', ');
-  const newAnnouncement: Announcement = {
-    id: db.nextIds.announcement++,
-    title: `🎉 New Group Open: ${product.title}`,
-    body: `${dbUser.shopName || dbUser.name} posted "${product.title}" with ${productGroups.length} open group(s) (${speedsSummary}). Window shop or enter a friend referral code to join!`,
-    imageUrl: product.images?.[0],
-    category: product.category || 'Product Announcements',
-    createdAt: now,
-    authorId: user.id,
-    authorName: dbUser.shopName || dbUser.name,
-  };
-  db.announcements.unshift(newAnnouncement);
+  ensureProductInAnnouncementsInTx(db, product, dbUser, productGroups);
 
   logAudit(db, user.id, user.name, 'PRODUCT_PUBLISHED', `Posted product #${product.id} "${product.title}" with ${productGroups.length} group(s) to Announcements`);
   await saveDatabase(db);
@@ -1185,14 +1175,8 @@ apiRouter.put('/products/:id', async (req: Request, res: Response) => {
     product.speedOptions = buildAllSpeedOptions(product.price, product.speedOptions);
   }
 
-  if (isFeatured !== undefined) {
-    const willBeFeatured = Boolean(isFeatured);
-    if (willBeFeatured && !product.isFeatured) {
-      // Record 500 KSh merchant featured listing placement
-      logAudit(db, user.id, user.name, 'FEATURED_LISTING_PAID', `Merchant opted in to Featured Hero Deal for product #${product.id} (KSh 500 placement fee)`);
-    }
-    product.isFeatured = willBeFeatured;
-  }
+  // Paid Featured placement status is managed exclusively via /api/merchant/featured + /api/admin/featured moderation.
+  void isFeatured;
 
   if (live !== undefined && product.publicationStatus !== 'posted') {
     product.live = Boolean(live);
@@ -1365,18 +1349,14 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
     });
   }
 
-  const activeSub = (db.merchantSubscriptions || []).find(
-    (s) => s.merchantId === user.id && s.status === 'active' && (!s.expiresAt || s.expiresAt > Date.now())
-  );
-  if (isMerchantActor && !activeSub && !(dbUser.merchantSubscriptionStatus === 'active' && dbUser.merchantSubscriptionExpiresAt && dbUser.merchantSubscriptionExpiresAt > Date.now())) {
+  const limits = getMerchantLimits(db, user.id, Date.now());
+  if (isMerchantActor && !limits.hasActiveSubscription) {
     return res.status(403).json({
       error: 'Your merchant subscription has expired. Renew to manage groups.',
       code: 'SUBSCRIPTION_EXPIRED',
       isExpired: true,
     });
   }
-  const tierId = activeSub?.tierId || (dbUser.merchantSubscriptionPlan as string) || 'tier_500';
-  const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
 
   // Standard speeds: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
   const standardSizes = STANDARD_MEMBER_SPEEDS;
@@ -1384,7 +1364,7 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
 
   for (const size of standardSizes) {
     const currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id && g.status !== 'cancelled').length;
-    if (user.role === 'merchant' && tier.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= tier.maxGroupsPerProduct) {
+    if (isMerchantActor && limits.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= limits.maxGroupsPerProduct) {
       break;
     }
 
@@ -1477,7 +1457,7 @@ apiRouter.post('/products/:id/generate-groups', async (req: Request, res: Respon
     success: true,
     createdCount: createdGroups.length,
     groups: db.groups.filter(g => g.productId === product.id),
-    message: `Created ${createdGroups.length} group(s) within your ${tier.name} limit!`,
+    message: `Created ${createdGroups.length} group(s) within your ${limits.tierName} limit!`,
   });
 });
 
@@ -1632,7 +1612,6 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
   const dbUser = db.users.find(u => u.id === user.id) || user;
 
   // Merchant check: If merchant, must have active non-expired subscription
-  let activeSubTierId = (dbUser.merchantSubscriptionPlan as string) || 'tier_250';
   if (isMerchantActor) {
     const now = Date.now();
     const activeSub = (db.merchantSubscriptions || []).find(
@@ -1655,7 +1634,6 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
         isExpired,
       });
     }
-    if (activeSub?.tierId) activeSubTierId = activeSub.tierId;
   }
 
   // Mandatory speed check (size 1 to 10)
@@ -1677,7 +1655,7 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
   let maxGroupsLimit = 100;
   let currentGroupsForProduct = db.groups.filter((g) => g.productId === product.id && g.status !== 'cancelled').length;
 
-  if (user.role === 'merchant') {
+  if (isMerchantActor) {
     if (product.vendorId !== user.id) {
       return res.status(403).json({ error: 'You can only create groups for products created by your own store.' });
     }
@@ -1689,16 +1667,15 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
       });
     }
 
-    const tierId = activeSubTierId === 'starter' ? 'tier_250' : activeSubTierId;
-    const tier = SUBSCRIPTION_TIERS.find((t) => t.id === tierId) || SUBSCRIPTION_TIERS[0];
-    maxGroupsLimit = tier.maxGroupsPerProduct;
+    const limits = getMerchantLimits(db, user.id, Date.now());
+    maxGroupsLimit = limits.maxGroupsPerProduct;
 
-    if (tier.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= tier.maxGroupsPerProduct) {
+    if (limits.maxGroupsPerProduct !== -1 && currentGroupsForProduct >= limits.maxGroupsPerProduct) {
       return res.status(403).json({
-        error: `You have reached your limit of ${tier.maxGroupsPerProduct} groups for "${product.title}" under the ${tier.name}. Upgrade your plan to create more groups.`,
+        error: `You have reached your limit of ${limits.maxGroupsPerProduct} groups for "${product.title}" under the ${limits.tierName}. Upgrade your plan to create more groups.`,
         code: 'GROUP_LIMIT_REACHED',
         used: currentGroupsForProduct,
-        limit: tier.maxGroupsPerProduct,
+        limit: limits.maxGroupsPerProduct,
       });
     }
   }
@@ -1807,20 +1784,9 @@ apiRouter.post('/groups', async (req: Request, res: Response) => {
 
   db.groups.push(newGroup);
 
-  // Only push an announcement automatically if product is already live/posted (legacy/admin)
+  // Ensure announcement exists idempotently without duplicating if product is already posted
   if (isProductPosted(product)) {
-    if (!db.announcements) db.announcements = [];
-    if (!db.nextIds.announcement) db.nextIds.announcement = (db.announcements.length || 0) + 1;
-    db.announcements.unshift({
-      id: db.nextIds.announcement++,
-      title: `🎉 New Group Open: ${product.title}`,
-      body: `${dbUser.shopName || dbUser.name} launched Group #${groupNumber} for "${product.title}" (${speedSize} members speed). Check out this group and start saving!`,
-      imageUrl: product.images[0],
-      category: product.category || 'Product Announcements',
-      createdAt: Date.now(),
-      authorId: user.id,
-      authorName: dbUser.shopName || dbUser.name,
-    });
+    ensureProductInAnnouncementsInTx(db, product, dbUser);
   }
 
   logAudit(db, user.id, user.name, 'GROUP_CREATED', `Merchant created group #${newGroup.id} "${groupName}" (${speedSize} members, ${validSpeed.cycleDays}d) for product #${product.id}`);
@@ -3108,56 +3074,73 @@ apiRouter.post('/wallet/withdraw', async (_req: Request, res: Response) => {
   });
 });
 
-// Group chat message & applause tip
+// Group chat message & applause tip (backwards compatible endpoint backed by live room broadcast)
 apiRouter.post('/groups/:id/chat', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-  const { text, kind, targetUserId, coinAmount } = req.body;
-  const db = await getDatabase();
-  const group = db.groups.find(g => g.id === Number(req.params.id));
-
-  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const groupId = Number(req.params.id);
+  const { text, kind, targetUserId, coinAmount, topic, replyToId, clientMsgId } = req.body;
 
   if (kind === 'reward') {
+    const db = await getDatabase();
+    const group = db.groups.find((g) => g.id === groupId);
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+
     const coins = Number(coinAmount) || 5;
     if ((user.coins || 0) < coins) {
       return res.status(400).json({ error: `Not enough coins in wallet. You have ${user.coins} coins.` });
     }
-    const recipient = db.users.find(u => u.id === Number(targetUserId));
+    const recipient = db.users.find((u) => u.id === Number(targetUserId));
     if (!recipient) return res.status(404).json({ error: 'Recipient member not found' });
 
     user.coins -= coins;
     recipient.coins = (recipient.coins || 0) + coins;
 
-    group.chat.push({
-      id: `chat_${Date.now()}`,
+    const rewardMsg = {
+      id: `chat_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
       senderId: user.id,
       senderName: user.name,
-      kind: 'reward',
+      senderRole: resolveSenderGroupRoleLabel(db, group, user),
+      kind: 'reward' as const,
+      topic: 'general' as const,
       text: `Applauded and sent ${coins} coin${coins > 1 ? 's' : ''} to ${recipient.name}! 🌟`,
       timestamp: Date.now(),
-    });
+    };
+    group.chat.push(rewardMsg);
 
     await saveDatabase(db);
-    return res.json({ group, message: `Sent ${coins} coins to ${recipient.name}!` });
+    broadcastGroupChatDelta(groupId, 'chat:message', { message: rewardMsg });
+    return res.json({ group, message: `Sent ${coins} coins to ${recipient.name}!`, chatMessage: rewardMsg });
   }
 
-  if (!text || !text.trim()) {
+  if (!text || !String(text).trim()) {
     return res.status(400).json({ error: 'Message cannot be empty' });
   }
 
-  group.chat.push({
-    id: `chat_${Date.now()}`,
-    senderId: user.id,
-    senderName: user.name,
-    kind: kind || 'normal',
-    text: text.trim().slice(0, 500),
-    timestamp: Date.now(),
-  });
+  try {
+    const outcome = await runDatabaseTransaction(async (db) => {
+      return postGroupChatMessageInTx(db, {
+        groupId,
+        user,
+        text: String(text),
+        topic,
+        kind: kind === 'system' ? 'system' : 'normal',
+        replyToId,
+        clientMsgId,
+      });
+    });
 
-  await saveDatabase(db);
-  res.json({ group });
+    if (!outcome.deduplicated) {
+      broadcastGroupChatDelta(groupId, 'chat:message', {
+        message: outcome.message,
+        goalSummary: outcome.goalSummary,
+      });
+    }
+    return res.json({ group: outcome.group, chatMessage: outcome.message, censored: outcome.censored });
+  } catch (err: any) {
+    return res.status(err?.status || 500).json({ error: err?.message || 'Failed to send chat message' });
+  }
 });
 
 // -------------------------------------------------------------
@@ -3713,6 +3696,13 @@ apiRouter.post('/groups/:id/pay-from-wallet', async (req: Request, res: Response
         timestamp: now,
       });
 
+      attributeProductConversionInTx(db, {
+        productId: group.productId,
+        eventType: 'order',
+        featuredRequestId: typeof req.body?.featuredRequestId === 'string' ? req.body.featuredRequestId : undefined,
+        now,
+      });
+
       logAudit(
         db,
         dbUser.id,
@@ -4224,6 +4214,11 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
                 type: 'payment_approved',
                 timestamp: now,
               });
+              attributeProductConversionInTx(db, {
+                productId: grp.productId,
+                eventType: 'order',
+                now,
+              });
             }
           }
         } else if (payment.type === 'merchant_subscription') {
@@ -4676,6 +4671,7 @@ apiRouter.post('/admin/chat/moderate', async (req: Request, res: Response) => {
     const grp = db.groups.find(g => g.id === Number(groupId));
     if (grp) {
       grp.chat = (grp.chat || []).filter(c => c.id !== messageId);
+      broadcastGroupChatDelta(Number(groupId), 'chat:deleted', { messageId });
     }
   }
 

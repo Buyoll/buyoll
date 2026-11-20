@@ -438,7 +438,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 19,
+      "tokenVersion": 26,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -751,7 +751,10 @@
       "createdAt": 1792421094021,
       "updatedAt": 1795016529239,
       "status": "PUBLISHED",
-      "hiddenReason": null
+      "hiddenReason": null,
+      "featuredRequestId": "freq_seed_1",
+      "featuredPlacementKey": "homepage_featured",
+      "featuredEndsAt": 1797657151694
     },
     {
       "id": 2,
@@ -851,7 +854,10 @@
       "createdAt": 1792507494021,
       "updatedAt": 1795016529239,
       "status": "PUBLISHED",
-      "hiddenReason": null
+      "hiddenReason": null,
+      "featuredRequestId": "freq_seed_2",
+      "featuredPlacementKey": "homepage_featured",
+      "featuredEndsAt": 1797657151694
     },
     {
       "id": 3,
@@ -866,7 +872,7 @@
       ],
       "vendorId": 2,
       "vendorName": "(Buyoll Verified)",
-      "isFeatured": true,
+      "isFeatured": false,
       "live": true,
       "moderationStatus": "approved",
       "stockQuantity": 12,
@@ -3047,6 +3053,11 @@
       "id": "012_admin_control_center_indexes",
       "name": "Initialize non-destructive Control Center lookup index metadata on users, payments, deposits, subscriptions, loans, groups, refunds, and products",
       "appliedAt": 1795114143120
+    },
+    {
+      "id": "013_featured_paid_placements",
+      "name": "Initialize paid Featured placements, duration pricing, subscription tier featured limits, stats store, and active seeded featured requests",
+      "appliedAt": 1795151551695
     }
   ],
   "announcementDismissals": [],
@@ -3256,7 +3267,7 @@
   ],
   "controlCenterIndexes": {
     "version": 1,
-    "updatedAt": 1795114143120,
+    "updatedAt": 1795151551698,
     "columns": {
       "users": [
         "role",
@@ -3337,9 +3348,296 @@
       "refundsByStatus": {},
       "featuredProductIds": [
         1,
-        2,
-        3
+        2
       ]
     }
+  },
+  "featuredPlacements": [
+    {
+      "key": "homepage_featured",
+      "name": "Homepage Featured Hero",
+      "description": "Top showcase carousel rotating right-to-left across the Buyoll Marketplace.",
+      "maxSlots": 10,
+      "enabled": true,
+      "sortOrder": 1,
+      "updatedAt": 1795151551694
+    }
+  ],
+  "featuredPricing": [
+    {
+      "id": "fpr_home_1",
+      "placementKey": "homepage_featured",
+      "durationDays": 1,
+      "priceCents": 5000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_2",
+      "placementKey": "homepage_featured",
+      "durationDays": 2,
+      "priceCents": 9000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_3",
+      "placementKey": "homepage_featured",
+      "durationDays": 3,
+      "priceCents": 13000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_4",
+      "placementKey": "homepage_featured",
+      "durationDays": 4,
+      "priceCents": 17000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_5",
+      "placementKey": "homepage_featured",
+      "durationDays": 5,
+      "priceCents": 20000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_6",
+      "placementKey": "homepage_featured",
+      "durationDays": 6,
+      "priceCents": 23000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_7",
+      "placementKey": "homepage_featured",
+      "durationDays": 7,
+      "priceCents": 25000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "fpr_home_30",
+      "placementKey": "homepage_featured",
+      "durationDays": 30,
+      "priceCents": 50000,
+      "currency": "KES",
+      "active": true,
+      "updatedAt": 1795151551694
+    }
+  ],
+  "featuredRequests": [
+    {
+      "id": "freq_seed_1",
+      "merchantId": 2,
+      "productId": 1,
+      "placementKey": "homepage_featured",
+      "durationDays": 30,
+      "tierIdSnapshot": "tier_500",
+      "basePriceCents": 50000,
+      "discountPercent": 0,
+      "amountPaidCents": 50000,
+      "currency": "KES",
+      "status": "ACTIVE",
+      "startsAt": 1795065151694,
+      "endsAt": 1797657151694,
+      "approvedAt": 1795065151694,
+      "approvedBy": 1,
+      "createdAt": 1795065151694,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "freq_seed_2",
+      "merchantId": 2,
+      "productId": 2,
+      "placementKey": "homepage_featured",
+      "durationDays": 30,
+      "tierIdSnapshot": "tier_500",
+      "basePriceCents": 50000,
+      "discountPercent": 0,
+      "amountPaidCents": 50000,
+      "currency": "KES",
+      "status": "ACTIVE",
+      "startsAt": 1795065151694,
+      "endsAt": 1797657151694,
+      "approvedAt": 1795065151694,
+      "approvedBy": 1,
+      "createdAt": 1795065151694,
+      "updatedAt": 1795151551694
+    },
+    {
+      "id": "freq_seed_3",
+      "merchantId": 2,
+      "productId": 3,
+      "placementKey": "homepage_featured",
+      "durationDays": 30,
+      "tierIdSnapshot": "tier_500",
+      "basePriceCents": 50000,
+      "discountPercent": 0,
+      "amountPaidCents": 50000,
+      "currency": "KES",
+      "status": "ACTIVE",
+      "startsAt": 1795065151694,
+      "endsAt": 1797657151694,
+      "approvedAt": 1795065151694,
+      "approvedBy": 1,
+      "createdAt": 1795065151694,
+      "updatedAt": 1795151551694
+    }
+  ],
+  "featuredStatsDaily": [],
+  "tierFeaturedLimits": {
+    "tier_250": {
+      "tierId": "tier_250",
+      "maxActiveFeatured": 1,
+      "maxPendingFeatured": 1,
+      "maxFeaturedDaysPerRequest": 7,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 0,
+      "updatedAt": 1795151551694
+    },
+    "tier_500": {
+      "tierId": "tier_500",
+      "maxActiveFeatured": 2,
+      "maxPendingFeatured": 2,
+      "maxFeaturedDaysPerRequest": 7,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 0,
+      "updatedAt": 1795151551694
+    },
+    "tier_1500": {
+      "tierId": "tier_1500",
+      "maxActiveFeatured": 3,
+      "maxPendingFeatured": 2,
+      "maxFeaturedDaysPerRequest": 7,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 5,
+      "updatedAt": 1795151551694
+    },
+    "tier_3500": {
+      "tierId": "tier_3500",
+      "maxActiveFeatured": 5,
+      "maxPendingFeatured": 4,
+      "maxFeaturedDaysPerRequest": 30,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        30
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 10,
+      "updatedAt": 1795151551694
+    },
+    "tier_7500": {
+      "tierId": "tier_7500",
+      "maxActiveFeatured": 10,
+      "maxPendingFeatured": 6,
+      "maxFeaturedDaysPerRequest": 30,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        30
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 15,
+      "updatedAt": 1795151551694
+    },
+    "enterprise": {
+      "tierId": "enterprise",
+      "maxActiveFeatured": 20,
+      "maxPendingFeatured": 10,
+      "maxFeaturedDaysPerRequest": 30,
+      "allowedDurations": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        30
+      ],
+      "allowedPlacements": [
+        "homepage_featured"
+      ],
+      "featuredDiscountPercent": 20,
+      "updatedAt": 1795151551694
+    }
+  },
+  "featuredSettings": {
+    "featuredRequiresGroup": true,
+    "takedownRefundMode": "none",
+    "extendOnSubExpiry": false,
+    "defaultMaxDays": 30,
+    "allowedDurations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      30
+    ],
+    "expirySweepMs": 600000,
+    "updatedAt": 1795151551694
   }
 }

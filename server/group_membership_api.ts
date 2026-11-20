@@ -5,6 +5,7 @@ import { resolveAuthenticatedUser } from './auth_utils.js';
 import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import { ChamaGroup, GroupJoinPolicy, GroupJoinRequest, GroupSlot, User } from '../src/types.js';
+import { attributeProductConversionInTx } from './featured_service.js';
 
 export const groupMembershipRouter = wrapRouterAsync(Router());
 
@@ -483,6 +484,12 @@ groupMembershipRouter.post('/groups/:id/join', async (req: Request, res: Respons
       };
     }
 
+    attributeProductConversionInTx(db, {
+      productId: group.productId,
+      eventType: 'join',
+      featuredRequestId: typeof req.body?.featuredRequestId === 'string' ? req.body.featuredRequestId : undefined,
+    });
+
     logAudit(
       db,
       dbUser.id,
@@ -734,6 +741,11 @@ groupMembershipRouter.post(
       joinReq.status = 'APPROVED';
       joinReq.reviewedBy = authUser.id;
       joinReq.reviewedAt = Date.now();
+
+      attributeProductConversionInTx(db, {
+        productId: group.productId,
+        eventType: 'join',
+      });
 
       logAudit(
         db,

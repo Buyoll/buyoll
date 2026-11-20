@@ -45,6 +45,7 @@ import {
   getLowestGroupDailyAmount,
   SOLO_DURATION_MONTHS,
 } from '../utils/speedOptions.ts';
+import { getFeaturedAttribution, getFeaturedSessionId } from '../utils/featuredAttribution.ts';
 
 interface ProductDetailPageProps {
   productId: number;
@@ -114,6 +115,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       ]);
       setProduct(prodRes.product);
       setGroups(prodRes.groups || []);
+
+      const attributedId =
+        getFeaturedAttribution(prodRes.product.id) || prodRes.product.featuredRequestId || undefined;
+      if (attributedId && !attributedId.startsWith('fb_')) {
+        void api.trackFeaturedEvent(attributedId, 'product_view', getFeaturedSessionId());
+      }
 
       // Fetch verified merchant details
       if (prodRes.product.vendorId) {
@@ -271,7 +278,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     setSubmittingJoin(true);
     try {
       const gid = targetGroupId || (groups.length > 0 ? groups[0].id : productId);
-      const res = await api.joinGroup(gid, trimmed);
+      const attributedId = product ? (getFeaturedAttribution(product.id) || product.featuredRequestId || undefined) : undefined;
+      const res = await api.joinGroup(gid, trimmed, undefined, undefined, attributedId);
       onNotify('success', res.message || 'Joined Group successfully!');
       onNavigate('group', res.group.id);
     } catch (err: any) {
@@ -303,7 +311,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
     setSubmittingJoin(true);
     try {
-      const res = await api.joinGroup(targetGroup.id);
+      const attributedId = product ? (getFeaturedAttribution(product.id) || product.featuredRequestId || undefined) : undefined;
+      const res = await api.joinGroup(targetGroup.id, undefined, undefined, undefined, attributedId);
       onNotify('success', res.message || 'Group request updated!');
       onNavigate('group', res.group?.id || targetGroup.id);
     } catch (err: any) {

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { ChamaActivityFeed } from '../components/ChamaActivityFeed.tsx';
 import { ContributionCalendar } from '../components/ContributionCalendar.tsx';
+import { GroupRealTimeChat } from '../components/GroupRealTimeChat.tsx';
 import { getLowestGroupDailyAmount } from '../utils/speedOptions.ts';
 
 interface GroupDetailPageProps {
@@ -61,10 +62,6 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [payingFromWallet, setPayingFromWallet] = useState(false);
-
-  // Chat message state
-  const [chatInput, setChatInput] = useState('');
-  const [sendingChat, setSendingChat] = useState(false);
 
   // Moderator actions modal state
   const [selectedSlotForAction, setSelectedSlotForAction] = useState<GroupSlot | null>(null);
@@ -566,24 +563,6 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       onNotify('error', err.message || 'Failed to submit payment code');
     } finally {
       setSubmittingPayment(false);
-    }
-  }
-
-  // Send chat message
-  async function handleSendChat(e: React.FormEvent) {
-    e.preventDefault();
-    if (!currentUser || !group) return;
-    if (!chatInput.trim()) return;
-
-    setSendingChat(true);
-    try {
-      const res = await api.sendGroupChat(group.id, { text: chatInput.trim() });
-      setGroup(res.group);
-      setChatInput('');
-    } catch (err: any) {
-      onNotify('error', err.message || 'Failed to send message');
-    } finally {
-      setSendingChat(false);
     }
   }
 
@@ -2528,63 +2507,15 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
             </div>
           )}
 
-          {/* Group Chat & Rewards Activity */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col h-[400px]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Group Chat & Peer Rewards</h3>
-              <span className="text-[11px] text-slate-400">Your coins: {currentUser?.coins || 0}</span>
-            </div>
-
-            {/* Message Thread */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 text-xs">
-              {group.chat && group.chat.length > 0 ? (
-                group.chat.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`p-2.5 rounded-xl ${
-                      m.kind === 'system'
-                        ? 'bg-slate-100 text-slate-600'
-                        : m.kind === 'reward'
-                        ? 'bg-amber-50 text-amber-900 border border-amber-200 font-medium'
-                        : 'bg-slate-50 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                      <b className="text-slate-900">{m.senderName}</b>
-                      <span>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <p className="leading-snug">{m.text}</p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-400 text-center py-8">No messages yet. Say hello!</p>
-              )}
-            </div>
-
-            {/* Chat Input */}
-            {currentUser ? (
-              <form onSubmit={handleSendChat} className="pt-3 border-t border-slate-100 flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Post message or update..."
-                  className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
-                />
-                <button
-                  type="submit"
-                  disabled={sendingChat || !chatInput.trim()}
-                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                </button>
-              </form>
-            ) : (
-              <p className="text-xs text-slate-400 text-center pt-3 border-t border-slate-100">
-                Sign in to participate in group chat.
-              </p>
-            )}
-          </div>
+          {/* Real-Time Group Discussion & Coordination */}
+          <GroupRealTimeChat
+            group={group}
+            currentUser={currentUser}
+            canModerate={isModerator}
+            onNotify={onNotify}
+            onOpenAwardCoins={() => handleOpenAwardCoins()}
+            onGroupUpdated={loadGroup}
+          />
         </div>
       </div>
 

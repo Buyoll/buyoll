@@ -13,6 +13,7 @@ import {
 import { api, AdminControlCenterSummary, AdminPaginationMeta } from '../api.ts';
 import { useUser } from '../context/UserContext.tsx';
 import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager.tsx';
+import { AdminFeaturedModeration } from '../components/AdminFeaturedModeration.tsx';
 import {
   Shield,
   Check,
@@ -331,11 +332,6 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     reason: '',
   });
 
-  // Featured Products state
-  const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
-  const [allProductsList, setAllProductsList] = useState<any[]>([]);
-  const [featuredSearch, setFeaturedSearch] = useState('');
-
   // Hero Announcements Editor State
   const [adminHeroCards, setAdminHeroCards] = useState<PlatformAnnouncementSlot[]>([]);
   const [loadingHeroCards, setLoadingHeroCards] = useState(false);
@@ -354,14 +350,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     walletSearch,
     userSearch,
     roleFilter,
-    featuredSearch,
   });
   filtersRef.current = {
     paymentStatusFilter,
     walletSearch,
     userSearch,
     roleFilter,
-    featuredSearch,
   };
 
   const loadSummary = useCallback(async (forceRefresh = false) => {
@@ -509,17 +503,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             subscriptions: { loading: false, error: null, loaded: true, pagination: res.pagination || null },
           }));
         } else if (section === 'featured') {
-          const search = options.searchOverride !== undefined ? options.searchOverride : f.featuredSearch;
-          const res = await api.getAdminFeaturedProducts({
-            page: targetPage,
-            limit: DEFAULT_PAGE_LIMIT,
-            search: search.trim() || undefined,
-          });
-          setFeaturedProducts(res.featured || []);
-          setAllProductsList(res.allProducts || []);
           setSectionStates((prev) => ({
             ...prev,
-            featured: { loading: false, error: null, loaded: true, pagination: res.pagination || null },
+            featured: { loading: false, error: null, loaded: true, pagination: null },
           }));
         } else if (section === 'audit') {
           const res = await api.getAdminAuditLogs({ page: targetPage, limit: DEFAULT_PAGE_LIMIT });
@@ -624,15 +610,6 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }, 250);
     return () => clearTimeout(t);
   }, [walletSearch, activeTab, isAdmin]);
-
-  // Debounced backend search for Featured Products tab
-  useEffect(() => {
-    if (!isAdmin || activeTab !== 'featured' || !sectionStates.featured.loaded) return;
-    const t = setTimeout(() => {
-      void loadSection('featured', { page: 1, force: true, searchOverride: featuredSearch });
-    }, 250);
-    return () => clearTimeout(t);
-  }, [featuredSearch, activeTab, isAdmin]);
 
   const refreshActiveView = useCallback(async () => {
     const tasks: Array<Promise<any>> = [loadSummary(true)];
@@ -911,20 +888,6 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   }
 
-  // Handle Toggle Featured Product (KES 30/day)
-  async function handleToggleFeatured(productId: number) {
-    setProcessingId(`feat_${productId}`);
-    try {
-      const res = await api.toggleAdminFeaturedProduct(productId);
-      onNotify('success', res.message || 'Featured product updated!');
-      await refreshActiveView();
-    } catch (err: any) {
-      onNotify('error', err.message || 'Failed to update featured product');
-    } finally {
-      setProcessingId(null);
-    }
-  }
-
   function handleCardFieldChange(slot: number, field: keyof PlatformAnnouncementSlot, value: any) {
     setAdminHeroCards((prev) => prev.map((c) => (c.slot === slot ? { ...c, [field]: value } : c)));
   }
@@ -1187,7 +1150,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const refundsCount = summary?.refunds.total ?? sectionStates.refunds.pagination?.total ?? refundsList.length;
   const verifsCount = summary?.verifications.total ?? sectionStates.verifications.pagination?.total ?? verificationsList.length;
   const subsCount = summary?.subscriptions.total ?? sectionStates.subscriptions.pagination?.total ?? subscriptionsList.length;
-  const featuredCount = summary?.products.featured ?? featuredProducts.length;
+  const featuredCount = summary?.products.featured ?? 0;
   const auditCount = summary?.audit.totalLogs ?? sectionStates.audit.pagination?.total ?? auditLogsList.length;
 
   return (
@@ -2826,136 +2789,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       )}
 
-      {/* TAB 9: FEATURED PRODUCTS */}
+      {/* TAB 9: FEATURED MODERATION & PLACEMENT CONTROL */}
       {activeTab === 'featured' && (
-        <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-            <div className="p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    Featured Products Showcase & Announcement System
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Announcements are free and broadcasted to private user profiles. Featured placement on the homepage banner carries a fee of <b>KES 30 / day</b>.
-                  </p>
-                </div>
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={featuredSearch}
-                    onChange={(e) => setFeaturedSearch(e.target.value)}
-                    placeholder="Search product or category..."
-                    className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 bg-[#ff6600] text-white text-[10px] font-black uppercase rounded">
-                      Free
-                    </span>
-                    <b className="text-xs text-[#ff6600]">System Announcements</b>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-normal">
-                    Free of charge. When posted by admin or merchant, updates fan out automatically to all members' private notification center in their customer portal.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-black uppercase rounded">
-                      KES 30 / Day
-                    </span>
-                    <b className="text-xs text-amber-900">Featured Listing Placements</b>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-normal">
-                    Merchants pay KES 30/day via wallet coins or M-Pesa. Featured items appear in the hero showcase carousel with top priority across Group searches.
-                  </p>
-                </div>
-              </div>
-
-              {sectionStates.featured.loading && !sectionStates.featured.loaded ? (
-                <SectionTableSkeleton />
-              ) : sectionStates.featured.error ? (
-                <SectionErrorBanner
-                  title="Could not load featured products"
-                  message={sectionStates.featured.error}
-                  onRetry={() => loadSection('featured', { page: 1, force: true })}
-                />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                      <tr>
-                        <th className="py-2.5 px-3">Product</th>
-                        <th className="py-2.5 px-3">Price</th>
-                        <th className="py-2.5 px-3">Category</th>
-                        <th className="py-2.5 px-3">Merchant ID</th>
-                        <th className="py-2.5 px-3">Featured Status</th>
-                        <th className="py-2.5 px-3 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {allProductsList.map((prod) => (
-                        <tr key={prod.id} className="hover:bg-slate-50/70">
-                          <td className="py-2.5 px-3 flex items-center gap-2.5">
-                            <img
-                              src={prod.image || './images/smart_tv.jpg'}
-                              alt={prod.title}
-                              className="w-10 h-10 object-cover rounded-lg border border-slate-200 shrink-0"
-                            />
-                            <div>
-                              <b className="text-slate-900 block">{prod.title}</b>
-                              <span className="text-[10px] text-slate-500">{prod.chamaOptions || 'Standard Speed'}</span>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
-                            KSh {Number(prod.price || 0).toLocaleString()}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-600 capitalize">{prod.category}</td>
-                          <td className="py-2.5 px-3 font-mono text-slate-600">Vendor #{prod.vendorId}</td>
-                          <td className="py-2.5 px-3">
-                            {prod.isFeatured ? (
-                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-amber-600" />
-                                <span>Featured (KES 30/day)</span>
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">Standard</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFeatured(prod.id)}
-                              disabled={processingId === `feat_${prod.id}`}
-                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                                prod.isFeatured
-                                  ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
-                                  : 'bg-amber-500 hover:bg-amber-600 text-white shadow-xs'
-                              }`}
-                            >
-                              {prod.isFeatured ? 'Demote to Standard' : 'Promote to Featured'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            <PaginationBar
-              pagination={sectionStates.featured.pagination}
-              loading={sectionStates.featured.loading}
-              onPageChange={(page) => void loadSection('featured', { page, force: true })}
-            />
-          </div>
-        </div>
+        <AdminFeaturedModeration
+          onNotify={onNotify}
+          onChanged={() => void loadSummary(true)}
+        />
       )}
 
       {/* TAB 10: ADMIN-ONLY ANNOUNCEMENTS, PROMOTIONS & HERO SLOTS */}

@@ -44,6 +44,30 @@ const rawSweepMs = Number(process.env.SUBSCRIPTION_EXPIRY_SWEEP_MS ?? String(5 *
 export const SUBSCRIPTION_EXPIRY_SWEEP_MS =
   Number.isFinite(rawSweepMs) && rawSweepMs >= 10000 ? rawSweepMs : 5 * 60 * 1000;
 
+export const FEATURED_MAX_DAYS = Math.max(
+  1,
+  Math.min(365, Number(process.env.FEATURED_MAX_DAYS || '30') || 30)
+);
+
+const rawAllowedDurations = (process.env.FEATURED_ALLOWED_DURATIONS || '1,2,3,4,5,6,7,30')
+  .split(',')
+  .map((s) => parseInt(s.trim(), 10))
+  .filter((n) => Number.isInteger(n) && n >= 1 && n <= 365);
+export const FEATURED_ALLOWED_DURATIONS: number[] =
+  rawAllowedDurations.length > 0 ? Array.from(new Set(rawAllowedDurations)).sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6, 7, 30];
+
+export const FEATURED_REQUIRES_GROUP: boolean =
+  String(process.env.FEATURED_REQUIRES_GROUP || 'true').toLowerCase() !== 'false';
+
+const rawFeaturedSweepMs = Number(process.env.FEATURED_EXPIRY_SWEEP_MS ?? String(10 * 60 * 1000));
+export const FEATURED_EXPIRY_SWEEP_MS =
+  Number.isFinite(rawFeaturedSweepMs) && rawFeaturedSweepMs >= 1000 ? rawFeaturedSweepMs : 10 * 60 * 1000;
+
+export const FEATURED_TAKEDOWN_REFUND_MODE: 'none' | 'prorata' =
+  String(process.env.FEATURED_TAKEDOWN_REFUND_MODE || 'none').toLowerCase() === 'prorata'
+    ? 'prorata'
+    : 'none';
+
 export const OTP_TTL_MS = 15 * 60 * 1000; // 15 minutes
 export const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 export const OTP_MAX_ATTEMPTS = 5;

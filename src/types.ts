@@ -160,6 +160,9 @@ export interface Product {
   vendorId: number;
   vendorName: string;
   isFeatured?: boolean;
+  featuredRequestId?: string | null;
+  featuredPlacementKey?: string | null;
+  featuredEndsAt?: number | null;
   live: boolean;
   status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   publicationStatus?: 'draft' | 'posted';
@@ -229,14 +232,43 @@ export interface GroupSlot {
   progressPercent?: number;
 }
 
+export type GroupChatTopic = 'general' | 'goal' | 'coordination' | 'reminder';
+
 export interface GroupChatMessage {
   id: string;
   senderId: number;
   senderName: string;
+  senderRole?: string;
   kind?: 'normal' | 'reward' | 'nudge' | 'system';
+  topic?: GroupChatTopic;
   text: string;
+  pinned?: boolean;
+  pinnedBy?: number;
+  pinnedAt?: number;
+  replyToId?: string;
+  replyToSender?: string;
+  replyToSnippet?: string;
+  clientMsgId?: string;
   isFlagged?: boolean;
   timestamp: number;
+}
+
+export interface GroupChatPresenceMember {
+  userId: number;
+  name: string;
+  roleLabel: string;
+}
+
+export interface GroupChatGoalSummary {
+  totalCollected: number;
+  totalTarget: number;
+  progressPercent: number;
+  activeMembers: number;
+  maxMembers: number;
+  completedRounds: number;
+  dailyAmount: number;
+  cycleDays: number;
+  payoutOption?: 'turn_by_turn' | 'end_together';
 }
 
 export interface GroupNotification {
@@ -632,6 +664,9 @@ export interface Announcement {
   updatedAt?: number;
   authorId?: number;
   authorName?: string;
+  productId?: number;
+  isSystemGenerated?: boolean;
+  isFeaturedBadge?: boolean;
 }
 
 export interface AnnouncementDismissal {
@@ -725,6 +760,12 @@ export interface MerchantSubscriptionTier {
   yearlyDiscountPercent?: number;
   maxProducts: number; // -1 for unlimited
   maxGroupsPerProduct: number;
+  maxActiveFeatured?: number;
+  maxPendingFeatured?: number;
+  maxFeaturedDaysPerRequest?: number;
+  allowedDurations?: number[];
+  allowedPlacements?: string[];
+  featuredDiscountPercent?: number;
   description: string;
   features: string[];
 }
@@ -1104,6 +1145,9 @@ export type WalletLedgerCategory =
   | 'SUBSCRIPTION_REVENUE'
   | 'PROMOTION_PAYMENT'
   | 'PROMOTION_REVENUE'
+  | 'FEATURED_HOLD'
+  | 'FEATURED_REVENUE'
+  | 'FEATURED_REFUND'
   | 'LOAN_FUNDING'
   | 'LOAN_DISBURSEMENT'
   | 'GROUP_INSTALLMENT'
@@ -1138,3 +1182,128 @@ export interface EmailOutboxRecord {
   createdAt: number;
   meta?: Record<string, any>;
 }
+
+// ==============================================================
+// PAID FEATURED PLACEMENTS, TIER LIMITS, MODERATION & ANALYTICS
+// ==============================================================
+export type FeaturedRequestStatus =
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'REMOVED';
+
+export interface FeaturedPlacement {
+  key: string;
+  name: string;
+  description?: string;
+  maxSlots: number;
+  enabled: boolean;
+  sortOrder: number;
+  updatedAt?: number;
+}
+
+export interface FeaturedPricing {
+  id: string;
+  placementKey: string;
+  durationDays: number;
+  priceCents: number;
+  currency: 'KES';
+  active: boolean;
+  updatedAt?: number;
+}
+
+export interface TierFeaturedLimits {
+  tierId: string;
+  maxActiveFeatured: number;
+  maxPendingFeatured: number;
+  maxFeaturedDaysPerRequest: number;
+  allowedDurations: number[];
+  allowedPlacements: string[];
+  featuredDiscountPercent: number;
+  updatedAt?: number;
+}
+
+export interface FeaturedSettings {
+  featuredRequiresGroup: boolean;
+  takedownRefundMode: 'none' | 'prorata';
+  extendOnSubExpiry: boolean;
+  defaultMaxDays: number;
+  allowedDurations: number[];
+  expirySweepMs: number;
+  updatedAt?: number;
+}
+
+export interface FeaturedRequest {
+  id: string;
+  merchantId: number;
+  productId: number;
+  placementKey: string;
+  durationDays: number;
+  tierIdSnapshot: string;
+  basePriceCents: number;
+  discountPercent: number;
+  amountPaidCents: number;
+  currency: 'KES';
+  status: FeaturedRequestStatus;
+  requestedStartAt?: number | null;
+  startsAt?: number | null;
+  endsAt?: number | null;
+  approvedAt?: number | null;
+  approvedBy?: number | null;
+  rejectedAt?: number | null;
+  rejectedBy?: number | null;
+  rejectionReason?: string | null;
+  cancelledAt?: number | null;
+  removedAt?: number | null;
+  removedBy?: number | null;
+  removalReason?: string | null;
+  refundedCents?: number;
+  idempotencyKey?: string;
+  holdLedgerId?: string;
+  revenueLedgerId?: string;
+  refundLedgerId?: string;
+  expiryWarnedAt?: number | null;
+  expiredNotifiedAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FeaturedStatsDaily {
+  id: string;
+  featuredRequestId: string;
+  productId: number;
+  merchantId: number;
+  date: string; // YYYY-MM-DD (Africa/Nairobi EAT)
+  impressions: number;
+  uniqueViewers: number;
+  uniqueViewerKeys?: string[];
+  clicks: number;
+  productViews: number;
+  joins: number;
+  orders: number;
+}
+
+export interface MerchantLimitsSummary {
+  merchantId: number;
+  hasActiveSubscription: boolean;
+  isExpired: boolean;
+  subscriptionStatus: string;
+  tierId: string;
+  tierName: string;
+  expiresAt: number | null;
+  maxProducts: number;
+  productsUsed: number;
+  maxGroupsPerProduct: number;
+  maxActiveFeatured: number;
+  activeFeaturedUsed: number;
+  maxPendingFeatured: number;
+  pendingFeaturedUsed: number;
+  maxFeaturedDaysPerRequest: number;
+  allowedDurations: number[];
+  allowedPlacements: string[];
+  featuredDiscountPercent: number;
+}
+

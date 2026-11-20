@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
+import { FeaturedRequestModal } from '../components/FeaturedRequestModal.tsx';
+import { MerchantFeaturedSection } from '../components/MerchantFeaturedSection.tsx';
 import { triggerVisualPushAlert } from '../utils/notifications.ts';
 import {
   Package,
@@ -45,6 +47,9 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [featuredModalProduct, setFeaturedModalProduct] = useState<Product | null>(null);
+  const [isFeaturedModalOpen, setIsFeaturedModalOpen] = useState(false);
+  const [featuredRefreshTick, setFeaturedRefreshTick] = useState(0);
 
   // 6-Tier Subscription & Upgrade state (Part C & D)
   const [subscriptionInfo, setSubscriptionInfo] = useState<{
@@ -891,26 +896,30 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
               <Sparkles className="w-3.5 h-3.5" />
             </span>
             <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-              Featured Deal Section Placement
+              Paid Featured Showcase Placements
             </span>
             <span className="px-2 py-0.5 bg-white/20 text-white text-[10px] font-bold rounded-full">
-              KSh 500 / month per featured image
+              1–7 Days & 30 Days · Merchant Wallet
             </span>
           </div>
           <h3 className="text-base font-bold text-white">
-            Promote Your Products to Over 100,000+ Active Group Savers
+            Promote Your Published Products on the Homepage Hero
           </h3>
           <p className="text-xs text-emerald-100/90 mt-1 max-w-2xl">
-            Featured announcements appear at the top hero banner with 2.5-second auto-rolling visibility, guaranteed slot priority, and direct M-Pesa Till 000000 escrow integration.
+            Pay directly from your existing Buyoll Merchant Wallet for 1–7 or 30-day Featured placements (tier limits & discounts apply). Requests go to Admin moderation with 100% automatic wallet refund if rejected.
           </p>
         </div>
 
         <button
-          onClick={handleOpenCreateProduct}
+          type="button"
+          onClick={() => {
+            setFeaturedModalProduct(null);
+            setIsFeaturedModalOpen(true);
+          }}
           className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 flex items-center gap-1.5 cursor-pointer"
         >
           <Tag className="w-3.5 h-3.5" />
-          <span>Feature an Announcement</span>
+          <span>Request Featured Slot</span>
         </button>
       </div>
 
@@ -1078,9 +1087,23 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                               </button>
                             </>
                           ) : (
-                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                              Groups Read-Only
-                            </span>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFeaturedModalProduct(p);
+                                  setIsFeaturedModalOpen(true);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold rounded-lg text-xs transition-colors cursor-pointer"
+                                title="Request paid Featured hero placement"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-[#ff6600]" />
+                                <span>{p.isFeatured ? 'Featured Active' : 'Feature'}</span>
+                              </button>
+                              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                Groups Read-Only
+                              </span>
+                            </>
                           )}
                           <button
                             onClick={() => onNavigate('product', p.id)}
@@ -1313,6 +1336,20 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         )}
       </div>
 
+      {/* My Featured Placements & Performance Analytics */}
+      <MerchantFeaturedSection
+        products={products}
+        groups={myGroups}
+        onRequestFeature={(prod) => {
+          setFeaturedModalProduct(prod || null);
+          setIsFeaturedModalOpen(true);
+        }}
+        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onNavigate={onNavigate}
+        onNotify={onNotify}
+        refreshTrigger={featuredRefreshTick}
+      />
+
       {/* Editor Modal */}
       {isEditorOpen && (
         <VendorProductEditorModal
@@ -1325,6 +1362,21 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           onNotify={onNotify}
         />
       )}
+
+      {/* Paid Featured Request Modal */}
+      <FeaturedRequestModal
+        isOpen={isFeaturedModalOpen}
+        product={featuredModalProduct}
+        products={products}
+        groups={groups}
+        onClose={() => setIsFeaturedModalOpen(false)}
+        onSubmitted={() => {
+          setFeaturedRefreshTick((t) => t + 1);
+          loadVendorData();
+        }}
+        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onNotify={onNotify}
+      />
 
       {/* 6-TIER MERCHANT SUBSCRIPTION MODAL (Part C & D) */}
       {isSubscriptionModalOpen && (

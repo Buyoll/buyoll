@@ -28,6 +28,16 @@ import {
   GroupJoinRequest,
   GroupCallerMembership,
   GroupLenderAuthorization,
+  FeaturedPlacement,
+  FeaturedPricing,
+  FeaturedRequest,
+  FeaturedSettings,
+  MerchantLimitsSummary,
+  TierFeaturedLimits,
+  GroupChatMessage,
+  GroupChatTopic,
+  GroupChatPresenceMember,
+  GroupChatGoalSummary,
 } from './types.ts';
 import {
   getFallbackAnnouncements,
@@ -802,7 +812,8 @@ export const api = {
     id: number,
     inviteCode?: string,
     slotNumber?: number,
-    note?: string
+    note?: string,
+    featuredRequestId?: string
   ): Promise<{
     group: ChamaGroup;
     assignedSlot?: number;
@@ -819,6 +830,7 @@ export const api = {
         ...(inviteCode ? { inviteCode } : {}),
         ...(slotNumber ? { slotNumber } : {}),
         ...(note ? { note } : {}),
+        ...(featuredRequestId ? { featuredRequestId } : {}),
       }),
     });
   },
@@ -929,11 +941,89 @@ export const api = {
 
   async sendGroupChat(
     groupId: number,
-    payload: { text?: string; kind?: string; targetUserId?: number; coinAmount?: number }
-  ): Promise<{ group: ChamaGroup; message?: string }> {
-    return await fetchApi<{ group: ChamaGroup; message?: string }>(`/groups/${groupId}/chat`, {
+    payload: {
+      text?: string;
+      kind?: string;
+      topic?: GroupChatTopic;
+      replyToId?: string;
+      clientMsgId?: string;
+      targetUserId?: number;
+      coinAmount?: number;
+    }
+  ): Promise<{ group: ChamaGroup; message?: string; chatMessage?: GroupChatMessage; censored?: boolean }> {
+    return await fetchApi<{ group: ChamaGroup; message?: string; chatMessage?: GroupChatMessage; censored?: boolean }>(
+      `/groups/${groupId}/chat`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  async getGroupMessages(
+    groupId: number,
+    params?: { topic?: GroupChatTopic; since?: number; limit?: number }
+  ): Promise<{
+    groupId: number;
+    messages: GroupChatMessage[];
+    pinnedMessages: GroupChatMessage[];
+    goalSummary: GroupChatGoalSummary;
+    presence: GroupChatPresenceMember[];
+    onlineCount: number;
+    canModerate: boolean;
+    viewerStatus: { authenticated: boolean; isMuted: boolean; isBlacklisted: boolean };
+  }> {
+    const sp = new URLSearchParams();
+    if (params?.topic) sp.set('topic', params.topic);
+    if (params?.since) sp.set('since', String(params.since));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const q = sp.toString();
+    return await fetchApi(`/groups/${groupId}/messages${q ? `?${q}` : ''}`);
+  },
+
+  async postGroupMessage(
+    groupId: number,
+    payload: {
+      text: string;
+      topic?: GroupChatTopic;
+      replyToId?: string;
+      clientMsgId?: string;
+      pinned?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: GroupChatMessage;
+    goalSummary: GroupChatGoalSummary;
+    censored: boolean;
+    deduplicated?: boolean;
+  }> {
+    return await fetchApi(`/groups/${groupId}/messages`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async togglePinGroupMessage(
+    groupId: number,
+    msgId: string,
+    pinned?: boolean
+  ): Promise<{
+    success: boolean;
+    message: GroupChatMessage;
+    pinnedMessages: GroupChatMessage[];
+  }> {
+    return await fetchApi(`/groups/${groupId}/messages/${encodeURIComponent(msgId)}/pin`, {
+      method: 'POST',
+      body: JSON.stringify(typeof pinned === 'boolean' ? { pinned } : {}),
+    });
+  },
+
+  async deleteGroupMessage(
+    groupId: number,
+    msgId: string
+  ): Promise<{ success: boolean; messageId: string }> {
+    return await fetchApi(`/groups/${groupId}/messages/${encodeURIComponent(msgId)}`, {
+      method: 'DELETE',
     });
   },
 
@@ -2050,6 +2140,247 @@ export const api = {
   async toggleAdminFeaturedProduct(productId: number): Promise<any> {
     return await fetchApi<any>(`/admin/featured-products/${productId}/toggle`, {
       method: 'POST',
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PAID FEATURED PLACEMENTS (PUBLIC, MERCHANT & ADMIN MODERATION)
+  // -------------------------------------------------------------
+  async getPublicFeatured(params?: {
+    placement?: string;
+    page?: number;
+    limit?: number;
+    seed?: string;
+  }): Promise<{
+    items: Array<{
+      featuredRequestId: string;
+      placementKey: string;
+      durationDays: number;
+      startsAt: number;
+      endsAt: number;
+      endsAtEat: string;
+      daysRemaining: number;
+      product: Product;
+      groups: any[];
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+    maxSlots: number;
+    totalPages: number;
+    seed: string;
+  }> {
+    const q = new URLSearchParams();
+    if (params?.placement) q.set('placement', params.placement);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.seed) q.set('seed', params.seed);
+    const qs = q.toString();
+    return await fetchPublicWithFallback(`/featured${qs ? `?${qs}` : ''}`, () => {
+      const fb = getFallbackProducts().products.filter((p) => p.isFeatured);
+      const now = Date.now();
+      return {
+        items: fb.map((p) => ({
+          featuredRequestId: `fb_${p.id}`,
+          placementKey: 'homepage_featured',
+          durationDays: 30,
+          startsAt: now - 86400000,
+          endsAt: now + 29 * 86400000,
+          endsAtEat: new Date(now + 29 * 86400000).toISOString().slice(0, 10),
+          daysRemaining: 29,
+          product: p,
+          groups: [],
+        })),
+        total: fb.length,
+        page: 1,
+        limit: fb.length || 10,
+        maxSlots: 10,
+        totalPages: 1,
+        seed: 'fallback',
+      };
+    });
+  },
+
+  async getFeaturedPricing(): Promise<{
+    placements: FeaturedPlacement[];
+    pricing: Array<FeaturedPricing & { priceKes: number; discountPercent: number; finalPriceCents: number; finalPriceKes: number }>;
+    settings: FeaturedSettings;
+    limits: MerchantLimitsSummary | null;
+  }> {
+    return await fetchApi('/featured/pricing');
+  },
+
+  async trackFeaturedEvent(
+    featuredRequestId: string,
+    eventType: 'impression' | 'click' | 'product_view' | 'join' | 'order',
+    sessionId?: string
+  ): Promise<void> {
+    if (!featuredRequestId || featuredRequestId.startsWith('fb_')) return;
+    await fetchApi(`/featured/${encodeURIComponent(featuredRequestId)}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ eventType, ...(sessionId ? { sessionId } : {}) }),
+    }).catch(() => {});
+  },
+
+  async trackFeaturedEventsBatch(
+    events: Array<{ featuredRequestId: string; eventType: 'impression' | 'click' | 'product_view' | 'join' | 'order' }>,
+    sessionId?: string
+  ): Promise<void> {
+    const clean = events.filter((e) => e.featuredRequestId && !e.featuredRequestId.startsWith('fb_'));
+    if (clean.length === 0) return;
+    await fetchApi('/featured/events/batch', {
+      method: 'POST',
+      body: JSON.stringify({ events: clean, ...(sessionId ? { sessionId } : {}) }),
+    }).catch(() => {});
+  },
+
+  async getMerchantLimits(): Promise<{ limits: MerchantLimitsSummary }> {
+    return await fetchApi('/merchant/limits');
+  },
+
+  async getMerchantFeatured(): Promise<{
+    requests: Array<
+      FeaturedRequest & {
+        amountPaidKes: number;
+        basePriceKes: number;
+        refundedKes: number;
+        startsAtEat: string | null;
+        endsAtEat: string | null;
+        daysRemaining: number;
+        placementName: string;
+        product: any;
+        groupCount: number;
+        stats: {
+          totals: {
+            impressions: number;
+            uniqueViewers: number;
+            clicks: number;
+            productViews: number;
+            joins: number;
+            orders: number;
+            ctr: number;
+          };
+          daily: Array<{
+            date: string;
+            impressions: number;
+            uniqueViewers: number;
+            clicks: number;
+            productViews: number;
+            joins: number;
+            orders: number;
+          }>;
+        };
+      }
+    >;
+    limits: MerchantLimitsSummary;
+    settings: FeaturedSettings;
+    placements: FeaturedPlacement[];
+    pricing: Array<FeaturedPricing & { priceKes: number; discountPercent: number; finalPriceCents: number; finalPriceKes: number }>;
+    walletBalanceCents: number;
+    walletBalanceKes: number;
+  }> {
+    return await fetchApi('/merchant/featured');
+  },
+
+  async createMerchantFeaturedRequest(payload: {
+    productId: number;
+    placementKey?: string;
+    durationDays: number;
+    requestedStartAt?: number | null;
+    idempotencyKey?: string;
+  }): Promise<{
+    success: boolean;
+    deduplicated: boolean;
+    request: any;
+    walletBalanceKes: number;
+    limits: MerchantLimitsSummary;
+    message: string;
+  }> {
+    return await fetchApi('/merchant/featured', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cancelMerchantFeaturedRequest(requestId: string): Promise<{
+    success: boolean;
+    request: any;
+    walletBalanceKes: number;
+    message: string;
+  }> {
+    return await fetchApi(`/merchant/featured/${encodeURIComponent(requestId)}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  async getMerchantFeaturedStats(requestId: string): Promise<any> {
+    return await fetchApi(`/merchant/featured/${encodeURIComponent(requestId)}/stats`);
+  },
+
+  async getAdminFeaturedRequests(params?: {
+    status?: string;
+    placement?: string;
+    merchantId?: number;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    requests: any[];
+    pagination: AdminPaginationMeta;
+    counts: Record<string, number>;
+    settings: FeaturedSettings;
+    placements: FeaturedPlacement[];
+    pricing: Array<FeaturedPricing & { priceKes: number }>;
+    tierLimits: Array<TierFeaturedLimits & { tierName: string }>;
+  }> {
+    return await fetchApi(`/admin/featured${buildAdminQuery(params)}`);
+  },
+
+  async approveAdminFeatured(requestId: string): Promise<any> {
+    return await fetchApi(`/admin/featured/${encodeURIComponent(requestId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async bulkApproveAdminFeatured(ids: string[]): Promise<{
+    success: boolean;
+    approvedIds: string[];
+    failed: Array<{ id: string; code: string; message: string }>;
+    message: string;
+  }> {
+    return await fetchApi('/admin/featured/bulk-approve', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  async rejectAdminFeatured(requestId: string, reason: string): Promise<any> {
+    return await fetchApi(`/admin/featured/${encodeURIComponent(requestId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async removeAdminFeatured(requestId: string, reason: string): Promise<any> {
+    return await fetchApi(`/admin/featured/${encodeURIComponent(requestId)}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAdminFeaturedSettings(): Promise<any> {
+    return await fetchApi('/admin/featured/settings');
+  },
+
+  async updateAdminFeaturedSettings(payload: {
+    settings?: Partial<FeaturedSettings>;
+    placements?: Array<Partial<FeaturedPlacement> & { key: string }>;
+    pricing?: Array<{ placementKey: string; durationDays: number; priceKes?: number; priceCents?: number; active?: boolean }>;
+    tierLimits?: Array<Partial<TierFeaturedLimits> & { tierId: string }>;
+  }): Promise<any> {
+    return await fetchApi('/admin/featured/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   },
 

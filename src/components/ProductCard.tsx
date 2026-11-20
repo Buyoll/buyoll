@@ -75,11 +75,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         />
 
         {/* Promotion & Group Status Badges */}
-        {(showDraftBadge || isInGroup || isFeaturedInGroup || (product.promotionType && product.promotionType !== 'none')) && (
+        {(showDraftBadge || isInGroup || isFeaturedInGroup || product.isFeatured || (product.promotionType && product.promotionType !== 'none')) && (
           <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1">
             {showDraftBadge && (
               <span className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-xs">
                 Draft
+              </span>
+            )}
+            {product.isFeatured && !showDraftBadge && (
+              <span className="px-2 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded shadow-xs flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                <span>Featured</span>
               </span>
             )}
             {isFeaturedInGroup && (
