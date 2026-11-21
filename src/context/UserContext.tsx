@@ -526,6 +526,19 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // ignore
           }
         });
+        es.addEventListener('subscription.updated', (ev) => {
+          try {
+            const parsed = JSON.parse((ev as MessageEvent).data);
+            const payload = parsed?.payload;
+            window.dispatchEvent(new CustomEvent('buyoll:subscription-updated', { detail: payload }));
+            const active = currentUserRef.current;
+            if (active && payload?.merchantId === active.id) {
+              void refreshUser();
+            }
+          } catch {
+            // ignore
+          }
+        });
         es.addEventListener('subscription.expired', (ev) => {
           try {
             const parsed = JSON.parse((ev as MessageEvent).data);

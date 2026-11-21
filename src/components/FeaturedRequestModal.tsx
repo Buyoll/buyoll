@@ -8,6 +8,7 @@ import {
   MerchantLimitsSummary,
 } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
+import { useUser } from '../context/UserContext.tsx';
 import {
   X,
   Sparkles,
@@ -64,6 +65,7 @@ export const FeaturedRequestModal: React.FC<FeaturedRequestModalProps> = ({
   onOpenSubscription,
   onNotify,
 }) => {
+  const { refreshUser } = useUser();
   const [selectedProductId, setSelectedProductId] = useState<number>(product?.id || 0);
   const [placementKey, setPlacementKey] = useState<string>('homepage_featured');
   const [durationDays, setDurationDays] = useState<number>(7);
@@ -208,6 +210,7 @@ export const FeaturedRequestModal: React.FC<FeaturedRequestModalProps> = ({
         idempotencyKey,
       });
       onNotify('success', res.message || 'Featured request submitted and payment held from your Merchant Wallet.');
+      await refreshUser();
       onSubmitted();
       onClose();
     } catch (err: any) {

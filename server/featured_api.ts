@@ -12,7 +12,7 @@ import {
   findPlatformAdminUser,
   getWalletBalanceCents,
 } from './wallet_service.js';
-import { paginateList, parsePaginationQuery } from './admin_control_center.js';
+import { invalidateControlCenterSummaryCache, paginateList, parsePaginationQuery } from './admin_control_center.js';
 import { enforceExpiredSubscriptions, getMerchantLimits, SUBSCRIPTION_PLANS } from './subscriptions_api.js';
 import {
   approveFeaturedRequestInTx,
@@ -562,10 +562,13 @@ featuredRouter.post('/merchant/featured', async (req: Request, res: Response) =>
       };
     });
 
+    invalidateControlCenterSummaryCache();
     emitPlatformEvent('featured.request.submitted', {
       request: outcome.request,
       merchantId: user.id,
     });
+    emitPlatformEvent('user.wallet.updated', { userId: user.id, role: 'merchant', balanceKes: outcome.walletBalanceKes }, [user.id]);
+    emitPlatformEvent('admin.wallet.updated', { featuredRequestId: outcome.request.id, status: 'PENDING_APPROVAL', merchantId: user.id });
 
     return res.status(outcome.deduplicated ? 200 : 201).json({
       success: true,
@@ -633,7 +636,10 @@ featuredRouter.post('/merchant/featured/:id/cancel', async (req: Request, res: R
       };
     });
 
-    emitPlatformEvent('featured.updated', { id: reqId, status: 'CANCELLED' });
+    invalidateControlCenterSummaryCache();
+    emitPlatformEvent('featured.updated', { id: reqId, status: 'CANCELLED', merchantId: outcome.request.merchantId });
+    emitPlatformEvent('user.wallet.updated', { userId: outcome.request.merchantId, role: 'merchant', balanceKes: outcome.walletBalanceKes }, [outcome.request.merchantId]);
+    emitPlatformEvent('admin.wallet.updated', { featuredRequestId: reqId, status: 'CANCELLED' });
     return res.json({
       success: true,
       ...outcome,
@@ -773,10 +779,12 @@ featuredRouter.post('/admin/featured/:id/approve', async (req: Request, res: Res
     });
 
     if (!outcome.alreadyProcessed) {
+      invalidateControlCenterSummaryCache();
       if (outcome.outboxEvent) {
         flushOutboxEvents([outcome.outboxEvent]);
       }
-      emitPlatformEvent('featured.updated', { id: reqId, status: outcome.request.status });
+      emitPlatformEvent('featured.updated', { id: reqId, status: outcome.request.status, merchantId: outcome.request.merchantId });
+      emitPlatformEvent('admin.wallet.updated', { featuredRequestId: reqId, status: outcome.request.status });
     }
 
     return res.json({
@@ -847,7 +855,9 @@ featuredRouter.post('/admin/featured/bulk-approve', async (req: Request, res: Re
     flushOutboxEvents(outcome.outboxEvents);
   }
   if (outcome.approvedIds.length > 0) {
+    invalidateControlCenterSummaryCache();
     emitPlatformEvent('featured.updated', { bulkApprovedIds: outcome.approvedIds });
+    emitPlatformEvent('admin.wallet.updated', { bulkApprovedFeaturedIds: outcome.approvedIds });
   }
 
   return res.json({
@@ -922,10 +932,12 @@ featuredRouter.post('/admin/featured/:id/reject', async (req: Request, res: Resp
       return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now), outboxEvent };
     });
 
+    invalidateControlCenterSummaryCache();
     if (outcome.outboxEvent) {
       flushOutboxEvents([outcome.outboxEvent]);
     }
-    emitPlatformEvent('featured.updated', { id: reqId, status: 'REJECTED' });
+    emitPlatformEvent('featured.updated', { id: reqId, status: 'REJECTED', merchantId: outcome.request.merchantId });
+    emitPlatformEvent('admin.wallet.updated', { featuredRequestId: reqId, status: 'REJECTED' });
     return res.json({
       success: true,
       request: outcome.request,
@@ -1024,10 +1036,12 @@ featuredRouter.post('/admin/featured/:id/remove', async (req: Request, res: Resp
       return { alreadyProcessed: false, request: enrichFeaturedRequest(db, target, now), outboxEvent };
     });
 
+    invalidateControlCenterSummaryCache();
     if (outcome.outboxEvent) {
       flushOutboxEvents([outcome.outboxEvent]);
     }
-    emitPlatformEvent('featured.updated', { id: reqId, status: 'REMOVED' });
+    emitPlatformEvent('featured.updated', { id: reqId, status: 'REMOVED', merchantId: outcome.request.merchantId });
+    emitPlatformEvent('admin.wallet.updated', { featuredRequestId: reqId, status: 'REMOVED' });
     return res.json({
       success: true,
       request: outcome.request,

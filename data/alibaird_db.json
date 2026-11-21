@@ -145,7 +145,11 @@
       "emailVerified": false,
       "phoneVerified": false,
       "lockedUntil": null,
-      "phoneNormalized": "+254722000000"
+      "phoneNormalized": "+254722000000",
+      "merchantSubscriptionStatus": "active",
+      "merchantSubscriptionPlan": "tier_500",
+      "merchantSubscriptionExpiresAt": 1795359342812,
+      "verifiedAt": 1792767342812
     },
     {
       "id": 3,
@@ -323,7 +327,7 @@
       "shopName": "Amani Electronics",
       "shopDescription": "Verified seller on Buyoll",
       "verified": true,
-      "merchantSubscriptionStatus": "pending_verification",
+      "merchantSubscriptionStatus": "active",
       "credit": 1000,
       "coins": 500,
       "points": 50,
@@ -438,7 +442,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 29,
+      "tokenVersion": 39,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -1437,13 +1441,14 @@
       "userPhone": "0751761018",
       "code": "WALLET-ER_500",
       "amount": 500,
-      "status": "pending",
+      "status": "rejected",
       "type": "merchant_subscription",
       "channel": "Merchant Wallet Credit (KES)",
       "createdAt": 1794068690945,
       "verifiedAt": null,
       "verifiedBy": null,
-      "notes": "Wallet payment of KSh 500 for Growing Merchant (KES 500). Requires Admin Approval."
+      "notes": "Wallet payment of KSh 500 for Growing Merchant (KES 500). Requires Admin Approval.",
+      "rejectionReason": "Synchronized with declined wallet subscription record"
     },
     {
       "id": 15,
@@ -1526,13 +1531,14 @@
       "userPhone": "0751761018",
       "code": "WALLET-ER_250",
       "amount": 250,
-      "status": "pending",
+      "status": "approved",
       "type": "merchant_subscription",
       "channel": "Merchant Wallet Balance",
       "createdAt": 1793805255546,
-      "verifiedAt": null,
-      "verifiedBy": null,
-      "notes": "Wallet payment of 250 coins for Micro-Merchant (KES 250). Requires Admin Approval."
+      "verifiedAt": 1793805262531,
+      "verifiedBy": "Migration 015 Ledger Sync",
+      "notes": "Wallet payment of 250 coins for Micro-Merchant (KES 250). Requires Admin Approval.",
+      "approvedAt": 1793805262531
     },
     {
       "id": 1,
@@ -3071,6 +3077,11 @@
       "id": "014_admin_wallet_outbox_and_indexes",
       "name": "Initialize unified Admin Wallet incomeLedger, specialRefundCredits, transactional outboxEvents, reconciliationReports, exportJobs, and backfill ledger totals",
       "appliedAt": 1795190224969
+    },
+    {
+      "id": "015_repair_legacy_wallet_subs_and_recon",
+      "name": "Repair orphaned WALLET-* payment queue rows, resync active merchant subscription statuses, and refresh baseline reconciliation",
+      "appliedAt": 1795289240615
     }
   ],
   "announcementDismissals": [],
@@ -3280,7 +3291,7 @@
   ],
   "controlCenterIndexes": {
     "version": 1,
-    "updatedAt": 1795190224964,
+    "updatedAt": 1795289240615,
     "columns": {
       "users": [
         "role",
@@ -3343,9 +3354,8 @@
         "admin": 1
       },
       "paymentsByStatus": {
-        "approved": 9,
-        "rejected": 2,
-        "pending": 2
+        "approved": 10,
+        "rejected": 3
       },
       "depositsByStatus": {
         "approved": 3
@@ -3784,6 +3794,29 @@
   "specialRefundCredits": [],
   "outboxEvents": [],
   "reconciliationReports": [
+    {
+      "id": "rec_1795289240614_0997af",
+      "status": "PASSED",
+      "trigger": "scheduled",
+      "checkedAt": 1795289240614,
+      "eatTimestamp": "2026-11-21 22:27:20 EAT",
+      "approvedDepositsCents": 0,
+      "openingUserWalletCents": 12454000,
+      "approvedSpecialRefundsCents": 0,
+      "totalUserWalletsHeldCents": 12454000,
+      "nonAdminAvailableHeldCents": 12454000,
+      "restrictedHeldCents": 0,
+      "platformWalletBalanceCents": 0,
+      "walletFundedRevenueCents": 0,
+      "directMpesaRevenueCents": 450000,
+      "totalIncomeRevenueCents": 450000,
+      "leftSideCents": 12904000,
+      "rightSideCents": 12904000,
+      "diffCents": 0,
+      "walletMismatchCount": 0,
+      "walletMismatches": [],
+      "notes": "All user wallets, escrow holds, deposits, and platform income reconcile cleanly."
+    },
     {
       "id": "rec_1795190224964_8c8da6",
       "status": "MISMATCH",

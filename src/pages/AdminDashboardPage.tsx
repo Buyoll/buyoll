@@ -229,6 +229,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [sectionStates, setSectionStates] = useState<Record<PaginatedSectionKey, SectionStatus>>(
     createInitialSectionStates
   );
+  const sectionStatesRef = useRef(sectionStates);
+  sectionStatesRef.current = sectionStates;
   const inFlightSectionsRef = useRef<Partial<Record<PaginatedSectionKey, boolean>>>({});
   const heroCardsLoadedRef = useRef(false);
   const securityLoadedRef = useRef(false);
@@ -637,11 +639,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       void loadSecuritySettings();
       return;
     }
-    const status = sectionStates[activeTab];
+    const status = sectionStatesRef.current[activeTab];
     if (status && !status.loaded && !status.loading && !inFlightSectionsRef.current[activeTab]) {
       void loadSection(activeTab, { page: 1 });
     }
-  }, [isAdmin, activeTab, sectionStates, loadSection, loadAdminHeroCards, loadSecuritySettings]);
+  }, [isAdmin, activeTab, loadSection, loadAdminHeroCards, loadSecuritySettings]);
 
   // Lazy-load recent audit activity snapshot when below-the-fold panel scrolls into view
   useEffect(() => {
@@ -689,11 +691,45 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       securityLoadedRef.current = false;
       tasks.push(loadSecuritySettings());
     } else if (activeTab !== 'wallet') {
-      const currentPage = sectionStates[activeTab]?.pagination?.page || 1;
+      const currentPage = sectionStatesRef.current[activeTab]?.pagination?.page || 1;
       tasks.push(loadSection(activeTab, { page: currentPage, force: true }));
     }
     await Promise.allSettled(tasks);
-  }, [activeTab, loadSummary, loadAdminHeroCards, loadSecuritySettings, loadSection, sectionStates]);
+  }, [activeTab, loadSummary, loadAdminHeroCards, loadSecuritySettings, loadSection]);
+
+  // Real-time refresh when merchants/members submit M-Pesa deposits, subscriptions, or featured requests
+  useEffect(() => {
+    if (!isAdmin || typeof window === 'undefined') return;
+    let timer: number | null = null;
+    const scheduleRefresh = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void loadSummary(true);
+        if (
+          activeTab === 'payments' ||
+          activeTab === 'deposits' ||
+          activeTab === 'subscriptions' ||
+          activeTab === 'wallets'
+        ) {
+          const currentPage = sectionStatesRef.current[activeTab]?.pagination?.page || 1;
+          void loadSection(activeTab, { page: currentPage, force: true });
+        }
+      }, 250);
+    };
+    window.addEventListener('buyoll:admin-wallet-updated', scheduleRefresh);
+    window.addEventListener('buyoll:deposit-updated', scheduleRefresh);
+    window.addEventListener('buyoll:subscription-updated', scheduleRefresh);
+    window.addEventListener('buyoll:subscription-activated', scheduleRefresh);
+    window.addEventListener('buyoll:featured-updated', scheduleRefresh);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      window.removeEventListener('buyoll:admin-wallet-updated', scheduleRefresh);
+      window.removeEventListener('buyoll:deposit-updated', scheduleRefresh);
+      window.removeEventListener('buyoll:subscription-updated', scheduleRefresh);
+      window.removeEventListener('buyoll:subscription-activated', scheduleRefresh);
+      window.removeEventListener('buyoll:featured-updated', scheduleRefresh);
+    };
+  }, [isAdmin, activeTab, loadSummary, loadSection]);
 
   async function handleAsyncCsvExport(type: 'wallets' | 'users') {
     setExportingCsvType(type);
@@ -1733,7 +1769,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         {paymentsList.map((p) => {
                           const match = (p as any).statementMatch;
                           const hasDuplicate = match?.duplicateDetected;
-                          const isMatched = match?.matched;
+                          const isInternalWallet =
+                            Boolean(match?.isInternalWallet) ||
+                            (p as any).verificationFlag === 'internal_wallet' ||
+                            String(p.code || '').toUpperCase().startsWith('WALLET-') ||
+                            String(p.channel || '').toUpperCase().includes('MERCHANT WALLET');
+                          const isMatched = !isInternalWallet && match?.matched;
                           const reason = match?.reason;
                           const stmt = (match?.statementRecord || p.matchedTillEntry) as MpesaStatementRecord | undefined;
 
@@ -1768,7 +1809,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               </td>
 
                               <td className="py-3 px-4">
-                                {stmt ? (
+                                {isInternalWallet ? (
+                                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 max-w-xs space-y-1">
+                                    <div className="text-[11px] font-bold text-emerald-900">
+                                      Internal Wallet Ledger Settlement
+                                    </div>
+                                    <div className="text-[10.5px] text-emerald-700">
+                                      {p.channel || 'Merchant Wallet (KES)'} · Verified from Admin-approved wallet balance.
+                                    </div>
+                                  </div>
+                                ) : stmt ? (
                                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 max-w-xs space-y-1">
                                     <div className="flex items-center justify-between text-[11px]">
                                       <span className="text-slate-500">Till:</span>
@@ -1797,6 +1847,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 text-red-800 font-extrabold rounded-full text-[10px]">
                                     <AlertTriangle className="w-3 h-3" />
                                     <span>Duplicate Code</span>
+                                  </span>
+                                ) : isInternalWallet ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-100 text-indigo-800 font-extrabold rounded-full text-[10px]">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>Internal Wallet Ledger</span>
                                   </span>
                                 ) : isMatched ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 font-extrabold rounded-full text-[10px]">

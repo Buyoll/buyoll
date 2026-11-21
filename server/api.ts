@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { getDatabase, getActiveDbFile, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
 import {
   getControlCenterSummary,
+  invalidateControlCenterSummaryCache,
   paginateList,
   parsePaginationQuery,
   projectAdminUserRow,
@@ -4112,13 +4113,18 @@ apiRouter.get('/admin/overview', async (req: Request, res: Response) => {
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .map((p) => {
       const code = String(p.code || '').toUpperCase();
-      const matched = stmtMap.get(code) || null;
-      const duplicateDetected = (codeCounts.get(code) || 0) > 1;
+      const channelUpper = String(p.channel || '').toUpperCase();
+      const isInternalWallet =
+        code.startsWith('WALLET-') ||
+        channelUpper.includes('MERCHANT WALLET');
+      const matched = isInternalWallet ? null : stmtMap.get(code) || null;
+      const duplicateDetected = isInternalWallet ? false : (codeCounts.get(code) || 0) > 1;
       const amountMismatch = matched ? Math.abs(matched.amount - p.amount) > 5 : false;
       return {
         ...p,
         statementMatch: {
-          matched: Boolean(matched && !amountMismatch && !duplicateDetected),
+          matched: isInternalWallet ? true : Boolean(matched && !amountMismatch && !duplicateDetected),
+          isInternalWallet,
           duplicateDetected,
           reason: amountMismatch ? 'amount_mismatch' : undefined,
           statementRecord: matched
@@ -4178,13 +4184,23 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
 
   const paymentsWithMatching = paged.items.map((p) => {
     const code = String(p.code || '').toUpperCase();
-    const matched = stmtMap.get(code) || null;
-    const hasCodeMismatch = !matched;
+    const channelUpper = String(p.channel || '').toUpperCase();
+    const isInternalWallet =
+      code.startsWith('WALLET-') ||
+      channelUpper.includes('MERCHANT WALLET');
+    const matched = isInternalWallet ? null : stmtMap.get(code) || null;
+    const hasCodeMismatch = !isInternalWallet && !matched;
     const hasAmountMismatch = matched ? Math.abs(matched.amount - p.amount) > 5 : false;
-    const isDuplicate = (codeCounts.get(code) || 0) > 1;
+    const isDuplicate = isInternalWallet ? false : (codeCounts.get(code) || 0) > 1;
 
-    let verificationFlag: 'perfect_match' | 'amount_mismatch' | 'unmatched_code' | 'duplicate_detected' = 'perfect_match';
-    if (isDuplicate) verificationFlag = 'duplicate_detected';
+    let verificationFlag:
+      | 'perfect_match'
+      | 'internal_wallet'
+      | 'amount_mismatch'
+      | 'unmatched_code'
+      | 'duplicate_detected' = 'perfect_match';
+    if (isInternalWallet) verificationFlag = 'internal_wallet';
+    else if (isDuplicate) verificationFlag = 'duplicate_detected';
     else if (hasCodeMismatch) verificationFlag = 'unmatched_code';
     else if (hasAmountMismatch) verificationFlag = 'amount_mismatch';
 
@@ -4192,7 +4208,8 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
       ...p,
       matchedTillEntry: matched,
       statementMatch: {
-        matched: Boolean(matched && !hasAmountMismatch && !isDuplicate),
+        matched: isInternalWallet ? true : Boolean(matched && !hasAmountMismatch && !isDuplicate),
+        isInternalWallet,
         duplicateDetected: isDuplicate,
         reason: hasAmountMismatch ? 'amount_mismatch' : undefined,
         statementRecord: matched
@@ -4596,7 +4613,16 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
             matchingReq.reviewedAt = now;
           }
           if (merchant) {
-            merchant.merchantSubscriptionStatus = 'inactive';
+            const activeSubs = (db.merchantSubscriptions || [])
+              .filter((s) => s.merchantId === merchant.id && s.status === 'active' && s.expiresAt && s.expiresAt > now)
+              .sort((a, b) => (b.expiresAt || 0) - (a.expiresAt || 0));
+            if (activeSubs.length > 0) {
+              merchant.merchantSubscriptionStatus = 'active';
+              merchant.merchantSubscriptionPlan = activeSubs[0].tierId as any;
+              merchant.merchantSubscriptionExpiresAt = activeSubs[0].expiresAt;
+            } else {
+              merchant.merchantSubscriptionStatus = 'inactive';
+            }
             (payment as any).__outbox = enqueueOutboxInTx(db, {
               userId: merchant.id,
               eventType: 'subscription.updated',
@@ -4639,8 +4665,21 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
       return { payment, outboxEvt };
     });
 
+    invalidateControlCenterSummaryCache(getActiveDbFile());
     if (result.outboxEvt) {
       flushOutboxEvents([result.outboxEvt]);
+    }
+    emitPlatformEvent('admin.wallet.updated', {
+      paymentId: result.payment.id,
+      type: result.payment.type,
+      status: result.payment.status,
+    });
+    if (result.payment.type === 'merchant_subscription') {
+      emitPlatformEvent(
+        result.payment.status === 'approved' ? 'subscription.activated' : 'subscription.updated',
+        { merchantId: result.payment.userId, status: result.payment.status },
+        [result.payment.userId]
+      );
     }
     res.json({ payment: result.payment, message: `Payment ${result.payment.code} was ${decision}d.` });
   } catch (err: any) {
@@ -5859,6 +5898,21 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         timestamp: now,
       });
 
+      // Alert Admin of incoming M-Pesa deposit awaiting verification
+      const adminTarget = findPlatformAdminUser(db);
+      if (adminTarget) {
+        db.userNotifications.unshift({
+          id: `notif_adm_dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: adminTarget.id,
+          title: `🔔 New ${activeRole === 'merchant' ? 'Merchant' : 'User'} M-Pesa Deposit: KSh ${normalizedKes.toLocaleString()}`,
+          message: `${user.shopName || user.name} submitted M-Pesa deposit code ${trimmedCode} (KSh ${normalizedKes.toLocaleString()}) for ${activeRole} wallet approval.`,
+          link: '/admin-dashboard',
+          type: 'system',
+          read: false,
+          timestamp: now,
+        });
+      }
+
       logAudit(
         db,
         user.id,
@@ -5873,7 +5927,15 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       };
     });
 
-    emitPlatformEvent('admin.wallet.updated', { depositId: result.deposit.id, status: 'pending' });
+    invalidateControlCenterSummaryCache(getActiveDbFile());
+    emitPlatformEvent('admin.wallet.updated', {
+      depositId: result.deposit.id,
+      status: 'pending',
+      role: result.deposit.role,
+      userId: user.id,
+      amount: result.deposit.amount,
+      mpesaCode: result.deposit.mpesaCode,
+    });
     res.status(201).json({ success: true, ...result });
   } catch (err: any) {
     const statusCode = err.status || 500;
@@ -6072,10 +6134,17 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
       }
     });
 
+    invalidateControlCenterSummaryCache(getActiveDbFile());
     if (result.outboxEvent) {
       flushOutboxEvents([result.outboxEvent]);
     }
-    emitPlatformEvent('admin.wallet.updated', { depositId: result.deposit.id, status: result.deposit.status });
+    emitPlatformEvent('admin.wallet.updated', {
+      depositId: result.deposit.id,
+      status: result.deposit.status,
+      userId: result.deposit.userId,
+      role: result.deposit.role,
+      amount: result.deposit.amount,
+    });
     res.json({ success: true, deposit: result.deposit, newBalance: (result as any).newBalance, message: result.message });
   } catch (err: any) {
     const statusCode = err.status || 500;

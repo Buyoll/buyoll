@@ -22,7 +22,7 @@ import {
 import { creditWalletCents, debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
 import { findDuplicateMpesaCodeInTx, recordIncomeInTx } from './admin_wallet_service.js';
 import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
-import { paginateList, parsePaginationQuery } from './admin_control_center.js';
+import { invalidateControlCenterSummaryCache, paginateList, parsePaginationQuery } from './admin_control_center.js';
 
 export const subscriptionsRouter = wrapRouterAsync(Router());
 
@@ -820,6 +820,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           request: newReq,
           instantActivated: true,
           activation,
+          user: sanitizeUser(merchantUser),
+          walletBalanceKes: updatedBalance,
           message: `Subscription activated immediately! Your ${targetPlan.name} is active for ${durationLabel}.`,
         };
       }
@@ -926,6 +928,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
       throw { status: 400, code: 'INVALID_METHOD', message: 'Unsupported payment method.' };
     });
 
+    invalidateControlCenterSummaryCache();
     if ((result as any).instantActivated && (result as any).activation) {
       const act = (result as any).activation;
       emitPlatformEvent(
@@ -939,12 +942,19 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         },
         [user.id]
       );
-      emitPlatformEvent('subscription.updated', { merchantId: user.id, status: act.statusPayload }, [user.id]);
+      emitPlatformEvent('subscription.updated', { merchantId: user.id, status: act.statusPayload });
+      emitPlatformEvent('user.wallet.updated', { userId: user.id, role: 'merchant', balanceKes: (result as any).walletBalanceKes }, [user.id]);
+      emitPlatformEvent('admin.wallet.updated', { subscriptionId: result.request.id, status: 'active', merchantId: user.id });
+    } else {
+      emitPlatformEvent('subscription.updated', { merchantId: user.id, subscriptionId: result.request.id, status: 'pending' });
+      emitPlatformEvent('admin.wallet.updated', { subscriptionId: result.request.id, status: 'pending', merchantId: user.id });
     }
 
     return res.status(201).json({
       success: true,
       request: result.request,
+      user: (result as any).user,
+      walletBalanceKes: (result as any).walletBalanceKes,
       renewalMode: SUBSCRIPTION_RENEWAL_MODE,
       activationNotice: (result as any).activation?.activationNotice || null,
       message: result.message,
@@ -1264,8 +1274,10 @@ subscriptionsRouter.post('/admin/subscriptions/requests/:id/approve', async (req
         },
         [mId]
       );
-      emitPlatformEvent('subscription.updated', { merchantId: mId, status: act.statusPayload }, [mId]);
+      emitPlatformEvent('subscription.updated', { merchantId: mId, status: act.statusPayload });
+      emitPlatformEvent('admin.wallet.updated', { subscriptionId: (result as any).subscription.id, status: 'active', merchantId: mId });
     }
+    invalidateControlCenterSummaryCache();
 
     return res.json({
       success: true,
@@ -1719,6 +1731,38 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         subRecord.currentPeriodEnd = activationInfo.expiresAt;
       } else {
         merchantUser.merchantSubscriptionStatus = 'pending_verification';
+        if (!db.payments) db.payments = [];
+        if (cleanedCode) {
+          db.payments.unshift({
+            id: db.nextIds.payment++,
+            userId: user.id,
+            userName: user.shopName || user.name,
+            userPhone: user.phone || undefined,
+            code: cleanedCode,
+            amount: amountExpected,
+            status: 'pending',
+            type: 'merchant_subscription',
+            channel: 'Buy Goods Till 196853 / Paybill 522533',
+            createdAt: now,
+            verifiedAt: null,
+            verifiedBy: null,
+            notes: `Subscription request for ${targetPlan.name} (${normalizedPeriod === 'yearly' ? '1-year' : '30-day'}). Code: ${cleanedCode}. Pending Admin Approval.`,
+          });
+        }
+        const adminTarget = findPlatformAdminUser(db);
+        if (adminTarget) {
+          if (!db.userNotifications) db.userNotifications = [];
+          db.userNotifications.unshift({
+            id: `notif_adm_sub_${now}_${Math.random().toString(36).substring(2, 6)}`,
+            userId: adminTarget.id,
+            title: `🔔 New Merchant Plan Code: ${targetPlan.name}`,
+            message: `Merchant ${user.shopName || user.name} submitted M-Pesa code ${cleanedCode} (KSh ${amountExpected.toLocaleString()}) for approval.`,
+            link: '/admin-dashboard',
+            type: 'system',
+            read: false,
+            timestamp: now,
+          });
+        }
         logAudit(
           db,
           user.id,
@@ -1737,6 +1781,7 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       };
     });
 
+    invalidateControlCenterSummaryCache();
     if (result.isInstant && result.activationInfo) {
       if (result.activationInfo.outboxEvent) {
         flushOutboxEvents([result.activationInfo.outboxEvent]);
@@ -1752,11 +1797,16 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         },
         [result.user.id]
       );
-      emitPlatformEvent('user.wallet.updated', { userId: result.user.id }, [result.user.id]);
+      emitPlatformEvent('user.wallet.updated', { userId: result.user.id, role: 'merchant' }, [result.user.id]);
     }
     emitPlatformEvent('subscription.updated', {
       merchantId: result.user.id,
       subscription: result.subscription,
+    });
+    emitPlatformEvent('admin.wallet.updated', {
+      subscriptionId: result.subscription.id,
+      status: result.subscription.status,
+      merchantId: result.user.id,
     });
 
     return res.status(201).json({

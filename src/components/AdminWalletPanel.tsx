@@ -110,16 +110,16 @@ export const AdminWalletPanel: React.FC<AdminWalletPanelProps> = ({
   const [heldSearch, setHeldSearch] = useState('');
   const [heldPage, setHeldPage] = useState(1);
 
+  const depositSearchMountedRef = React.useRef(false);
+  const heldSearchMountedRef = React.useRef(false);
+
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true);
     setSummaryError(null);
     try {
-      const [sumRes, recRes] = await Promise.all([
-        api.getAdminWalletSummary(),
-        api.getAdminWalletReconciliation().catch(() => null),
-      ]);
+      const sumRes = await api.getAdminWalletSummary();
       setSummaryData(sumRes);
-      setReconciliation(recRes?.latest || sumRes.latestReconciliation || null);
+      setReconciliation(sumRes.latestReconciliation || null);
     } catch (err: any) {
       setSummaryError(err?.message || 'Unable to load Admin Wallet summary.');
     } finally {
@@ -203,6 +203,10 @@ export const AdminWalletPanel: React.FC<AdminWalletPanelProps> = ({
 
   useEffect(() => {
     if (subTab !== 'deposits') return;
+    if (!depositSearchMountedRef.current) {
+      depositSearchMountedRef.current = true;
+      return;
+    }
     const t = setTimeout(() => {
       void loadDeposits(1);
     }, 250);
@@ -219,6 +223,10 @@ export const AdminWalletPanel: React.FC<AdminWalletPanelProps> = ({
 
   useEffect(() => {
     if (subTab !== 'held') return;
+    if (!heldSearchMountedRef.current) {
+      heldSearchMountedRef.current = true;
+      return;
+    }
     const t = setTimeout(() => {
       void loadHeld(1);
     }, 250);

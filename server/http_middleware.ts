@@ -158,7 +158,13 @@ export function compressionMiddleware(req: Request, res: Response, next: NextFun
       return isJson ? origJson(body) : origSend(body);
     }
 
-    const compressed = useBr ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw);
+    const compressed = useBr
+      ? zlib.brotliCompressSync(raw, {
+          params: {
+            [zlib.constants.BROTLI_PARAM_QUALITY]: 4,
+          },
+        })
+      : zlib.gzipSync(raw, { level: 1 });
     if (isJson && !res.getHeader('Content-Type')) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
     }

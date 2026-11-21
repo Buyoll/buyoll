@@ -546,20 +546,189 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     );
   });
 
-  it('verifies Migration 014 reversibility (down -> up) and chunk load retry detection helper', async () => {
+  it('verifies Migration 015 & 014 reversibility (down -> up), orphan WALLET-* cleanup, and chunk load retry detection helper', async () => {
     assert.equal(isChunkLoadError(new Error('Failed to fetch dynamically imported module')), true);
     assert.equal(isChunkLoadError(new Error('Regular error')), false);
 
     const db = await getDatabase();
-    const rollback = await rollbackLastMigration(db);
-    assert.equal(rollback.rolledBack, '014_admin_wallet_outbox_and_indexes');
+    const rollback15 = await rollbackLastMigration(db);
+    assert.equal(rollback15.rolledBack, '015_repair_legacy_wallet_subs_and_recon');
+
+    const rollback14 = await rollbackLastMigration(db);
+    assert.equal(rollback14.rolledBack, '014_admin_wallet_outbox_and_indexes');
     assert.equal(db.incomeLedger, undefined);
     assert.equal(db.outboxEvents, undefined);
 
     const reapplied = await runPendingMigrations(db);
     assert.ok(reapplied.applied.includes('014_admin_wallet_outbox_and_indexes'));
+    assert.ok(reapplied.applied.includes('015_repair_legacy_wallet_subs_and_recon'));
     assert.ok(Array.isArray(db.incomeLedger));
     assert.ok(Array.isArray(db.outboxEvents));
     assert.ok(Array.isArray(db.reconciliationReports));
+    assert.equal(db.reconciliationReports[0]?.status, 'PASSED');
+    assert.equal(db.reconciliationReports[0]?.diffCents, 0);
+  });
+
+  it('activates /merchant/subscription/pay-coins atomically, frees merchant to create/publish products, flags WALLET-* cleanly without statement errors, and responds fast', async () => {
+    const { accessToken: adminToken } = await harness.loginAdmin();
+
+    // Seed verified merchant with 0 balance + a legacy WALLET-TEST01 pending payment row to verify matching flag
+    let merchantId = 0;
+    await runDatabaseTransaction(async (db) => {
+      merchantId = db.nextIds.user++;
+      db.users.push({
+        id: merchantId,
+        uuid: `merchant-paycoins-${merchantId}`,
+        name: 'Kibera Tech Store',
+        shopName: 'Kibera Tech Store',
+        username: `kibera_${merchantId}`,
+        usernameDisplay: `kibera_${merchantId}`,
+        usernameLower: `kibera_${merchantId}`,
+        usernameNormalized: `kibera_${merchantId}`,
+        email: `kibera_${merchantId}@buyoll.test`,
+        phone: '+254722111222',
+        phoneNormalized: '254722111222',
+        password: 'hashed_test_password',
+        role: 'merchant',
+        roles: ['merchant'],
+        activeRole: 'merchant',
+        merchantSubscriptionStatus: 'inactive',
+        platformId: `BYL-M-${merchantId}`,
+        verified: true,
+        isDisabled: false,
+        isSuspended: false,
+        credit: 0,
+        coins: 0,
+        points: 0,
+        roleWallets: { merchant: { credit: 0, balance: 0, coins: 0, points: 0 } },
+        createdAt: Date.now(),
+      } as any);
+
+      db.payments.unshift({
+        id: db.nextIds.payment++,
+        userId: merchantId,
+        userName: 'Kibera Tech Store',
+        code: 'WALLET-LEG250',
+        amount: 250,
+        status: 'pending',
+        type: 'merchant_subscription',
+        channel: 'Merchant Wallet Credit (KES)',
+        createdAt: Date.now(),
+      });
+    });
+    const merchantToken = await harness.issueToken(merchantId, 'merchant');
+
+    // Admin payments queue MUST classify WALLET-* as internal_wallet (never unmatched_code)
+    const t0 = Date.now();
+    const paymentsRes = await fetch(`${harness.baseUrl}/api/admin/payments?status=pending&page=1&limit=20`, {
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-buyoll-role': 'admin' },
+    });
+    const elapsedMs = Date.now() - t0;
+    assert.equal(paymentsRes.status, 200);
+    assert.ok(elapsedMs < 2000, `Expected /admin/payments < 2000ms, got ${elapsedMs}ms`);
+    const paymentsJson = await paymentsRes.json();
+    const walPay = (paymentsJson.payments || []).find((p: any) => p.code === 'WALLET-LEG250');
+    assert.ok(walPay, 'Expected WALLET-LEG250 in payments response');
+    assert.equal(walPay.verificationFlag, 'internal_wallet');
+    assert.equal(walPay.statementMatch.isInternalWallet, true);
+    assert.equal(walPay.statementMatch.matched, true);
+
+    // Merchant submits M-Pesa deposit -> Admin approves -> exact KSh 2,000 credited
+    const depRes = await fetch(`${harness.baseUrl}/api/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({ amount: 2000, mpesaCode: 'KIBERADEP1', role: 'merchant' }),
+    }).then((r) => r.json());
+    assert.equal(depRes.deposit.status, 'pending');
+
+    const apprRes = await fetch(`${harness.baseUrl}/api/admin/wallet-deposits/${depRes.deposit.id}/decide`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ action: 'approve' }),
+    });
+    assert.equal(apprRes.status, 200);
+    const apprJson = await apprRes.json();
+    assert.equal(apprJson.newBalance, 2000);
+
+    // Merchant pays subscription via /merchant/subscription/pay-coins -> instant active & NO pending payment row created
+    const payRes = await fetch(`${harness.baseUrl}/api/merchant/subscription/pay-coins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({ tierId: 'tier_500', paymentMethod: 'wallet_credit', billingPeriod: 'monthly' }),
+    });
+    assert.equal(payRes.status, 200);
+    const payJson = await payRes.json();
+    assert.equal(payJson.subscription.status, 'active');
+    assert.equal(payJson.user.merchantSubscriptionStatus, 'active');
+    assert.equal(payJson.walletBalanceKes, 1500);
+
+    // Merchant is now unlocked to create a product, add a group, and publish freely
+    const createProdRes = await fetch(`${harness.baseUrl}/api/products`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({
+        title: 'Inverter Blender 1200W',
+        price: 6000,
+        category: 'Home Appliances',
+        description: 'Heavy duty blender.',
+        images: ['/img/smart_tv.jpg'],
+        stock: 5,
+      }),
+    });
+    assert.equal(createProdRes.status, 201);
+    const prodJson = await createProdRes.json();
+    const createdProdId = prodJson.product.id;
+
+    const createGrpRes = await fetch(`${harness.baseUrl}/api/groups`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({
+        productId: createdProdId,
+        size: 10,
+        paymentMode: 'platform',
+      }),
+    });
+    assert.equal(createGrpRes.status, 201);
+
+    const pubRes = await fetch(`${harness.baseUrl}/api/products/${createdProdId}/publish`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+    });
+    assert.equal(pubRes.status, 200);
+    const pubJson = await pubRes.json();
+    assert.equal(pubJson.product.live, true);
+
+    // Reconciliation must still report PASSED with 0 discrepancy
+    const recRun = await fetch(`${harness.baseUrl}/api/admin/wallet/reconciliation/run`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-buyoll-role': 'admin' },
+    });
+    assert.equal(recRun.status, 200);
+    const recJson = await recRun.json();
+    assert.equal(recJson.report.status, 'PASSED');
+    assert.equal(recJson.report.diffCents, 0);
   });
 });

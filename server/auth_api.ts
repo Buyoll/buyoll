@@ -338,8 +338,9 @@ authRouter.get('/auth/me', async (req: Request, res: Response) => {
     : undefined;
 
   const resDb = await getDatabase();
+  const prevWalletCount = (resDb.wallets || []).length;
   const auth = await resolveAuthenticatedSession(req, resDb, {
-    touchActivity: true,
+    touchActivity: false,
     requestedRole,
   });
 
@@ -357,11 +358,23 @@ authRouter.get('/auth/me', async (req: Request, res: Response) => {
     return sendApiError(res, 401, auth.errorCode || 'UNAUTHORIZED', 'Not authenticated');
   }
 
+  const prevRole = auth.user.activeRole;
+  const prevCredit = auth.user.credit;
   syncUserRoleAndWallet(auth.user);
   ensureWallet(resDb, auth.user, auth.session.role);
-  await saveDatabase(resDb);
-
   const now = Date.now();
+  const shouldTouchActivity = !auth.session.lastActivityAt || now - auth.session.lastActivityAt >= 60_000;
+  if (shouldTouchActivity) {
+    auth.session.lastActivityAt = now;
+  }
+  const mutated =
+    shouldTouchActivity ||
+    (resDb.wallets || []).length !== prevWalletCount ||
+    auth.user.activeRole !== prevRole ||
+    auth.user.credit !== prevCredit;
+  if (mutated) {
+    await saveDatabase(resDb);
+  }
   return res.json({
     user: sanitizeUser(auth.user),
     session: {
@@ -1164,7 +1177,6 @@ authRouter.get('/admin/settings/security', async (req: Request, res: Response) =
   if (auth.session.role !== 'admin' && auth.user.role !== 'admin') {
     return sendApiError(res, 403, 'FORBIDDEN', 'Administrator access required.');
   }
-  await saveDatabase(db);
   const now = Date.now();
   const u = auth.user;
   const dismissed = Boolean(u.securityBannerDismissedAt);

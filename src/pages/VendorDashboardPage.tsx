@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
+import { useUser } from '../context/UserContext.tsx';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
 import { FeaturedRequestModal } from '../components/FeaturedRequestModal.tsx';
 import { MerchantFeaturedSection } from '../components/MerchantFeaturedSection.tsx';
@@ -42,6 +43,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   onNavigate,
   onNotify,
 }) => {
+  const { refreshUser } = useUser();
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<ChamaGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -222,7 +224,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       });
 
       onNotify('success', res.message || 'Subscription request submitted successfully!');
-      await loadVendorData();
+      await Promise.all([loadVendorData(), refreshUser()]);
     } catch (err: any) {
       console.error('Subscription submission failed:', err);
 
@@ -442,9 +444,11 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     if (!currentUserId || typeof window === 'undefined') return;
     const handleLiveVendorEvent = () => {
       void loadVendorData();
+      void refreshUser();
       setFeaturedRefreshTick((t) => t + 1);
     };
     window.addEventListener('buyoll:subscription-activated', handleLiveVendorEvent);
+    window.addEventListener('buyoll:subscription-updated', handleLiveVendorEvent);
     window.addEventListener('buyoll:subscription-expired', handleLiveVendorEvent);
     window.addEventListener('buyoll:wallet-updated', handleLiveVendorEvent);
     window.addEventListener('buyoll:deposit-updated', handleLiveVendorEvent);
@@ -453,6 +457,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
     window.addEventListener('buyoll:outbox-notification', handleLiveVendorEvent);
     return () => {
       window.removeEventListener('buyoll:subscription-activated', handleLiveVendorEvent);
+      window.removeEventListener('buyoll:subscription-updated', handleLiveVendorEvent);
       window.removeEventListener('buyoll:subscription-expired', handleLiveVendorEvent);
       window.removeEventListener('buyoll:wallet-updated', handleLiveVendorEvent);
       window.removeEventListener('buyoll:deposit-updated', handleLiveVendorEvent);
@@ -1397,7 +1402,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         onClose={() => setIsFeaturedModalOpen(false)}
         onSubmitted={() => {
           setFeaturedRefreshTick((t) => t + 1);
-          loadVendorData();
+          void loadVendorData();
+          void refreshUser();
         }}
         onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
         onNotify={onNotify}
@@ -1421,23 +1427,29 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             {/* CASE 1: SUCCESS VIEW */}
             {subModalSuccess ? (
               <div className="text-center py-6 px-2 sm:px-6">
-                <div className="w-16 h-16 bg-emerald-100 text-[#ff6600] rounded-full flex items-center justify-center mx-auto mb-4 shadow-xs">
+                <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto mb-4 shadow-xs">
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 block mb-1">
-                  Buyoll 30-Day Merchant Plan
+                  Buyoll Merchant Plan
                 </span>
                 <h3 className="text-2xl font-black text-slate-900 mb-2">
-                  Request submitted!
+                  {subModalSuccess.status === 'Active' ? 'Subscription Active!' : 'Request submitted!'}
                 </h3>
                 <p className="text-xs text-slate-600 max-w-md mx-auto mb-6">
-                  Your 30-day merchant plan request has been logged successfully and routed to Buyoll Admin.
+                  {subModalSuccess.status === 'Active'
+                    ? 'Your Merchant Wallet settled cleanly and your store is unlocked immediately to upload products and launch groups.'
+                    : 'Your merchant plan request has been logged successfully and routed to Buyoll Admin for verification.'}
                 </p>
 
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left max-w-md mx-auto mb-6 space-y-2.5 text-xs">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500 font-medium">Selected Plan:</span>
                     <span className="font-extrabold text-slate-900">{subModalSuccess.planName}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500 font-medium">Payment Method:</span>
+                    <span className="font-bold text-slate-800">{subModalSuccess.method}</span>
                   </div>
                   <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-500 font-medium">Amount:</span>
@@ -1453,16 +1465,29 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   )}
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 font-medium">Status:</span>
-                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      Pending admin approval
-                    </span>
+                    {subModalSuccess.status === 'Active' ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase bg-emerald-100 text-emerald-900 border border-emerald-300 inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Active · Store Unlocked
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        Pending admin approval
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900 max-w-md mx-auto mb-6">
-                  We'll notify you once an admin verifies your payment against M-Pesa statements, usually within a few hours.
-                </div>
+                {subModalSuccess.status === 'Active' ? (
+                  <div className="p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 max-w-md mx-auto mb-6 font-medium">
+                    Your plan is live! You can now add products, configure groups, and pay for Featured placements directly.
+                  </div>
+                ) : (
+                  <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 max-w-md mx-auto mb-6">
+                    We'll notify you as soon as an admin verifies your M-Pesa code against Till / Paybill statements.
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -1472,7 +1497,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                   }}
                   className="w-full max-w-md mx-auto py-3 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer block"
                 >
-                  Done
+                  {subModalSuccess.status === 'Active' ? 'Continue to My Store' : 'Done'}
                 </button>
               </div>
             ) : subscriptionInfo?.pendingSubscription ? (
@@ -1783,16 +1808,32 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                         <span>{subModalError.message}</span>
                       </div>
                     </div>
-                    {subModalError.canRetry && (
-                      <button
-                        type="button"
-                        onClick={() => handleSubscriptionPay(false)}
-                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-md flex items-center gap-1 cursor-pointer shrink-0"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Retry</span>
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(subModalError.code === 'INSUFFICIENT_WALLET_BALANCE' ||
+                        subModalError.message.toLowerCase().includes('insufficient')) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSubscriptionModalOpen(false);
+                            onNavigate('wallet');
+                          }}
+                          className="px-2.5 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-md flex items-center gap-1 cursor-pointer"
+                        >
+                          <Wallet className="w-3 h-3" />
+                          <span>Deposit M-Pesa</span>
+                        </button>
+                      )}
+                      {subModalError.canRetry && (
+                        <button
+                          type="button"
+                          onClick={() => handleSubscriptionPay(false)}
+                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-md flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Retry</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 

@@ -1056,6 +1056,82 @@ export const MIGRATIONS: MigrationDefinition[] = [
       return true;
     },
   },
+  {
+    id: '015_repair_legacy_wallet_subs_and_recon',
+    name: 'Repair orphaned WALLET-* payment queue rows, resync active merchant subscription statuses, and refresh baseline reconciliation',
+    up(db, ctx) {
+      let changed = false;
+      const now = Date.now();
+
+      if (!ctx.alreadyApplied) {
+        // 1. Reconcile any orphaned pending internal WALLET-* subscription rows in db.payments
+        // against their linked merchantSubscriptions / subscriptionRequests status.
+        for (const p of db.payments || []) {
+          if (p.type !== 'merchant_subscription' || p.status !== 'pending') continue;
+          const codeUpper = String(p.code || '').trim().toUpperCase();
+          if (!codeUpper.startsWith('WALLET-')) continue;
+
+          const suffix = codeUpper.replace(/^WALLET-/, '');
+          const matchedSub = (db.merchantSubscriptions || []).find(
+            (s) =>
+              s.merchantId === p.userId &&
+              ((s.paymentCode && String(s.paymentCode).trim().toUpperCase() === codeUpper) ||
+                s.id.slice(-6).toUpperCase() === suffix)
+          );
+
+          if (matchedSub) {
+            if (matchedSub.status === 'active') {
+              p.status = 'approved';
+              p.approvedAt = matchedSub.approvedAt || matchedSub.startDate || now;
+              p.verifiedAt = p.approvedAt;
+              p.verifiedBy = p.verifiedBy || 'Migration 015 Ledger Sync';
+              changed = true;
+            } else if (matchedSub.status === 'declined') {
+              p.status = 'rejected';
+              p.rejectionReason = p.rejectionReason || 'Synchronized with declined wallet subscription record';
+              changed = true;
+            }
+          }
+        }
+
+        // 2. Resync any merchant user whose merchantSubscriptions has a non-expired active subscription
+        // while user.merchantSubscriptionStatus drifted (e.g. stuck on pending_verification or inactive).
+        for (const u of db.users || []) {
+          const activeSubs = (db.merchantSubscriptions || [])
+            .filter((s) => s.merchantId === u.id && s.status === 'active' && s.expiresAt && s.expiresAt > now)
+            .sort((a, b) => (b.expiresAt || 0) - (a.expiresAt || 0));
+          if (activeSubs.length > 0) {
+            const latestActive = activeSubs[0];
+            if (
+              u.merchantSubscriptionStatus !== 'active' ||
+              u.merchantSubscriptionPlan !== latestActive.tierId ||
+              Number(u.merchantSubscriptionExpiresAt || 0) < Number(latestActive.expiresAt || 0)
+            ) {
+              u.merchantSubscriptionStatus = 'active';
+              u.merchantSubscriptionPlan = latestActive.tierId as any;
+              u.merchantSubscriptionExpiresAt = latestActive.expiresAt;
+              u.verified = true;
+              u.verifiedAt = u.verifiedAt || latestActive.startDate || now;
+              changed = true;
+            }
+          }
+        }
+
+        // 3. Record a clean baseline reconciliation report after double-count fix
+        runWalletReconciliationInTx(db, 'scheduled');
+        db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      if (Array.isArray(db.reconciliationReports) && db.reconciliationReports.length > 1) {
+        db.reconciliationReports.shift();
+      }
+      return true;
+    },
+  },
 ];
 
 export async function runPendingMigrations(db: DatabaseSchema): Promise<{

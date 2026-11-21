@@ -223,10 +223,29 @@ export function runWalletReconciliationInTx(
   }
 
   // 2. Compute cashflow conservation totals
+  // Pre-Migration-009 historical deposits were already folded into user balances before
+  // `MIGRATION_OPENING_BALANCE` rows were created and do not have `DEPOSIT` rows in walletLedger.
+  // Only count approved deposits backed by a `DEPOSIT` ledger entry (or approved post-Migration-009).
+  const ledgerDepositRefs = new Set<string>();
+  for (const l of db.walletLedger || []) {
+    if (l.category === 'DEPOSIT' && l.direction === 'CREDIT') {
+      if (l.referenceId) ledgerDepositRefs.add(String(l.referenceId).trim().toUpperCase());
+      if (l.idempotencyKey) ledgerDepositRefs.add(String(l.idempotencyKey).trim());
+    }
+  }
+  const mig009AppliedAt =
+    (db.migrationsApplied || []).find((m) => m.id === '009_wallet_ledger_and_rbac_indexes')?.appliedAt || 0;
+
   let approvedDepositsCents = 0;
   for (const dep of db.walletDeposits || []) {
     if (dep.status === 'approved') {
-      approvedDepositsCents += toCents(dep.amount || 0);
+      const refCode = String(dep.mpesaCode || '').trim().toUpperCase();
+      const ik = `dep_${dep.id}_${dep.mpesaCode}`;
+      const hasLedgerEntry = ledgerDepositRefs.has(refCode) || ledgerDepositRefs.has(ik);
+      const isPostMig009 = mig009AppliedAt > 0 && Number(dep.processedAt || dep.createdAt || 0) >= mig009AppliedAt;
+      if (hasLedgerEntry || isPostMig009 || (db.walletLedger || []).length === 0) {
+        approvedDepositsCents += toCents(dep.amount || 0);
+      }
     }
   }
 

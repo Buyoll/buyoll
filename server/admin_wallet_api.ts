@@ -257,14 +257,11 @@ adminWalletRouter.get('/admin/wallet/reconciliation', async (req: Request, res: 
   const { db } = auth;
 
   const history = db.reconciliationReports || [];
-  let latest = history[0] || null;
-  if (!latest) {
-    latest = await runDatabaseTransaction((txDb) => runWalletReconciliationInTx(txDb, 'manual'));
-  }
+  const latest = history[0] || null;
 
   res.json({
     latest,
-    history: (db.reconciliationReports || []).slice(0, 20),
+    history: history.slice(0, 20),
   });
 });
 
