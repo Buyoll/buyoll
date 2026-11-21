@@ -156,7 +156,7 @@
       "name": "Samuel Mwangi",
       "phone": "+254712345678",
       "role": "member",
-      "credit": 1500,
+      "credit": 4500,
       "coins": 50,
       "points": 120,
       "lastActive": 1793634881286,
@@ -168,11 +168,11 @@
       "platformId": "BYL-M-10003",
       "roleWallets": {
         "member": {
-          "credit": 1500,
+          "credit": 4500,
           "nonWithdrawableBalance": 0,
           "coins": 50,
           "points": 120,
-          "balance": 1500
+          "balance": 4500
         }
       },
       "username": "samuelmwangi",
@@ -328,16 +328,16 @@
       "shopDescription": "Verified seller on Buyoll",
       "verified": true,
       "merchantSubscriptionStatus": "active",
-      "credit": 1000,
+      "credit": 2000,
       "coins": 500,
       "points": 50,
       "roleWallets": {
         "merchant": {
-          "credit": 1000,
+          "credit": 2000,
           "nonWithdrawableBalance": 0,
           "coins": 500,
           "points": 50,
-          "balance": 1000
+          "balance": 2000
         }
       },
       "lastActive": 1793805215674,
@@ -442,7 +442,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 39,
+      "tokenVersion": 44,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -1464,7 +1464,8 @@
       "notes": "Wallet deposit of KSh 1000 to merchant wallet. Code: DEP690933M2. Pending Admin approval.",
       "approvedAt": 1794068690939,
       "verifiedAt": 1794068690939,
-      "verifiedBy": "Buyoll Primary Administrator"
+      "verifiedBy": "Buyoll Primary Administrator",
+      "role": "merchant"
     },
     {
       "id": 14,
@@ -1496,7 +1497,8 @@
       "notes": "Wallet deposit of KSh 1500 to member wallet. Code: DEP690713K1. Pending Admin approval.",
       "approvedAt": 1794068690895,
       "verifiedAt": 1794068690895,
-      "verifiedBy": "Buyoll Primary Administrator"
+      "verifiedBy": "Buyoll Primary Administrator",
+      "role": "member"
     },
     {
       "id": 12,
@@ -1522,7 +1524,8 @@
       "amount": 1500,
       "status": "approved",
       "createdAt": 1794068634583,
-      "approvedAt": 1794068634639
+      "approvedAt": 1794068634639,
+      "role": "member"
     },
     {
       "id": 10,
@@ -2186,7 +2189,8 @@
       "createdAt": 1794068634583,
       "notes": "Chama contribution deposit",
       "processedAt": 1794068634639,
-      "processedBy": "Buyoll Primary Administrator"
+      "processedBy": "Buyoll Primary Administrator",
+      "role": "member"
     }
   ],
   "supportTickets": [],
@@ -3082,6 +3086,11 @@
       "id": "015_repair_legacy_wallet_subs_and_recon",
       "name": "Repair orphaned WALLET-* payment queue rows, resync active merchant subscription statuses, and refresh baseline reconciliation",
       "appliedAt": 1795289240615
+    },
+    {
+      "id": "016_sync_wallet_deposit_payments",
+      "name": "Sync walletDeposits <-> payments queue records and backfill target wallet roles",
+      "appliedAt": 1795293086653
     }
   ],
   "announcementDismissals": [],
@@ -3142,9 +3151,9 @@
       "id": "wal_3_member",
       "userId": 3,
       "role": "member",
-      "balanceCents": 150000,
+      "balanceCents": 450000,
       "createdAt": 1794894911268,
-      "updatedAt": 1794894911268
+      "updatedAt": 1795293086652
     },
     {
       "id": "wal_4_member",
@@ -3174,9 +3183,9 @@
       "id": "wal_12_merchant",
       "userId": 12,
       "role": "merchant",
-      "balanceCents": 100000,
+      "balanceCents": 200000,
       "createdAt": 1794894911269,
-      "updatedAt": 1794894911269
+      "updatedAt": 1795293086651
     },
     {
       "id": "wal_13_lender",
@@ -3237,6 +3246,51 @@
   ],
   "walletLedger": [
     {
+      "id": "wled_1795293086652_c273ce2a",
+      "walletId": "wal_3_member",
+      "userId": 3,
+      "role": "member",
+      "direction": "CREDIT",
+      "amountCents": 150000,
+      "balanceAfterCents": 450000,
+      "category": "DEPOSIT",
+      "referenceId": "DEP634432K1",
+      "idempotencyKey": "dep_dep_1794068634583_i6tf_DEP634432K1",
+      "note": "Migration 016 backfill for approved M-Pesa deposit DEP634432K1",
+      "actorId": 1,
+      "createdAt": 1795293086652
+    },
+    {
+      "id": "wled_1795293086652_4ee326db",
+      "walletId": "wal_3_member",
+      "userId": 3,
+      "role": "member",
+      "direction": "CREDIT",
+      "amountCents": 150000,
+      "balanceAfterCents": 300000,
+      "category": "DEPOSIT",
+      "referenceId": "DEP690713K1",
+      "idempotencyKey": "dep_dep_1794068690867_stne_DEP690713K1",
+      "note": "Migration 016 backfill for approved M-Pesa deposit DEP690713K1",
+      "actorId": 1,
+      "createdAt": 1795293086652
+    },
+    {
+      "id": "wled_1795293086651_4db70d41",
+      "walletId": "wal_12_merchant",
+      "userId": 12,
+      "role": "merchant",
+      "direction": "CREDIT",
+      "amountCents": 100000,
+      "balanceAfterCents": 200000,
+      "category": "DEPOSIT",
+      "referenceId": "DEP690933M2",
+      "idempotencyKey": "dep_dep_1794068690935_zfn1_DEP690933M2",
+      "note": "Migration 016 backfill for approved M-Pesa deposit DEP690933M2",
+      "actorId": 1,
+      "createdAt": 1795293086651
+    },
+    {
       "id": "wled_1794894911268_5faa5d65",
       "walletId": "wal_3_member",
       "userId": 3,
@@ -3291,7 +3345,7 @@
   ],
   "controlCenterIndexes": {
     "version": 1,
-    "updatedAt": 1795289240615,
+    "updatedAt": 1795293086653,
     "columns": {
       "users": [
         "role",
@@ -3794,6 +3848,29 @@
   "specialRefundCredits": [],
   "outboxEvents": [],
   "reconciliationReports": [
+    {
+      "id": "rec_1795293086652_19a285",
+      "status": "PASSED",
+      "trigger": "scheduled",
+      "checkedAt": 1795293086652,
+      "eatTimestamp": "2026-11-21 23:31:26 EAT",
+      "approvedDepositsCents": 400000,
+      "openingUserWalletCents": 12454000,
+      "approvedSpecialRefundsCents": 0,
+      "totalUserWalletsHeldCents": 12854000,
+      "nonAdminAvailableHeldCents": 12854000,
+      "restrictedHeldCents": 0,
+      "platformWalletBalanceCents": 0,
+      "walletFundedRevenueCents": 0,
+      "directMpesaRevenueCents": 450000,
+      "totalIncomeRevenueCents": 450000,
+      "leftSideCents": 13304000,
+      "rightSideCents": 13304000,
+      "diffCents": 0,
+      "walletMismatchCount": 0,
+      "walletMismatches": [],
+      "notes": "All user wallets, escrow holds, deposits, and platform income reconcile cleanly."
+    },
     {
       "id": "rec_1795289240614_0997af",
       "status": "PASSED",

@@ -558,6 +558,7 @@ export function issueAuthTokensForUser(
   const record: RefreshTokenRecord = {
     id: `rt_${now}_${crypto.randomBytes(4).toString('hex')}`,
     userId: user.id,
+    role,
     tokenHash: hashOpaqueToken(rawRefresh),
     rememberMe,
     expiresAt: now + ttl,
@@ -609,6 +610,15 @@ export function setAuthCookies(
     maxAge: maxAgeRefresh,
     path: '/',
   });
+  if (role) {
+    res.cookie(`buyoll_refresh_${role}`, refreshToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProd,
+      maxAge: maxAgeRefresh,
+      path: '/',
+    });
+  }
   // Keep buyoll_access only when non-role specific cookie needed, no client readable secrets
   res.cookie('buyoll_access', accessToken, {
     httpOnly: true,
@@ -622,10 +632,14 @@ export function setAuthCookies(
 export function clearAuthCookies(res: Response, roleOnly?: UserRole): void {
   if (roleOnly) {
     clearRoleSessionCookie(res, roleOnly);
+    res.clearCookie(`buyoll_refresh_${roleOnly}`, { path: '/' });
     return;
   }
   for (const cookieName of ALL_ROLE_COOKIES) {
     res.clearCookie(cookieName, { path: '/' });
+  }
+  for (const r of ['admin', 'merchant', 'member', 'lender'] as const) {
+    res.clearCookie(`buyoll_refresh_${r}`, { path: '/' });
   }
   res.clearCookie('buyoll_access', { path: '/' });
   res.clearCookie('buyoll_refresh', { path: '/' });
@@ -772,11 +786,21 @@ export async function resolveAuthenticatedSession(
     };
   };
 
-  // 1. Check role-specific httpOnly session cookies first if requestedRole or cookie exists
+  // 1. Check role-specific expectations so a stale Bearer token from another tab/role
+  // never shadows an active role-specific httpOnly session cookie (e.g. buyoll_admin).
   const candidateRoles = pickCookieRolesForRequest(req, options?.requestedRole);
+  const rawHeaderRole = req.headers['x-buyoll-role'] || req.query.role;
+  const explicitTargetRole: UserRole | undefined =
+    options?.requestedRole ||
+    (rawHeaderRole === 'admin' || rawHeaderRole === 'merchant' || rawHeaderRole === 'member' || rawHeaderRole === 'lender'
+      ? (rawHeaderRole as UserRole)
+      : undefined);
+  const urlLower = (req.originalUrl || req.path || '').toLowerCase();
+  const expectsAdminByRoute = urlLower.includes('/admin/') && !urlLower.includes('/admin/auth/');
   let lastIdleError: AuthSessionResolution | null = null;
+  let mismatchedBearerResolution: AuthSessionResolution | null = null;
 
-  // If Bearer token is supplied explicitly (and no specific requestedRole cookie overrides it), validate JWT + its DB session
+  // If Bearer token is supplied explicitly, validate JWT + its DB session
   const authHeader = req.headers.authorization;
   const queryToken = typeof req.query.token === 'string' && req.query.token.trim() ? req.query.token.trim() : null;
   const explicitBearer =
@@ -788,19 +812,25 @@ export async function resolveAuthenticatedSession(
       const res = validateSession(payload.sid);
       if (res.user) {
         if ((res.user.tokenVersion || 1) === payload.tv) {
-          (req as any)._authSession = res.session;
-          (req as any)._authRole = res.role;
-          return res;
+          const bearerRoleMatchesHeader = !explicitTargetRole || res.role === explicitTargetRole;
+          const bearerAllowedOnAdminRoute = !expectsAdminByRoute || res.role === 'admin';
+          if (bearerRoleMatchesHeader && bearerAllowedOnAdminRoute) {
+            (req as any)._authSession = res.session;
+            (req as any)._authRole = res.role;
+            return res;
+          }
+          // Preserve mismatched bearer only as fallback if no matching role cookie exists (keeps RBAC 403 tests working)
+          mismatchedBearerResolution = res;
+        } else {
+          return {
+            user: null,
+            session: null,
+            role: null,
+            errorCode: 'SESSION_REVOKED',
+            errorMessage: 'Session invalidated after security update.',
+          };
         }
-        return {
-          user: null,
-          session: null,
-          role: null,
-          errorCode: 'SESSION_REVOKED',
-          errorMessage: 'Session invalidated after security update.',
-        };
-      }
-      if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
+      } else if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
         lastIdleError = res;
       }
     }
@@ -836,6 +866,12 @@ export async function resolveAuthenticatedSession(
         lastIdleError = res;
       }
     }
+  }
+
+  if (mismatchedBearerResolution) {
+    (req as any)._authSession = mismatchedBearerResolution.session;
+    (req as any)._authRole = mismatchedBearerResolution.role;
+    return mismatchedBearerResolution;
   }
 
   if (lastIdleError) {

@@ -503,6 +503,10 @@ export interface PaymentRecord {
   matchedTillEntry?: MpesaStatementRecord;
   idempotencyKey?: string;
   userPhone?: string;
+  role?: UserRole;
+  targetWalletRole?: string;
+  payerRole?: string;
+  shopName?: string;
   channel?: string;
   verifiedAt?: number | null;
   verifiedBy?: string | null;
@@ -883,6 +887,7 @@ export interface PlatformFeeEntry {
 export interface RefreshTokenRecord {
   id: string;
   userId: number;
+  role?: UserRole;
   tokenHash: string;
   rememberMe: boolean;
   expiresAt: number;

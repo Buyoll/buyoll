@@ -546,11 +546,14 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     );
   });
 
-  it('verifies Migration 015 & 014 reversibility (down -> up), orphan WALLET-* cleanup, and chunk load retry detection helper', async () => {
+  it('verifies Migration 016, 015 & 014 reversibility (down -> up), orphan WALLET-* cleanup, and chunk load retry detection helper', async () => {
     assert.equal(isChunkLoadError(new Error('Failed to fetch dynamically imported module')), true);
     assert.equal(isChunkLoadError(new Error('Regular error')), false);
 
     const db = await getDatabase();
+    const rollback16 = await rollbackLastMigration(db);
+    assert.equal(rollback16.rolledBack, '016_sync_wallet_deposit_payments');
+
     const rollback15 = await rollbackLastMigration(db);
     assert.equal(rollback15.rolledBack, '015_repair_legacy_wallet_subs_and_recon');
 
@@ -562,6 +565,7 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     const reapplied = await runPendingMigrations(db);
     assert.ok(reapplied.applied.includes('014_admin_wallet_outbox_and_indexes'));
     assert.ok(reapplied.applied.includes('015_repair_legacy_wallet_subs_and_recon'));
+    assert.ok(reapplied.applied.includes('016_sync_wallet_deposit_payments'));
     assert.ok(Array.isArray(db.incomeLedger));
     assert.ok(Array.isArray(db.outboxEvents));
     assert.ok(Array.isArray(db.reconciliationReports));
@@ -731,4 +735,216 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     assert.equal(recJson.report.status, 'PASSED');
     assert.equal(recJson.report.diffCents, 0);
   });
+
+  it('isolates cross-role tokens so Admin Payment Queue loads reliably and approves/declines merchant deposits directly from /api/admin/payments/:id/decision', async () => {
+    const { accessToken: adminToken, cookie: adminSetCookie } = await harness.loginAdmin();
+    const adminCookieMatch = adminSetCookie.match(/buyoll_admin=[^;,\s]+/);
+    assert.ok(adminCookieMatch, 'Expected buyoll_admin cookie from loginAdmin');
+    const adminCookieHeader = adminCookieMatch[0];
+
+    let merchantId = 0;
+    await runDatabaseTransaction(async (db) => {
+      merchantId = db.nextIds.user++;
+      db.users.push({
+        id: merchantId,
+        uuid: `merchant-queue-${merchantId}`,
+        name: 'Pwani Wholesale',
+        shopName: 'Pwani Wholesale Mombasa',
+        username: `pwani_${merchantId}`,
+        usernameDisplay: `pwani_${merchantId}`,
+        usernameLower: `pwani_${merchantId}`,
+        usernameNormalized: `pwani_${merchantId}`,
+        email: `pwani_${merchantId}@buyoll.test`,
+        phone: '+254722889900',
+        phoneNormalized: '254722889900',
+        password: 'hashed_test_password',
+        role: 'merchant',
+        roles: ['merchant'],
+        activeRole: 'merchant',
+        platformId: `BYL-PW-${merchantId}`,
+        verified: true,
+        isDisabled: false,
+        isSuspended: false,
+        credit: 0,
+        coins: 0,
+        points: 0,
+        roleWallets: {
+          merchant: { credit: 0, balance: 0, coins: 0, points: 0 },
+        },
+        createdAt: Date.now(),
+      } as any);
+    });
+    const merchantToken = await harness.issueToken(merchantId, 'merchant');
+
+    // 1. Cross-role isolation: stale merchant Bearer alongside valid buyoll_admin cookie + x-buyoll-role: admin
+    const crossRoleQueue = await fetch(`${harness.baseUrl}/api/admin/payments?status=pending`, {
+      headers: {
+        Authorization: `Bearer ${merchantToken}`,
+        Cookie: adminCookieHeader,
+        'x-buyoll-role': 'admin',
+      },
+    });
+    assert.equal(crossRoleQueue.status, 200);
+
+    // Without buyoll_admin cookie, merchant Bearer MUST still receive 403 Forbidden
+    const unauthorizedQueue = await fetch(`${harness.baseUrl}/api/admin/payments?status=pending`, {
+      headers: {
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'admin',
+      },
+    });
+    assert.equal(unauthorizedQueue.status, 403);
+
+    // 2. Merchant submits wallet deposit via POST /api/payments (type: wallet_deposit)
+    const payPostRes = await fetch(`${harness.baseUrl}/api/payments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({
+        type: 'wallet_deposit',
+        code: 'PWANIDEP01',
+        amount: 3250,
+        role: 'merchant',
+      }),
+    });
+    assert.equal(payPostRes.status, 201);
+    const payPostJson = await payPostRes.json();
+    const payId1 = payPostJson.payment.id;
+    assert.ok(payPostJson.deposit, 'Synced wallet deposit should be created from /api/payments');
+
+    // 3. Also submit a second deposit via POST /api/wallet/deposit for decline test
+    const depRes2 = await fetch(`${harness.baseUrl}/api/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({
+        amount: 950,
+        mpesaCode: 'PWANIDECL2',
+        role: 'merchant',
+      }),
+    });
+    assert.equal(depRes2.status, 201);
+
+    // 4. Fetch Payment Queue as admin and verify both appear with targetWalletRole = merchant
+    const queueRes = await fetch(`${harness.baseUrl}/api/admin/payments?status=pending`, {
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-buyoll-role': 'admin' },
+    });
+    assert.equal(queueRes.status, 200);
+    const queueJson = await queueRes.json();
+    const q1 = (queueJson.payments || []).find((p: any) => p.code === 'PWANIDEP01');
+    const q2 = (queueJson.payments || []).find((p: any) => p.code === 'PWANIDECL2');
+    assert.ok(q1 && q2, 'Both merchant deposits must appear in Admin Payment Queue');
+    assert.equal(q1.targetWalletRole, 'merchant');
+    assert.equal(q2.targetWalletRole, 'merchant');
+    assert.equal(q1.shopName, 'Pwani Wholesale Mombasa');
+
+    // 5. Approve #1 via /api/admin/payments/:id/decision -> automatically credits merchant wallet
+    const approvePayRes = await fetch(`${harness.baseUrl}/api/admin/payments/${payId1}/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ decision: 'approve' }),
+    });
+    assert.equal(approvePayRes.status, 200);
+    const approvePayJson = await approvePayRes.json();
+    assert.equal(approvePayJson.payment.status, 'approved');
+    assert.equal(approvePayJson.deposit.status, 'approved');
+    assert.equal(approvePayJson.creditedWallet.role, 'merchant');
+    assert.equal(approvePayJson.creditedWallet.balanceKes, 3250);
+
+    // Merchant balance immediately reflects 3,250 KSh
+    const merchMe = await fetch(`${harness.baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${merchantToken}`, 'x-buyoll-role': 'merchant' },
+    }).then((r) => r.json());
+    assert.equal(merchMe.user.roleWallets.merchant.credit, 3250);
+    assert.equal(merchMe.user.credit, 3250);
+
+    // Re-approving the same payment must be blocked (400)
+    const dupApprove = await fetch(`${harness.baseUrl}/api/admin/payments/${payId1}/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ decision: 'approve' }),
+    });
+    assert.equal(dupApprove.status, 400);
+
+    // 6. Decline #2 with empty reason -> 400; with valid reason using 'decline' alias -> 200 & balance unchanged
+    const emptyDecline = await fetch(`${harness.baseUrl}/api/admin/payments/${q2.id}/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ decision: 'decline', reason: '' }),
+    });
+    assert.equal(emptyDecline.status, 400);
+
+    const validDecline = await fetch(`${harness.baseUrl}/api/admin/payments/${q2.id}/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ decision: 'decline', reason: 'M-Pesa receipt code did not settle on Till' }),
+    });
+    assert.equal(validDecline.status, 200);
+    const declineJson = await validDecline.json();
+    assert.equal(declineJson.payment.status, 'rejected');
+    assert.equal(declineJson.deposit.status, 'declined');
+
+    // Merchant balance must remain 3,250 KSh (untouched by declined payment)
+    const merchAfterDecline = await fetch(`${harness.baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${merchantToken}`, 'x-buyoll-role': 'merchant' },
+    }).then((r) => r.json());
+    assert.equal(merchAfterDecline.user.roleWallets.merchant.credit, 3250);
+
+    // Wallet ledger has exact 1 DEPOSIT entry for PWANIDEP01 and Reconciliation PASSED
+    const dbSnap = await getDatabase();
+    const depLedger = (dbSnap.walletLedger || []).filter(
+      (e) => e.userId === merchantId && e.category === 'DEPOSIT'
+    );
+    assert.equal(depLedger.length, 1);
+    assert.equal(depLedger[0].amountCents, toCents(3250));
+
+    const recAfter = await fetch(`${harness.baseUrl}/api/admin/wallet/reconciliation/run`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-buyoll-role': 'admin' },
+    }).then((r) => r.json());
+    assert.equal(recAfter.report.status, 'PASSED');
+    assert.equal(recAfter.report.diffCents, 0);
+
+    // 7. Verify Migration 016 backfills orphan payment-only deposits safely and is reversible
+    await runDatabaseTransaction(async (db) => {
+      db.walletDeposits.push({
+        id: 'dep_orphan_mig_test',
+        userId: merchantId,
+        userName: 'Pwani Wholesale',
+        amount: 500,
+        mpesaCode: 'ORPHAN016A',
+        status: 'pending',
+        createdAt: Date.now(),
+      } as any);
+      await runPendingMigrations(db);
+    });
+    const dbPostMig = await getDatabase();
+    const syncedPay = dbPostMig.payments.find((p) => p.code === 'ORPHAN016A');
+    const syncedDep = dbPostMig.walletDeposits.find((d) => d.mpesaCode === 'ORPHAN016A');
+    assert.ok(syncedPay, 'Migration 016 must create missing PaymentRecord for deposit');
+    assert.equal(syncedDep?.role, 'merchant', 'Migration 016 must backfill missing role as merchant');
+  });
 });
+

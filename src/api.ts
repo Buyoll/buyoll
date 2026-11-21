@@ -72,27 +72,69 @@ function getAssetBaseUrl(): string {
   return raw.endsWith('/') ? raw : `${raw}/`;
 }
 
-export function getAccessToken(): string | null {
+const ROLE_LIST = ['member', 'merchant', 'lender', 'admin'] as const;
+
+function getRoleAccessTokenKey(role?: string): string {
+  if (role && ROLE_LIST.includes(role as any)) {
+    return `${ACCESS_TOKEN_KEY}_${role}`;
+  }
+  return ACCESS_TOKEN_KEY;
+}
+
+export function getAccessToken(role?: string): string | null {
   try {
+    if (role) {
+      const scopedKey = getRoleAccessTokenKey(role);
+      const scoped = localStorage.getItem(scopedKey) || sessionStorage.getItem(scopedKey);
+      if (scoped) return scoped;
+      // Only fall back to the legacy shared token if no role mismatch exists
+      const storedRole = getActiveRoleHeader();
+      if (storedRole && storedRole !== role) {
+        return null;
+      }
+    }
     return localStorage.getItem(ACCESS_TOKEN_KEY) || sessionStorage.getItem(ACCESS_TOKEN_KEY);
   } catch {
     return null;
   }
 }
 
-export function setAccessToken(token: string | null, remember = true): void {
+export function setAccessToken(token: string | null, remember = true, role?: string): void {
   try {
+    const scopedKey = role ? getRoleAccessTokenKey(role) : null;
     if (token) {
       if (remember) {
         localStorage.setItem(ACCESS_TOKEN_KEY, token);
         sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+        if (scopedKey && scopedKey !== ACCESS_TOKEN_KEY) {
+          localStorage.setItem(scopedKey, token);
+          sessionStorage.removeItem(scopedKey);
+        }
       } else {
         sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
         localStorage.removeItem(ACCESS_TOKEN_KEY);
+        if (scopedKey && scopedKey !== ACCESS_TOKEN_KEY) {
+          sessionStorage.setItem(scopedKey, token);
+          localStorage.removeItem(scopedKey);
+        }
+      }
+    } else if (role) {
+      if (scopedKey) {
+        localStorage.removeItem(scopedKey);
+        sessionStorage.removeItem(scopedKey);
+      }
+      const storedRole = getActiveRoleHeader();
+      if (!storedRole || storedRole === role) {
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        sessionStorage.removeItem(ACCESS_TOKEN_KEY);
       }
     } else {
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+      for (const r of ROLE_LIST) {
+        localStorage.removeItem(`${ACCESS_TOKEN_KEY}_${r}`);
+        sessionStorage.removeItem(`${ACCESS_TOKEN_KEY}_${r}`);
+      }
     }
   } catch {}
 }
@@ -143,37 +185,52 @@ export function getActiveRoleHeader(): string | undefined {
   return (user.activeRole || user.role || undefined) as string | undefined;
 }
 
-let inflightRefresh: Promise<boolean> | null = null;
+const inflightRefreshByRole = new Map<string, Promise<boolean>>();
 
-async function tryRefreshTokens(): Promise<boolean> {
-  if (inflightRefresh) return inflightRefresh;
-  inflightRefresh = (async () => {
+async function tryRefreshTokens(targetRole?: string): Promise<boolean> {
+  const refreshRole = targetRole || getActiveRoleHeader() || 'default';
+  const existing = inflightRefreshByRole.get(refreshRole);
+  if (existing) return existing;
+
+  const task = (async () => {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const activeRole = getActiveRoleHeader();
-      if (activeRole) headers['x-buyoll-role'] = activeRole;
+      const roleToSend = targetRole || getActiveRoleHeader();
+      if (roleToSend) headers['x-buyoll-role'] = roleToSend;
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers,
+        body: roleToSend ? JSON.stringify({ role: roleToSend }) : undefined,
       });
       if (!res.ok) return false;
       const data = await res.json();
+      const resolvedRole = (data?.user?.activeRole || data?.user?.role || roleToSend) as string | undefined;
       if (data?.accessToken) {
-        const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
-        setAccessToken(data.accessToken, remember);
+        const scopedKey = getRoleAccessTokenKey(resolvedRole);
+        const remember =
+          Boolean(localStorage.getItem(scopedKey)) ||
+          Boolean(localStorage.getItem(ACCESS_TOKEN_KEY)) ||
+          !sessionStorage.getItem(scopedKey);
+        setAccessToken(data.accessToken, remember, resolvedRole);
       }
       if (data?.user) {
-        setStoredUser(data.user);
+        const currentStored = getStoredUser();
+        const currentRole = currentStored?.activeRole || currentStored?.role;
+        if (!currentStored || !roleToSend || currentRole === resolvedRole) {
+          setStoredUser(data.user);
+        }
       }
       return true;
     } catch {
       return false;
     } finally {
-      inflightRefresh = null;
+      inflightRefreshByRole.delete(refreshRole);
     }
   })();
-  return inflightRefresh;
+
+  inflightRefreshByRole.set(refreshRole, task);
+  return task;
 }
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -220,9 +277,13 @@ async function fetchApi<T>(
   options: RequestInit & { timeoutMs?: number } = {},
   _retried = false
 ): Promise<T> {
-  const token = getAccessToken();
-  const activeRole = getActiveRoleHeader();
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const headers = new Headers(options.headers || {});
+  const explicitRole = headers.get('x-buyoll-role') || undefined;
+  const isAdminEndpoint = normalizedEndpoint === '/admin' || normalizedEndpoint.startsWith('/admin/');
+  const activeRole = explicitRole || (isAdminEndpoint ? 'admin' : getActiveRoleHeader());
+  const token = getAccessToken(activeRole);
+
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -232,8 +293,6 @@ async function fetchApi<T>(
   if (activeRole && !headers.has('x-buyoll-role')) {
     headers.set('x-buyoll-role', activeRole);
   }
-
-  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   let timedOut = false;
@@ -323,7 +382,7 @@ async function fetchApi<T>(
       !endpoint.startsWith('/auth/register') &&
       !endpoint.startsWith('/auth/refresh')
     ) {
-      const refreshed = await tryRefreshTokens();
+      const refreshed = await tryRefreshTokens(activeRole);
       if (refreshed) {
         return fetchApi<T>(endpoint, options, true);
       }
@@ -413,7 +472,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (data.accessToken) {
-      setAccessToken(data.accessToken, payload.rememberMe !== false);
+      setAccessToken(data.accessToken, payload.rememberMe !== false, (data.user?.activeRole || data.user?.role || payload.role) as string | undefined);
     }
     setStoredUser(data.user);
     return data;
@@ -438,7 +497,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (data.accessToken) {
-      setAccessToken(data.accessToken, payload.rememberMe !== false);
+      setAccessToken(data.accessToken, payload.rememberMe !== false, 'admin');
     }
     setStoredUser(data.user);
     return data;
@@ -469,7 +528,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (data.accessToken) {
-      setAccessToken(data.accessToken, payload.rememberMe !== false);
+      setAccessToken(data.accessToken, payload.rememberMe !== false, (data.user?.activeRole || data.user?.role || payload.role) as string | undefined);
     }
     setStoredUser(data.user);
     return data;
@@ -491,6 +550,7 @@ export const api = {
     } catch {
       // Ignore network/401 error on logout and still clear local state if matching
     }
+    setAccessToken(null, true, targetRole);
     const currentRole = getActiveRoleHeader();
     if (!role || role === currentRole) {
       setStoredUser(null);
@@ -633,8 +693,9 @@ export const api = {
       body: JSON.stringify({ currentPassword, newPassword }),
     });
     if (res.accessToken) {
-      const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
-      setAccessToken(res.accessToken, remember);
+      const targetRole = (res.user?.activeRole || res.user?.role || getActiveRoleHeader()) as string | undefined;
+      const remember = Boolean(localStorage.getItem(getRoleAccessTokenKey(targetRole)) || localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(res.accessToken, remember, targetRole);
     }
     if (res.user) setStoredUser(res.user);
     return res;
@@ -1119,7 +1180,16 @@ export const api = {
     return await fetchApi<any>(`/admin/audit-logs${buildAdminQuery(params)}`);
   },
 
-  async adminPaymentDecision(paymentId: number, decision: 'approve' | 'reject', reason?: string): Promise<{ payment: PaymentRecord; message: string }> {
+  async adminPaymentDecision(
+    paymentId: number,
+    decision: 'approve' | 'reject' | 'decline',
+    reason?: string
+  ): Promise<{
+    payment: PaymentRecord;
+    deposit?: WalletDepositRequest;
+    creditedWallet?: { role: string; balanceKes: number; addedKes: number; idempotencyKey?: string };
+    message: string;
+  }> {
     return await fetchApi<any>(`/admin/payments/${paymentId}/decision`, {
       method: 'POST',
       body: JSON.stringify({ decision, ...(reason ? { reason } : {}) }),
@@ -1367,11 +1437,17 @@ export const api = {
     return await fetchApi<{ payments: any[]; pagination?: AdminPaginationMeta }>(`/admin/payments${buildAdminQuery(params)}`);
   },
 
-  async adminDecidePayment(paymentId: number, decision: 'approve' | 'reject', reason?: string): Promise<any> {
-    return await fetchApi<any>(`/admin/payments/${paymentId}/decision`, {
-      method: 'POST',
-      body: JSON.stringify({ decision, reason }),
-    });
+  async adminDecidePayment(
+    paymentId: number,
+    decision: 'approve' | 'reject' | 'decline',
+    reason?: string
+  ): Promise<{
+    payment: PaymentRecord;
+    deposit?: WalletDepositRequest;
+    creditedWallet?: { role: string; balanceKes: number; addedKes: number; idempotencyKey?: string };
+    message: string;
+  }> {
+    return await this.adminPaymentDecision(paymentId, decision, reason);
   },
 
   async getAdminUsers(params?: { page?: number; limit?: number; search?: string; role?: string }): Promise<{ users: User[]; pagination?: AdminPaginationMeta }> {
@@ -2650,8 +2726,8 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (res?.accessToken) {
-      const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
-      setAccessToken(res.accessToken, remember);
+      const remember = Boolean(localStorage.getItem(getRoleAccessTokenKey('admin')) || localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(res.accessToken, remember, 'admin');
     }
     if (res?.user) setStoredUser(res.user);
     return res;
@@ -2667,8 +2743,8 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (res?.accessToken) {
-      const remember = Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
-      setAccessToken(res.accessToken, remember);
+      const remember = Boolean(localStorage.getItem(getRoleAccessTokenKey('admin')) || localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(res.accessToken, remember, 'admin');
     }
     if (res?.user) setStoredUser(res.user);
     return res;
@@ -2842,15 +2918,16 @@ export const api = {
   },
 
   async downloadAuthenticatedCsv(endpoint: string, fallbackFilename: string): Promise<{ filename: string; rowsDownloaded?: boolean }> {
-    const token = getAccessToken();
-    const activeRole = getActiveRoleHeader() || 'admin';
+    const normalized = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const isAdminEndpoint = normalized === '/admin' || normalized.startsWith('/admin/');
+    const activeRole = isAdminEndpoint ? 'admin' : getActiveRoleHeader() || 'admin';
+    const token = getAccessToken(activeRole);
     const headers: Record<string, string> = { 'x-buyoll-role': activeRole };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
     try {
-      const normalized = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const res = await fetch(`${API_BASE}${normalized}`, {
         credentials: 'include',
         headers,

@@ -9,7 +9,7 @@ import {
   normalizeUsernameSeed,
   sendSecurityEmail,
 } from './auth_utils.js';
-import { ensureWallet } from './wallet_service.js';
+import { creditWalletCents, ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
 import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 import { buildControlCenterIndexSnapshot } from './admin_control_center.js';
@@ -1129,6 +1129,173 @@ export const MIGRATIONS: MigrationDefinition[] = [
       if (Array.isArray(db.reconciliationReports) && db.reconciliationReports.length > 1) {
         db.reconciliationReports.shift();
       }
+      return true;
+    },
+  },
+  {
+    id: '016_sync_wallet_deposit_payments',
+    name: 'Sync walletDeposits <-> payments queue records and backfill target wallet roles',
+    up(db, ctx) {
+      let changed = false;
+      if (!db.walletDeposits) db.walletDeposits = [];
+      if (!db.payments) db.payments = [];
+      if (!db.walletLedger) db.walletLedger = [];
+
+      const usersById = new Map<number, User>();
+      for (const u of db.users || []) {
+        usersById.set(Number(u.id), u);
+      }
+
+      const inferRole = (dep: any, payment: any, user: User | undefined): UserRole => {
+        const explicit = dep?.role || payment?.role;
+        if (explicit === 'member' || explicit === 'merchant' || explicit === 'lender' || explicit === 'admin') {
+          return explicit;
+        }
+        const notes = `${payment?.notes || ''} ${payment?.channel || ''} ${dep?.notes || ''}`.toLowerCase();
+        if (notes.includes('merchant wallet') || String(payment?.type || '').toLowerCase().includes('merchant')) {
+          return 'merchant';
+        }
+        if (notes.includes('lender wallet')) return 'lender';
+        if (notes.includes('admin wallet')) return 'admin';
+        if (user) {
+          if (user.activeRole === 'merchant' || user.role === 'merchant') return 'merchant';
+          if (user.activeRole === 'lender' || user.role === 'lender') return 'lender';
+          if (user.activeRole === 'admin' || user.role === 'admin') return 'admin';
+          if (Array.isArray(user.roles) && user.roles.includes('merchant') && !user.roles.includes('member')) {
+            return 'merchant';
+          }
+          return scrubRoleValue(user.activeRole || user.role);
+        }
+        return 'member';
+      };
+
+      const isDepositType = (t?: string) => {
+        const lower = String(t || '').trim().toLowerCase();
+        return lower === 'wallet_deposit' || lower === 'merchant_wallet_deposit' || lower === 'wallet_topup';
+      };
+
+      const paymentByCode = new Map<string, any>();
+      for (const p of db.payments) {
+        const codeUpper = String(p.code || '').trim().toUpperCase();
+        if (codeUpper && isDepositType(p.type) && !paymentByCode.has(codeUpper)) {
+          paymentByCode.set(codeUpper, p);
+        }
+      }
+
+      const depositByCode = new Map<string, any>();
+      for (const d of db.walletDeposits) {
+        const codeUpper = String(d.mpesaCode || '').trim().toUpperCase();
+        if (codeUpper && !depositByCode.has(codeUpper)) {
+          depositByCode.set(codeUpper, d);
+        }
+      }
+
+      // 1. Backfill missing roles on existing walletDeposits and create missing payment rows
+      for (const d of db.walletDeposits) {
+        const codeUpper = String(d.mpesaCode || '').trim().toUpperCase();
+        const linkedPayment = codeUpper ? paymentByCode.get(codeUpper) : undefined;
+        const owner = usersById.get(Number(d.userId));
+        if (!d.role) {
+          d.role = inferRole(d, linkedPayment, owner);
+          changed = true;
+        }
+        if (linkedPayment && !linkedPayment.role) {
+          linkedPayment.role = d.role;
+          changed = true;
+        }
+        if (!linkedPayment && codeUpper) {
+          const newPay: any = {
+            id: db.nextIds.payment++,
+            type: 'wallet_deposit',
+            userId: d.userId,
+            userName: d.userName || owner?.name || 'User',
+            userPhone: d.userPhone || owner?.phone,
+            role: d.role,
+            code: codeUpper,
+            amount: fromCents(toCents(d.amount)),
+            status: d.status === 'approved' ? 'approved' : d.status === 'declined' ? 'rejected' : 'pending',
+            rejectionReason: d.status === 'declined' ? d.notes || 'Declined' : undefined,
+            channel: 'M-Pesa Deposit Till 196853',
+            createdAt: d.createdAt || Date.now(),
+            approvedAt: d.status === 'approved' ? d.processedAt || d.createdAt : undefined,
+            verifiedAt: d.status === 'approved' ? d.processedAt || d.createdAt : undefined,
+            verifiedBy: d.processedBy,
+            notes: d.notes || `Wallet deposit of KSh ${d.amount} to ${d.role} wallet. Code: ${codeUpper}.`,
+            __migrated016: true,
+          };
+          db.payments.unshift(newPay);
+          paymentByCode.set(codeUpper, newPay);
+          changed = true;
+        }
+      }
+
+      // 2. Ensure every wallet_deposit payment has a matching walletDeposits record and ledger credit if approved
+      for (const p of db.payments) {
+        if (!isDepositType(p.type)) continue;
+        const codeUpper = String(p.code || '').trim().toUpperCase();
+        if (!codeUpper) continue;
+        const owner = usersById.get(Number(p.userId));
+        let dep = depositByCode.get(codeUpper);
+        const resolvedRole = inferRole(dep, p, owner);
+        if (!p.role) {
+          p.role = resolvedRole;
+          changed = true;
+        }
+        if (!dep) {
+          dep = {
+            id: `dep_mig_${p.id}_${codeUpper}`,
+            userId: p.userId,
+            userName: p.userName || owner?.name || 'User',
+            userPhone: p.userPhone || owner?.phone || '',
+            role: resolvedRole,
+            amount: fromCents(toCents(p.amount)),
+            mpesaCode: codeUpper,
+            status: p.status === 'approved' ? 'approved' : p.status === 'rejected' ? 'declined' : 'pending',
+            createdAt: p.createdAt || Date.now(),
+            processedAt: p.status !== 'pending' ? p.approvedAt || p.verifiedAt || p.createdAt : undefined,
+            processedBy: p.verifiedBy,
+            notes: p.rejectionReason || p.notes || `Synced from Payment #${p.id}`,
+            __migrated016: true,
+          };
+          db.walletDeposits.unshift(dep);
+          depositByCode.set(codeUpper, dep);
+          changed = true;
+        }
+
+        if (dep.status === 'approved' && owner) {
+          const alreadyCredited = db.walletLedger.some(
+            (e) =>
+              e.category === 'DEPOSIT' &&
+              (e.idempotencyKey === `dep_${dep.id}_${dep.mpesaCode}` ||
+                (String(e.referenceId || '').trim().toUpperCase() === codeUpper && Number(e.userId) === Number(owner.id)))
+          );
+          if (!alreadyCredited && toCents(dep.amount) > 0) {
+            creditWalletCents(db, {
+              userId: owner.id,
+              role: resolvedRole,
+              amountCents: toCents(dep.amount),
+              category: 'DEPOSIT',
+              referenceId: dep.mpesaCode,
+              idempotencyKey: `dep_${dep.id}_${dep.mpesaCode}`,
+              note: `Migration 016 backfill for approved M-Pesa deposit ${dep.mpesaCode}`,
+              actorId: 1,
+            });
+            changed = true;
+          }
+        }
+      }
+
+      if (!ctx.alreadyApplied || changed) {
+        runWalletReconciliationInTx(db, 'scheduled');
+        db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      db.payments = (db.payments || []).filter((p: any) => !p.__migrated016);
+      db.walletDeposits = (db.walletDeposits || []).filter((d: any) => !d.__migrated016);
       return true;
     },
   },

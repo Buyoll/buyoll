@@ -784,6 +784,23 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     setProcessingId(paymentId);
     try {
       const res = await api.adminDecidePayment(paymentId, decision);
+      setPaymentsList((prev) =>
+        paymentStatusFilter === 'pending'
+          ? prev.filter((item) => item.id !== paymentId)
+          : prev.map((item) => (item.id === paymentId ? { ...item, ...(res.payment || {}), status: 'approved' } : item))
+      );
+      setSummary((prev) =>
+        prev
+          ? {
+              ...prev,
+              payments: {
+                ...prev.payments,
+                pending: Math.max(0, (prev.payments?.pending || 0) - 1),
+                approved: (prev.payments?.approved || 0) + 1,
+              },
+            }
+          : prev
+      );
       onNotify('success', res.message || `Payment #${paymentId} approved`);
       await refreshActiveView();
     } catch (err: any) {
@@ -833,6 +850,28 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         onNotify('success', res.message || 'Deposit request declined.');
       } else if (kind === 'payment') {
         const res = await api.adminDecidePayment(Number(targetId), 'reject', reason);
+        const targetPaymentId = Number(targetId);
+        setPaymentsList((prev) =>
+          paymentStatusFilter === 'pending'
+            ? prev.filter((item) => item.id !== targetPaymentId)
+            : prev.map((item) =>
+                item.id === targetPaymentId
+                  ? { ...item, ...(res.payment || {}), status: 'rejected', rejectionReason: reason }
+                  : item
+              )
+        );
+        setSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                payments: {
+                  ...prev.payments,
+                  pending: Math.max(0, (prev.payments?.pending || 0) - 1),
+                  rejected: (prev.payments?.rejected || 0) + 1,
+                },
+              }
+            : prev
+        );
         onNotify('success', res.message || `Payment #${targetId} declined.`);
       } else if (kind === 'refund') {
         const res = await api.adminRefundStatus(Number(targetId), 'rejected', reason);
@@ -1781,10 +1820,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           return (
                             <tr key={p.id} className="hover:bg-slate-50/70">
                               <td className="py-3 px-4">
-                                <div className="font-bold text-slate-900">{p.userName}</div>
+                                <div className="font-bold text-slate-900">{p.userName || 'User'}</div>
+                                {(p as any).shopName && (
+                                  <div className="text-[11px] font-semibold text-indigo-700">
+                                    {(p as any).shopName}
+                                  </div>
+                                )}
                                 <div className="text-[11px] text-slate-400">
-                                  {new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })},{' '}
-                                  {new Date(p.createdAt).toLocaleDateString()}
+                                  {p.createdAt
+                                    ? `${new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, ${new Date(p.createdAt).toLocaleDateString()}`
+                                    : 'Recently'}
                                 </div>
                                 {p.groupName && (
                                   <div className="text-[11px] text-[#ff6600] font-semibold mt-0.5">
@@ -1794,14 +1839,21 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               </td>
 
                               <td className="py-3 px-4">
-                                <span className="capitalize px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700">
-                                  {p.type.replace('_', ' ')}
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span className="capitalize px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700">
+                                    {String(p.type || 'payment').replace(/_/g, ' ')}
+                                  </span>
+                                  {((p as any).targetWalletRole || (p as any).role) && (
+                                    <span className="capitalize px-2 py-0.5 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
+                                      {(p as any).targetWalletRole || (p as any).role} wallet
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               <td className="py-3 px-4">
                                 <div className="font-mono font-black text-indigo-700 text-sm tracking-wide">
-                                  {p.code}
+                                  {p.code || 'N/A'}
                                 </div>
                                 <div className="font-extrabold text-slate-900 tabular-nums">
                                   KSh {Number(p.amount || 0).toLocaleString()}

@@ -207,14 +207,24 @@ function extractRefreshToken(req: Request): string | null {
   if (req.body && typeof req.body.refreshToken === 'string' && req.body.refreshToken.trim()) {
     return req.body.refreshToken.trim();
   }
+  const roleHintRaw = req.headers['x-buyoll-role'] || req.query.role || req.body?.role;
+  const roleHint =
+    roleHintRaw === 'admin' || roleHintRaw === 'merchant' || roleHintRaw === 'member' || roleHintRaw === 'lender'
+      ? roleHintRaw
+      : null;
+  if (roleHint && req.cookies?.[`buyoll_refresh_${roleHint}`]) {
+    return String(req.cookies[`buyoll_refresh_${roleHint}`]);
+  }
   if (req.cookies?.buyoll_refresh) {
     return String(req.cookies.buyoll_refresh);
   }
   if (req.headers.cookie) {
-    const match = req.headers.cookie
-      .split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith('buyoll_refresh='));
+    const parts = req.headers.cookie.split(';').map((s) => s.trim());
+    if (roleHint) {
+      const roleMatch = parts.find((s) => s.startsWith(`buyoll_refresh_${roleHint}=`));
+      if (roleMatch) return decodeURIComponent(roleMatch.split('=').slice(1).join('='));
+    }
+    const match = parts.find((s) => s.startsWith('buyoll_refresh='));
     if (match) return decodeURIComponent(match.split('=').slice(1).join('='));
   }
   return null;
@@ -1068,7 +1078,9 @@ authRouter.post('/auth/refresh', async (req: Request, res: Response) => {
 
     rec.revokedAt = now;
     syncUserRoleAndWallet(user);
-    const activeRole = normalizeRoleValue(user.activeRole || user.role);
+    const activeRole = normalizeRoleValue(rec.role || user.activeRole || user.role);
+    user.activeRole = activeRole;
+    user.role = activeRole;
     const tokens = issueAuthTokensForUser(db, user, rec.rememberMe, req, activeRole);
     return { status: 200, user, activeRole, tokens };
   });
