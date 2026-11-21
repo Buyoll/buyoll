@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, DefaultRecord, RefundRequest, PaymentRecord, StoreCreditLedgerEntry, CoinLedgerEntry, WalletDepositRequest } from '../types.ts';
 import { api } from '../api.ts';
 import { getUserActiveRole } from '../utils/rbac.ts';
@@ -24,12 +24,21 @@ import {
   Sparkles,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowLeft,
+  ArrowRight,
   X,
   Plus,
 } from 'lucide-react';
 
+export interface WalletInitialAction {
+  action?: 'deposit' | string;
+  returnTo?: string;
+  suggestedAmount?: number;
+}
+
 interface WalletPageProps {
   currentUser: User | null;
+  initialAction?: string | WalletInitialAction | null;
   onNavigate: (view: string, arg?: any) => void;
   onOpenAuth: () => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
@@ -38,6 +47,7 @@ interface WalletPageProps {
 
 export const WalletPage: React.FC<WalletPageProps> = ({
   currentUser,
+  initialAction,
   onNavigate,
   onOpenAuth,
   onNotify,
@@ -56,7 +66,18 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [depositMpesaCode, setDepositMpesaCode] = useState('');
   const [depositNotes, setDepositNotes] = useState('');
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
-  const [myDeposits, setMyDeposits] = useState<WalletDepositRequest[]>([]);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositReturnTo, setDepositReturnTo] = useState<string | null>(null);
+  const [lastSubmittedDeposit, setLastSubmittedDeposit] = useState<{
+    deposit: WalletDepositRequest;
+    payment?: PaymentRecord;
+    adminPaymentQueue?: { paymentId: number; status: string; channel?: string; targetWalletRole: string };
+    message: string;
+    returnTo?: string | null;
+  } | null>(null);
+  const [myDeposits, setMyDeposits] = useState<Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>>([]);
+  const depositLedgerSectionRef = useRef<HTMLDivElement | null>(null);
+  const depositResultSectionRef = useRef<HTMLDivElement | null>(null);
 
   // Coin topup state
   const [coinMpesaCode, setCoinMpesaCode] = useState('');
@@ -90,6 +111,23 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     }
   }, [currentUserId]);
 
+  // Auto-open M-Pesa deposit modal & capture return route when navigated with deposit intent (e.g. from Merchant Dashboard)
+  useEffect(() => {
+    if (!initialAction || !currentUserId) return;
+    const actionObj: WalletInitialAction =
+      typeof initialAction === 'string' ? { action: initialAction } : initialAction;
+    if (actionObj.returnTo) {
+      setDepositReturnTo(actionObj.returnTo);
+    }
+    if (actionObj.suggestedAmount && Number(actionObj.suggestedAmount) > 0) {
+      setDepositAmount(Math.ceil(Number(actionObj.suggestedAmount)));
+    }
+    if (actionObj.action === 'deposit') {
+      setDepositError(null);
+      setShowDepositModal(true);
+    }
+  }, [initialAction, currentUserId]);
+
   useEffect(() => {
     if (!currentUserId || typeof window === 'undefined') return;
     const handleLiveUpdate = () => {
@@ -114,15 +152,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     }
     try {
       const [defaultsRes, paymentsRes, coinLedgerRes, depositsRes] = await Promise.all([
-        api.getMyDefaults(),
-        api.getMyPayments(),
+        api.getMyDefaults().catch(() => ({ defaults: [], refunds: [] })),
+        api.getMyPayments().catch(() => ({ payments: [], ledger: [] })),
         api.getCoinLedger().catch(() => ({ ledger: [] })),
         api.getMyWalletDeposits().catch(() => ({ deposits: [] })),
       ]);
-      setDefaults(defaultsRes.defaults);
-      setRefunds(defaultsRes.refunds);
-      setPayments(paymentsRes.payments);
-      setLedger(paymentsRes.ledger);
+      setDefaults(defaultsRes?.defaults || []);
+      setRefunds(defaultsRes?.refunds || []);
+      setPayments(paymentsRes?.payments || []);
+      setLedger(paymentsRes?.ledger || []);
       if (coinLedgerRes?.ledger) setCoinLedger(coinLedgerRes.ledger);
       if (depositsRes?.deposits) setMyDeposits(depositsRes.deposits);
     } catch (err: any) {
@@ -198,40 +236,85 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   async function handleProcessDeposit(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUser) return;
+    setDepositError(null);
 
-    const trimmedCode = depositMpesaCode.trim().toUpperCase();
+    const trimmedCode = depositMpesaCode.replace(/\s+/g, '').trim().toUpperCase();
     if (!trimmedCode) {
-      onNotify('error', 'Please enter your M-Pesa transaction code.');
+      const msg = 'Please enter your M-Pesa transaction code.';
+      setDepositError(msg);
+      onNotify('error', msg);
       return;
     }
 
     if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
-      onNotify('error', 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).');
+      const msg = 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).';
+      setDepositError(msg);
+      onNotify('error', msg);
       return;
     }
 
-    if (depositAmount <= 0) {
-      onNotify('error', 'Deposit amount must be greater than zero.');
+    const numericAmount = Number(depositAmount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      const msg = 'Deposit amount must be greater than zero.';
+      setDepositError(msg);
+      onNotify('error', msg);
       return;
     }
 
     setSubmittingDeposit(true);
     try {
-      const activeRole = currentUser.activeRole || currentUser.role || 'member';
+      const activeRoleValue = getUserActiveRole(currentUser) || 'member';
       const res = await api.depositToWallet({
-        amount: depositAmount,
+        amount: numericAmount,
         mpesaCode: trimmedCode,
         notes: depositNotes.trim() || undefined,
-        role: activeRole,
+        role: activeRoleValue,
       });
-      onNotify('success', res.message || 'Deposit submitted! The admin will verify and credit your wallet.');
+
+      const createdDeposit: WalletDepositRequest & { paymentId?: number; paymentStatus?: string } = {
+        ...res.deposit,
+        paymentId: res.payment?.id ?? res.adminPaymentQueue?.paymentId,
+        paymentStatus: res.payment?.status ?? res.adminPaymentQueue?.status ?? 'pending',
+      };
+
+      // Immediately render the submitted deposit and payment queue entry in state
+      setMyDeposits((prev) => [createdDeposit, ...prev.filter((d) => d.id !== createdDeposit.id)]);
+      if (res.payment) {
+        setPayments((prev) => [res.payment!, ...prev.filter((p) => p.id !== res.payment!.id)]);
+      }
+      setHistoryTab('deposits');
+      setLastSubmittedDeposit({
+        deposit: createdDeposit,
+        payment: res.payment,
+        adminPaymentQueue: res.adminPaymentQueue,
+        message:
+          res.message ||
+          `Deposit request of KSh ${createdDeposit.amount.toLocaleString()} (${createdDeposit.mpesaCode}) submitted to the Admin Payment Queue!`,
+        returnTo: depositReturnTo || (activeRoleValue === 'merchant' ? 'vendor-dashboard' : null),
+      });
+
+      onNotify(
+        'success',
+        res.message || 'Deposit submitted to Admin Payment Queue! Once approved, your wallet will be credited.'
+      );
       setShowDepositModal(false);
       setDepositMpesaCode('');
       setDepositNotes('');
-      await loadWalletData();
-      if (onUserUpdate) await onUserUpdate();
+      setDepositError(null);
+
+      // Refresh wallet tables and user profile safely in the background without masking submission success
+      void loadWalletData(false);
+      if (onUserUpdate) {
+        try {
+          await Promise.resolve(onUserUpdate());
+        } catch {
+          // non-fatal background sync
+        }
+      }
     } catch (err: any) {
-      onNotify('error', err.message || 'Failed to submit deposit');
+      const msg = err?.message || 'Failed to submit deposit request';
+      setDepositError(msg);
+      onNotify('error', msg);
     } finally {
       setSubmittingDeposit(false);
     }
@@ -296,8 +379,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Title & Introduction */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
+          {(activeRole === 'merchant' || depositReturnTo === 'vendor-dashboard') && (
+            <button
+              type="button"
+              onClick={() => onNavigate(depositReturnTo || 'vendor-dashboard')}
+              data-testid="wallet-back-to-merchant-btn"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#ff6600] mb-2 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Return to Merchant Dashboard</span>
+            </button>
+          )}
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
               {roleWalletName}
@@ -314,7 +408,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         {/* Quick action buttons */}
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
           <button
-            onClick={() => setShowDepositModal(true)}
+            type="button"
+            onClick={() => {
+              setDepositError(null);
+              setShowDepositModal(true);
+            }}
+            data-testid="wallet-open-deposit-modal-btn"
             className="flex items-center gap-1.5 px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <ArrowDownLeft className="w-4 h-4" />
@@ -322,6 +421,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setShowPlatformModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
@@ -330,6 +430,94 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* DEPOSIT REQUEST SUBMITTED CONFIRMATION CARD */}
+      {lastSubmittedDeposit && (
+        <div
+          ref={depositResultSectionRef}
+          data-testid="deposit-submission-result-card"
+          className="mb-8 p-5 bg-emerald-50/90 border-2 border-emerald-400 rounded-2xl shadow-sm animate-fadeIn"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm font-black text-emerald-950">
+                    Deposit Request Sent to Admin Payment Queue
+                  </h2>
+                  {lastSubmittedDeposit.adminPaymentQueue?.paymentId && (
+                    <span className="px-2 py-0.5 bg-white border border-emerald-300 text-emerald-900 rounded-md text-[10px] font-mono font-bold">
+                      Queue #{lastSubmittedDeposit.adminPaymentQueue.paymentId}
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-md text-[10px] font-bold uppercase">
+                    Pending Admin Verification
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-900 mt-1">
+                  {lastSubmittedDeposit.message}
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] text-emerald-900">
+                  <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200 font-semibold tabular-nums">
+                    Amount: <b>KSh {lastSubmittedDeposit.deposit.amount.toLocaleString()}</b>
+                  </span>
+                  <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200 font-mono font-bold">
+                    M-Pesa Code: {lastSubmittedDeposit.deposit.mpesaCode}
+                  </span>
+                  <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200 font-semibold capitalize">
+                    Target Wallet: <b>{roleWalletName}</b>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {(lastSubmittedDeposit.returnTo || activeRole === 'merchant') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate(lastSubmittedDeposit.returnTo || 'vendor-dashboard')}
+                  data-testid="complete-deposit-navigation-btn"
+                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>Complete & Return to Merchant Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryTab('deposits');
+                  depositLedgerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className="px-3.5 py-2 bg-white hover:bg-emerald-100/60 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                View Deposits Ledger
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDepositError(null);
+                  setShowDepositModal(true);
+                }}
+                className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                + Another Deposit
+              </button>
+              <button
+                type="button"
+                onClick={() => setLastSubmittedDeposit(null)}
+                aria-label="Dismiss deposit summary"
+                className="p-2 text-emerald-700 hover:text-emerald-950 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3 Main Balances */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -587,7 +775,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         </div>
 
         {/* RIGHT: Transaction History & Ledgers (~65%) */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div ref={depositLedgerSectionRef} className="lg:col-span-8 flex flex-col gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
               <div>
@@ -681,7 +869,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                             <td className="py-2.5 px-3 text-slate-500">
                               {new Date(p.createdAt).toLocaleDateString()}
                             </td>
-                            <td className="py-2.5 px-3 capitalize text-slate-700">{p.type.replace('_', ' ')}</td>
+                            <td className="py-2.5 px-3 capitalize text-slate-700">{String(p.type || 'payment').replace(/_/g, ' ')}</td>
                             <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{p.code}</td>
                             <td className="py-2.5 px-3 font-semibold text-slate-900 tabular-nums">
                               KSh {p.amount.toLocaleString()}
@@ -745,7 +933,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                               KSh {d.amount.toLocaleString()}
                             </td>
                             <td className="py-2.5 px-3 text-slate-500 max-w-xs truncate">
-                              {d.notes || <span className="text-slate-300 italic">None</span>}
+                              {d.paymentId && (
+                                <span className="mr-1.5 px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-mono font-bold">
+                                  Queue #{d.paymentId}
+                                </span>
+                              )}
+                              {d.notes || <span className="text-slate-300 italic">M-Pesa Wallet Deposit</span>}
                             </td>
                             <td className="py-2.5 px-3">
                               <span
@@ -757,7 +950,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                                     : 'bg-amber-100 text-amber-800 animate-pulse'
                                 }`}
                               >
-                                {d.status === 'approved' ? '✓ Credited' : d.status === 'pending' ? '⏳ Pending Approval' : '✗ Declined'}
+                                {d.status === 'approved' ? '✓ Credited' : d.status === 'pending' ? '⏳ Pending Admin Approval' : '✗ Declined'}
                               </span>
                             </td>
                           </tr>
@@ -864,8 +1057,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
       {/* WALLET M-PESA DEPOSIT MODAL */}
       {showDepositModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in duration-200 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center font-bold">
@@ -873,12 +1066,18 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">Deposit Funds to Wallet</h3>
-                  <p className="text-[11px] text-slate-500">Fast M-Pesa automatic credit verification</p>
+                  <p className="text-[11px] text-slate-500">
+                    Credits your <b className="text-slate-700">{roleWalletName}</b> upon Admin verification
+                  </p>
                 </div>
               </div>
               <button
-                onClick={() => setShowDepositModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                type="button"
+                onClick={() => {
+                  setShowDepositModal(false);
+                  setDepositError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -906,7 +1105,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   </div>
                 </div>
                 <p className="text-[10px] text-emerald-800 leading-relaxed">
-                  After sending funds, input your transaction details below and click Process. The admin will verify and your balance will increase automatically.
+                  After sending funds, input your transaction details below and click <b>Process Deposit Request</b>. Your request routes straight to the Admin Payment Queue for verification and exact wallet crediting.
                 </p>
               </div>
 
@@ -920,7 +1119,10 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                     <button
                       type="button"
                       key={amt}
-                      onClick={() => setDepositAmount(amt)}
+                      onClick={() => {
+                        setDepositAmount(amt);
+                        setDepositError(null);
+                      }}
                       className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                         depositAmount === amt
                           ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600]'
@@ -933,10 +1135,13 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </div>
                 <input
                   type="number"
-                  min="50"
+                  min="1"
                   required
                   value={depositAmount}
-                  onChange={(e) => setDepositAmount(Number(e.target.value))}
+                  onChange={(e) => {
+                    setDepositAmount(Number(e.target.value));
+                    if (depositError) setDepositError(null);
+                  }}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-mono font-bold"
                   placeholder="Enter exact amount paid"
                 />
@@ -950,9 +1155,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 <input
                   type="text"
                   required
-                  maxLength={12}
+                  maxLength={14}
                   value={depositMpesaCode}
-                  onChange={(e) => setDepositMpesaCode(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setDepositMpesaCode(e.target.value.replace(/\s+/g, '').toUpperCase().slice(0, 12));
+                    if (depositError) setDepositError(null);
+                  }}
                   placeholder="e.g. RJL798K2MN (8-12 alphanumeric characters)"
                   className="w-full px-3 py-2 text-xs font-mono uppercase tracking-wider border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
@@ -967,15 +1175,29 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   type="text"
                   value={depositNotes}
                   onChange={(e) => setDepositNotes(e.target.value)}
-                  placeholder="e.g. Group deposit for Solar station"
+                  placeholder="e.g. Merchant operating float deposit"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
                 />
               </div>
 
+              {depositError && (
+                <div
+                  role="alert"
+                  data-testid="deposit-modal-error"
+                  className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{depositError}</span>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowDepositModal(false)}
+                  onClick={() => {
+                    setShowDepositModal(false);
+                    setDepositError(null);
+                  }}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Cancel
@@ -983,6 +1205,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 <button
                   type="submit"
                   disabled={submittingDeposit || !depositMpesaCode.trim() || depositAmount <= 0}
+                  data-testid="process-deposit-submit-btn"
                   className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   {submittingDeposit ? 'Processing...' : 'Process Deposit Request'}
@@ -1291,7 +1514,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                             {new Date(p.createdAt).toLocaleDateString()}
                           </td>
                           <td className="py-2 px-3 capitalize text-slate-700">
-                            {p.type.replace('_', ' ')}
+                            {String(p.type || 'payment').replace(/_/g, ' ')}
                           </td>
                           <td className="py-2 px-3 font-mono font-bold text-slate-900">
                             {p.code}

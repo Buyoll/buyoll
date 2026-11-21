@@ -294,7 +294,16 @@ export default function App() {
           handleOpenAuth('member');
           handleNavigate('home');
         } else {
-          handleNavigate('wallet');
+          const actionParam = search.get('action');
+          const fromParam = search.get('from');
+          const walletArg =
+            actionParam === 'deposit'
+              ? {
+                  action: 'deposit',
+                  returnTo: fromParam === 'merchant' ? 'vendor-dashboard' : undefined,
+                }
+              : undefined;
+          handleNavigate('wallet', walletArg);
         }
       } else if (path === '/merchant') {
         if (!user) {
@@ -539,6 +548,7 @@ export default function App() {
           <RoleGuard allow={['member', 'merchant', 'lender', 'admin']} currentUser={currentUser} authLoading={authLoading} onNavigate={handleNavigate} onNotify={handleNotify} onLogout={handleLogout}>
             <WalletPage
               currentUser={currentUser}
+              initialAction={viewArg}
               onNavigate={handleNavigate}
               onOpenAuth={() => handleOpenAuth('member')}
               onNotify={handleNotify}

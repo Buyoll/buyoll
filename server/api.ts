@@ -97,6 +97,9 @@ apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', time: Date.now() });
 });
 apiRouter.get('/events', async (req: Request, res: Response) => {
+  if (typeof req.query.role === 'string' && !req.headers['x-buyoll-role']) {
+    req.headers['x-buyoll-role'] = req.query.role;
+  }
   const user = await resolveAuthenticatedUser(req).catch(() => null);
   handleEventsSse(req, res, user?.id ?? null);
 });
@@ -6090,22 +6093,28 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
   const user = await getAuthenticatedUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-  const { amount, mpesaCode, notes, role } = req.body;
+  const { amount, mpesaCode, notes, role } = req.body || {};
   const numAmount = Number(amount);
-  const trimmedCode = String(mpesaCode || '').trim().toUpperCase();
+  const trimmedCode = String(mpesaCode || '').replace(/\s+/g, '').trim().toUpperCase();
 
   if (!trimmedCode) {
-    return res.status(400).json({ error: 'M-Pesa transaction code is required.' });
+    return res.status(400).json({ error: 'M-Pesa transaction code is required.', field: 'mpesaCode', code: 'MPESA_CODE_REQUIRED' });
   }
 
   if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
     return res.status(400).json({
       error: 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).',
+      field: 'mpesaCode',
+      code: 'INVALID_MPESA_CODE',
     });
   }
 
-  if (!numAmount || numAmount <= 0) {
-    return res.status(400).json({ error: 'Deposit amount must be greater than zero.' });
+  if (!Number.isFinite(numAmount) || numAmount <= 0 || numAmount > 10_000_000) {
+    return res.status(400).json({
+      error: 'Deposit amount must be a valid positive number (up to KSh 10,000,000).',
+      field: 'amount',
+      code: 'INVALID_AMOUNT',
+    });
   }
 
   try {
@@ -6117,6 +6126,8 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       if (dup.duplicate) {
         throw {
           status: 409,
+          code: 'DUPLICATE_MPESA_CODE',
+          field: 'mpesaCode',
           message: `This M-Pesa transaction code (${trimmedCode}) has already been used (${dup.entity}).`,
         };
       }
@@ -6135,12 +6146,12 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         mpesaCode: trimmedCode,
         status: 'pending',
         createdAt: now,
-        notes: (notes || '').trim(),
+        notes: String(notes || '').trim(),
       };
 
       db.walletDeposits.unshift(newDeposit);
 
-      // Also record in db.payments as pending with explicit role for deterministic wallet crediting
+      // Also record in db.payments as pending with explicit role for deterministic wallet crediting & admin payment queue visibility
       if (!db.payments) db.payments = [];
       const paymentRecord: PaymentRecord = {
         id: db.nextIds.payment++,
@@ -6154,7 +6165,9 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         status: 'pending',
         channel: 'M-Pesa Deposit Till 196853',
         createdAt: now,
-        notes: `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
+        notes: newDeposit.notes
+          ? `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet (${newDeposit.notes}). Code: ${trimmedCode}. Pending Admin approval.`
+          : `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
       };
       db.payments.unshift(paymentRecord);
 
@@ -6164,7 +6177,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         title: '⏳ Wallet Deposit Request Submitted',
-        message: `Your deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) has been received. Buyoll Admin will verify against statements and credit your ${activeRole} wallet.`,
+        message: `Your deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) has been queued for Admin verification and will credit your ${activeRole} wallet once approved.`,
         type: 'payment',
         read: false,
         timestamp: now,
@@ -6190,28 +6203,56 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         user.id,
         user.name,
         'WALLET_DEPOSIT_SUBMITTED',
-        `Submitted wallet deposit of KSh ${normalizedKes} for ${activeRole} wallet (Code: ${trimmedCode})`
+        `Submitted wallet deposit of KSh ${normalizedKes} for ${activeRole} wallet (Code: ${trimmedCode}, Queue #${paymentRecord.id})`
       );
 
       return {
         deposit: newDeposit,
-        message: `Deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) submitted! The admin will verify and credit your ${activeRole} wallet automatically.`,
+        payment: paymentRecord,
+        adminPaymentQueue: {
+          paymentId: paymentRecord.id,
+          status: paymentRecord.status,
+          channel: paymentRecord.channel,
+          targetWalletRole: activeRole,
+        },
+        message: `Deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) submitted to the Admin Payment Queue! Once verified, it will credit your ${activeRole} wallet automatically.`,
       };
     });
 
     invalidateControlCenterSummaryCache(getActiveDbFile());
     emitPlatformEvent('admin.wallet.updated', {
+      paymentId: result.payment.id,
       depositId: result.deposit.id,
+      type: 'wallet_deposit',
       status: 'pending',
       role: result.deposit.role,
       userId: user.id,
+      userName: user.name,
+      shopName: user.shopName,
       amount: result.deposit.amount,
       mpesaCode: result.deposit.mpesaCode,
     });
+    emitPlatformEvent(
+      'deposit.updated',
+      {
+        depositId: result.deposit.id,
+        paymentId: result.payment.id,
+        status: 'pending',
+        role: result.deposit.role,
+        userId: user.id,
+        amount: result.deposit.amount,
+        mpesaCode: result.deposit.mpesaCode,
+      },
+      [user.id]
+    );
     res.status(201).json({ success: true, ...result });
   } catch (err: any) {
     const statusCode = err.status || 500;
-    return res.status(statusCode).json({ error: err.message || 'Failed to submit wallet deposit' });
+    return res.status(statusCode).json({
+      error: err.message || 'Failed to submit wallet deposit',
+      ...(err.code ? { code: err.code } : {}),
+      ...(err.field ? { field: err.field } : {}),
+    });
   }
 });
 
@@ -6220,7 +6261,29 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
   if (!user) return res.status(401).json({ error: 'Authentication required' });
 
   const db = await getDatabase();
-  const userDeposits = (db.walletDeposits || []).filter((d) => d.userId === user.id);
+  const paymentByCode = new Map<string, PaymentRecord>();
+  for (const p of db.payments || []) {
+    if (p.userId === user.id && isWalletDepositPaymentType(p.type)) {
+      const key = String(p.code || '').trim().toUpperCase();
+      if (key && !paymentByCode.has(key)) {
+        paymentByCode.set(key, p);
+      }
+    }
+  }
+
+  const userDeposits = [...(db.walletDeposits || [])]
+    .filter((d) => d.userId === user.id)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .map((d) => {
+      const codeKey = String(d.mpesaCode || '').trim().toUpperCase();
+      const linkedPayment = codeKey ? paymentByCode.get(codeKey) : undefined;
+      return {
+        ...d,
+        paymentId: linkedPayment?.id,
+        paymentStatus: linkedPayment?.status,
+      };
+    });
+
   res.json({ deposits: userDeposits });
 });
 

@@ -233,8 +233,48 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [applyUserUpdate]);
 
   const currentUserId = currentUser?.id;
+  const activeRoleName = getRoleOf(currentUser);
   const seenOutboxIdsRef = useRef<Set<string>>(new Set());
   const pullPendingOutboxRef = useRef<(() => Promise<void>) | null>(null);
+
+  const dispatchOutboxEvent = useCallback((evt: any) => {
+    if (!evt) return;
+    const evtId = String(evt.id || '');
+    if (evtId && seenOutboxIdsRef.current.has(evtId)) return;
+    if (evtId) seenOutboxIdsRef.current.add(evtId);
+
+    const entity = String(evt.entityType || '');
+    const statusText = String(evt.payload?.status || evt.title || '').toLowerCase();
+    const notifyType: 'success' | 'error' | 'info' =
+      statusText.includes('declin') || statusText.includes('reject') || statusText.includes('remov')
+        ? 'info'
+        : 'success';
+
+    if (evt.message) {
+      window.dispatchEvent(
+        new CustomEvent('buyoll:notify', {
+          detail: { type: notifyType, message: `${evt.title ? `${evt.title}: ` : ''}${evt.message}` },
+        })
+      );
+    }
+
+    if (entity === 'deposit') {
+      window.dispatchEvent(new CustomEvent('buyoll:deposit-updated', { detail: evt.payload || evt }));
+      window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
+    } else if (entity === 'subscription') {
+      window.dispatchEvent(new CustomEvent('buyoll:subscription-activated', { detail: evt.payload || evt }));
+    } else if (entity === 'verification') {
+      window.dispatchEvent(new CustomEvent('buyoll:verification-updated', { detail: evt.payload || evt }));
+    } else if (entity === 'featured') {
+      window.dispatchEvent(new CustomEvent('buyoll:featured-updated', { detail: evt.payload || evt }));
+    } else if (entity === 'refund') {
+      window.dispatchEvent(new CustomEvent('buyoll:refund-updated', { detail: evt.payload || evt }));
+      window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
+    } else if (entity === 'announcement') {
+      window.dispatchEvent(new CustomEvent('buyoll:announcement-updated', { detail: evt.payload || evt }));
+    }
+    window.dispatchEvent(new CustomEvent('buyoll:outbox-notification', { detail: evt }));
+  }, []);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -319,45 +359,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
 
-    const dispatchOutboxEvent = (evt: any) => {
-      if (!evt) return;
-      const evtId = String(evt.id || '');
-      if (evtId && seenOutboxIdsRef.current.has(evtId)) return;
-      if (evtId) seenOutboxIdsRef.current.add(evtId);
-
-      const entity = String(evt.entityType || '');
-      const statusText = String(evt.payload?.status || evt.title || '').toLowerCase();
-      const notifyType: 'success' | 'error' | 'info' =
-        statusText.includes('declin') || statusText.includes('reject') || statusText.includes('remov')
-          ? 'info'
-          : 'success';
-
-      if (evt.message) {
-        window.dispatchEvent(
-          new CustomEvent('buyoll:notify', {
-            detail: { type: notifyType, message: `${evt.title ? `${evt.title}: ` : ''}${evt.message}` },
-          })
-        );
-      }
-
-      if (entity === 'deposit') {
-        window.dispatchEvent(new CustomEvent('buyoll:deposit-updated', { detail: evt.payload || evt }));
-        window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
-      } else if (entity === 'subscription') {
-        window.dispatchEvent(new CustomEvent('buyoll:subscription-activated', { detail: evt.payload || evt }));
-      } else if (entity === 'verification') {
-        window.dispatchEvent(new CustomEvent('buyoll:verification-updated', { detail: evt.payload || evt }));
-      } else if (entity === 'featured') {
-        window.dispatchEvent(new CustomEvent('buyoll:featured-updated', { detail: evt.payload || evt }));
-      } else if (entity === 'refund') {
-        window.dispatchEvent(new CustomEvent('buyoll:refund-updated', { detail: evt.payload || evt }));
-        window.dispatchEvent(new CustomEvent('buyoll:wallet-updated', { detail: evt.payload || evt }));
-      } else if (entity === 'announcement') {
-        window.dispatchEvent(new CustomEvent('buyoll:announcement-updated', { detail: evt.payload || evt }));
-      }
-      window.dispatchEvent(new CustomEvent('buyoll:outbox-notification', { detail: evt }));
-    };
-
     const pullPendingOutbox = async () => {
       if (!currentUserRef.current) return;
       try {
@@ -379,13 +380,26 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     pullPendingOutboxRef.current = pullPendingOutbox;
 
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+      bcRef.current?.close();
+      bcRef.current = null;
+    };
+  }, [applyUserUpdate, refreshUser]);
+
+  // Role-scoped SSE connection so Merchant, Member, Lender, and Admin portals always authenticate under their active role
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('EventSource' in window)) return;
+    const sseRole = isAdminPortalPath(window.location.pathname) ? 'admin' : activeRoleName;
+    const eventsUrl = sseRole ? `/api/events?role=${encodeURIComponent(sseRole)}` : '/api/events';
+
     let es: EventSource | null = null;
-    if ('EventSource' in window) {
-      try {
-        es = new EventSource('/api/events', { withCredentials: true });
-        es.addEventListener('connected', () => {
-          void pullPendingOutbox();
-        });
+    try {
+      es = new EventSource(eventsUrl, { withCredentials: true });
+      es.addEventListener('connected', () => {
+        void pullPendingOutboxRef.current?.();
+      });
         es.addEventListener('user.profile.updated', (ev) => {
           try {
             const parsed = JSON.parse((ev as MessageEvent).data);
@@ -590,16 +604,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {
         es = null;
       }
-    }
 
     return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
-      bcRef.current?.close();
-      bcRef.current = null;
       es?.close();
     };
-  }, [applyUserUpdate, refreshUser]);
+  }, [currentUserId, activeRoleName, refreshUser]);
 
   // 20-minute idle timeout, 60-second warning modal, activity keepalive & tab wake re-check
   useEffect(() => {

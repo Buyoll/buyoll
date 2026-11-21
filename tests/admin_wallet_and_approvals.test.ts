@@ -946,5 +946,140 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     assert.ok(syncedPay, 'Migration 016 must create missing PaymentRecord for deposit');
     assert.equal(syncedDep?.role, 'merchant', 'Migration 016 must backfill missing role as merchant');
   });
+
+  it('normalizes Process Deposit Request input, validates structured errors, returns synced Admin Payment Queue metadata, and updates Merchant deposit ledger upon Admin approval', async () => {
+    const { accessToken: adminToken } = await harness.loginAdmin();
+
+    let merchantId = 0;
+    await runDatabaseTransaction(async (db) => {
+      merchantId = db.nextIds.user++;
+      db.users.push({
+        id: merchantId,
+        uuid: `merchant-proc-dep-${merchantId}`,
+        name: 'Kilifi Trade Hub',
+        shopName: 'Kilifi Trade Hub',
+        username: `kilifi_${merchantId}`,
+        usernameDisplay: `kilifi_${merchantId}`,
+        usernameLower: `kilifi_${merchantId}`,
+        usernameNormalized: `kilifi_${merchantId}`,
+        email: `kilifi_${merchantId}@buyoll.test`,
+        phone: '+254733445566',
+        phoneNormalized: '254733445566',
+        password: 'hashed_test_password',
+        role: 'merchant',
+        roles: ['merchant'],
+        activeRole: 'merchant',
+        platformId: `BYL-KIL-${merchantId}`,
+        verified: true,
+        isDisabled: false,
+        isSuspended: false,
+        credit: 0,
+        coins: 0,
+        points: 0,
+        roleWallets: {
+          merchant: { credit: 0, balance: 0, coins: 0, points: 0 },
+        },
+        createdAt: Date.now(),
+      } as any);
+    });
+    const merchantToken = await harness.issueToken(merchantId, 'merchant');
+
+    // 1. Structured validation errors on malformed input
+    const badCodeRes = await fetch(`${harness.baseUrl}/api/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({ amount: 1500, mpesaCode: 'BAD', role: 'merchant' }),
+    });
+    assert.equal(badCodeRes.status, 400);
+    const badCodeJson = await badCodeRes.json();
+    assert.equal(badCodeJson.field, 'mpesaCode');
+    assert.equal(badCodeJson.code, 'INVALID_MPESA_CODE');
+
+    const badAmtRes = await fetch(`${harness.baseUrl}/api/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({ amount: 0, mpesaCode: 'KILIFI9901', role: 'merchant' }),
+    });
+    assert.equal(badAmtRes.status, 400);
+    const badAmtJson = await badAmtRes.json();
+    assert.equal(badAmtJson.field, 'amount');
+    assert.equal(badAmtJson.code, 'INVALID_AMOUNT');
+
+    // 2. Valid submission with embedded spaces & lowercase -> normalized + returns full queue metadata
+    const okRes = await fetch(`${harness.baseUrl}/api/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${merchantToken}`,
+        'x-buyoll-role': 'merchant',
+      },
+      body: JSON.stringify({
+        amount: 4200,
+        mpesaCode: ' kil 998 abcd ',
+        notes: 'Stock expansion float',
+        role: 'merchant',
+      }),
+    });
+    assert.equal(okRes.status, 201);
+    const okJson = await okRes.json();
+    assert.equal(okJson.success, true);
+    assert.equal(okJson.deposit.mpesaCode, 'KIL998ABCD');
+    assert.equal(okJson.deposit.amount, 4200);
+    assert.equal(okJson.deposit.role, 'merchant');
+    assert.equal(okJson.deposit.status, 'pending');
+    assert.ok(okJson.payment?.id, 'Must return created PaymentRecord id');
+    assert.equal(okJson.adminPaymentQueue?.paymentId, okJson.payment.id);
+    assert.equal(okJson.adminPaymentQueue?.targetWalletRole, 'merchant');
+    assert.equal(okJson.adminPaymentQueue?.status, 'pending');
+
+    // 3. GET /api/wallet/deposits returns newest-first deposit enriched with queue paymentId & paymentStatus
+    const myDepRes = await fetch(`${harness.baseUrl}/api/wallet/deposits`, {
+      headers: { Authorization: `Bearer ${merchantToken}`, 'x-buyoll-role': 'merchant' },
+    });
+    assert.equal(myDepRes.status, 200);
+    const myDepJson = await myDepRes.json();
+    assert.equal(myDepJson.deposits[0].mpesaCode, 'KIL998ABCD');
+    assert.equal(myDepJson.deposits[0].paymentId, okJson.payment.id);
+    assert.equal(myDepJson.deposits[0].paymentStatus, 'pending');
+
+    // 4. Immediately visible on Admin Payment Queue
+    const adminQueueRes = await fetch(`${harness.baseUrl}/api/admin/payments?status=pending`, {
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-buyoll-role': 'admin' },
+    });
+    assert.equal(adminQueueRes.status, 200);
+    const adminQueueJson = await adminQueueRes.json();
+    const queueItem = (adminQueueJson.payments || []).find((p: any) => p.id === okJson.payment.id);
+    assert.ok(queueItem, 'Submitted merchant deposit must immediately appear in Admin Payment Queue');
+    assert.equal(queueItem.code, 'KIL998ABCD');
+    assert.equal(queueItem.targetWalletRole, 'merchant');
+
+    // 5. Admin approves from Payment Queue -> Merchant deposit history & wallet update immediately
+    const apprRes = await fetch(`${harness.baseUrl}/api/admin/payments/${okJson.payment.id}/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+        'x-buyoll-role': 'admin',
+      },
+      body: JSON.stringify({ decision: 'approve' }),
+    });
+    assert.equal(apprRes.status, 200);
+    const apprJson = await apprRes.json();
+    assert.equal(apprJson.creditedWallet.balanceKes, 4200);
+
+    const myDepAfter = await fetch(`${harness.baseUrl}/api/wallet/deposits`, {
+      headers: { Authorization: `Bearer ${merchantToken}`, 'x-buyoll-role': 'merchant' },
+    }).then((r) => r.json());
+    assert.equal(myDepAfter.deposits[0].status, 'approved');
+    assert.equal(myDepAfter.deposits[0].paymentStatus, 'approved');
+  });
 });
 

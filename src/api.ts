@@ -1546,15 +1546,28 @@ export const api = {
   },
 
   // Wallet M-Pesa Deposit Flow
-  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string; role?: string }): Promise<any> {
-    return await fetchApi<any>('/wallet/deposit', {
+  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string; role?: string }): Promise<{
+    success: boolean;
+    deposit: WalletDepositRequest;
+    payment?: PaymentRecord;
+    adminPaymentQueue?: {
+      paymentId: number;
+      status: string;
+      channel?: string;
+      targetWalletRole: string;
+    };
+    message: string;
+  }> {
+    return await fetchApi('/wallet/deposit', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  async getMyWalletDeposits(): Promise<{ deposits: WalletDepositRequest[] }> {
-    return await fetchApi<{ deposits: WalletDepositRequest[] }>('/wallet/deposits');
+  async getMyWalletDeposits(): Promise<{
+    deposits: Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>;
+  }> {
+    return await fetchApi('/wallet/deposits');
   },
 
   async getAdminWalletDeposits(params?: {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails } from '../types.ts';
+import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails, WalletDepositRequest } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { useUser } from '../context/UserContext.tsx';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
@@ -138,6 +138,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [pendingNotices, setPendingNotices] = useState<any[]>([]);
   const [earlyRenewalConfirmOpen, setEarlyRenewalConfirmOpen] = useState(false);
   const [acknowledgingNoticeId, setAcknowledgingNoticeId] = useState<string | null>(null);
+  const [walletDeposits, setWalletDeposits] = useState<Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>>([]);
 
   const fallbackTiers: MerchantSubscriptionTier[] = [
     { id: 'tier_250', name: 'Micro-Merchant', monthlyFee: 250, yearlyFee: 2500, yearlyDiscountPercent: 17, maxProducts: 2, maxGroupsPerProduct: 2, description: 'Caters to very small businesses and solo makers', features: [] },
@@ -495,7 +496,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       setLoading(true);
     }
     try {
-      const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes, subStatusRes, noticesRes] = await Promise.all([
+      const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes, subStatusRes, noticesRes, depositsRes] = await Promise.all([
         api.getProducts({ vendorId: currentUser.id, includeDrafts: true }),
         api.getGroups(),
         api.getMerchantSubscriptionCurrent().catch(() => null),
@@ -504,6 +505,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         api.getMySubscriptionRequest().catch(() => null),
         api.getMerchantSubscriptionStatus().catch(() => null),
         api.getPendingMerchantNotices().catch(() => ({ notices: [] })),
+        api.getMyWalletDeposits().catch(() => ({ deposits: [] })),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
@@ -519,6 +521,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       if (verifRes) setVerificationInfo(verifRes);
       if (subStatusRes) setSubStatus(subStatusRes);
       if (noticesRes?.notices) setPendingNotices(noticesRes.notices);
+      if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load merchant data');
     } finally {
@@ -612,7 +615,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => onNavigate('wallet')}
+            onClick={() => onNavigate('wallet', { action: 'deposit', returnTo: 'vendor-dashboard' })}
             data-testid="merchant-deposit-wallet-btn"
             title="View Merchant Operating Wallet and submit an M-Pesa deposit"
             className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:border-[#ff6600] text-slate-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
@@ -804,6 +807,50 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* PENDING MERCHANT WALLET DEPOSITS BANNER */}
+      {(() => {
+        const pendingDeposits = walletDeposits.filter((d) => d.status === 'pending');
+        if (pendingDeposits.length === 0) return null;
+        const latestDep = pendingDeposits[0];
+        const totalPendingKes = pendingDeposits.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+        return (
+          <div
+            data-testid="merchant-pending-deposit-banner"
+            className="mb-6 p-4 bg-emerald-50/90 border-2 border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                <Wallet className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider">
+                  Merchant Wallet Deposit Queued for Admin Approval ({pendingDeposits.length})
+                </h4>
+                <p className="text-xs text-emerald-900 mt-0.5">
+                  Latest submission: <b className="font-mono">{latestDep.mpesaCode}</b> for{' '}
+                  <b>KSh {Number(latestDep.amount).toLocaleString()}</b>
+                  {latestDep.paymentId ? ` (Admin Queue #${latestDep.paymentId})` : ''}.{' '}
+                  {pendingDeposits.length > 1 ? `Total pending: KSh ${totalPendingKes.toLocaleString()}. ` : ''}
+                  Once verified by Admin, your Merchant Operating Wallet will be credited automatically.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+              <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[11px] font-bold uppercase tracking-wider">
+                Sent to Admin Queue
+              </span>
+              <button
+                type="button"
+                onClick={() => onNavigate('wallet', { action: 'deposit', returnTo: 'vendor-dashboard' })}
+                className="px-3 py-1.5 bg-white hover:bg-emerald-100/60 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                View Wallet
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* PENDING ADMIN APPROVAL BANNER */}
       {subscriptionInfo?.pendingSubscription && (
@@ -1815,7 +1862,10 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                           type="button"
                           onClick={() => {
                             setIsSubscriptionModalOpen(false);
-                            onNavigate('wallet');
+                            onNavigate('wallet', {
+                              action: 'deposit',
+                              returnTo: 'vendor-dashboard',
+                            });
                           }}
                           className="px-2.5 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-md flex items-center gap-1 cursor-pointer"
                         >

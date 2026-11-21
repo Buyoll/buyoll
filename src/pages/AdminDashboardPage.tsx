@@ -702,6 +702,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     if (!isAdmin || typeof window === 'undefined') return;
     let timer: number | null = null;
     const scheduleRefresh = () => {
+      // Mark queue sections stale so switching back to Payment Queue or Deposits always fetches newly submitted entries
+      setSectionStates((prev) => ({
+        ...prev,
+        ...(activeTab !== 'payments' ? { payments: { ...prev.payments, loaded: false } } : {}),
+        ...(activeTab !== 'deposits' ? { deposits: { ...prev.deposits, loaded: false } } : {}),
+      }));
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         void loadSummary(true);
