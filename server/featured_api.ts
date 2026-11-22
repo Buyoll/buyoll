@@ -483,6 +483,19 @@ featuredRouter.post('/merchant/featured', async (req: Request, res: Response) =>
       const reqId = `freq_${now}_${crypto.randomBytes(4).toString('hex')}`;
       const holdKey = `feat_hold_${reqId}`;
 
+      const availableCents = getWalletBalanceCents(db, merchantUser, 'merchant');
+      if (availableCents < quote.finalPriceCents) {
+        const requiredKes = fromCents(quote.finalPriceCents);
+        const availableKes = fromCents(availableCents);
+        const shortfallKes = fromCents(quote.finalPriceCents - availableCents);
+        throw {
+          status: 400,
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient merchant wallet balance. Required: KSh ${requiredKes.toLocaleString()}, Available: KSh ${availableKes.toLocaleString()}, Shortfall: KSh ${shortfallKes.toLocaleString()}. Deposit funds to your wallet to continue.`,
+          meta: { requiredKes, availableKes, shortfallKes, canDeposit: true },
+        };
+      }
+
       // Hold fee from merchant wallet atomically
       const { wallet, entry: holdEntry } = debitWalletCents(db, {
         userId: user.id,
@@ -582,7 +595,9 @@ featuredRouter.post('/merchant/featured', async (req: Request, res: Response) =>
       res,
       err.status || 500,
       err.code || 'FEATURED_REQUEST_ERROR',
-      err.message || 'Failed to submit featured placement request.'
+      err.message || 'Failed to submit featured placement request.',
+      err.fields,
+      err.meta
     );
   }
 });

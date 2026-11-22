@@ -16,10 +16,17 @@ import { sendApiError, sendZodError, wrapRouterAsync } from './errors.js';
 import { emitPlatformEvent } from './events.js';
 import {
   computeSubscriptionStatusEat,
+  fromCents,
   SUBSCRIPTION_RENEWAL_MODE,
   toCents,
 } from './config.js';
-import { creditWalletCents, debitWalletCents, findPlatformAdminUser, transferBetweenWalletsCents } from './wallet_service.js';
+import {
+  creditWalletCents,
+  debitWalletCents,
+  findPlatformAdminUser,
+  getWalletBalanceCents,
+  transferBetweenWalletsCents,
+} from './wallet_service.js';
 import { findDuplicateMpesaCodeInTx, recordIncomeInTx } from './admin_wallet_service.js';
 import { enqueueOutboxInTx, flushOutboxEvents } from './outbox_service.js';
 import { invalidateControlCenterSummaryCache, paginateList, parsePaginationQuery } from './admin_control_center.js';
@@ -531,7 +538,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
     });
   }
 
-  const { planId, planKey, paymentMethod, mpesaCode, notes, billingPeriod } = req.body || {};
+  const { planId, planKey, paymentMethod, mpesaCode, notes, billingPeriod, idempotencyKey } = req.body || {};
+  const rawIdempKey = typeof idempotencyKey === 'string' && idempotencyKey.trim() ? idempotencyKey.trim() : undefined;
   const targetPlan = resolvePlan(planId || planKey);
   const normalizedPeriod: 'monthly' | 'yearly' =
     String(billingPeriod || 'monthly').toLowerCase().trim() === 'yearly' ? 'yearly' : 'monthly';
@@ -576,6 +584,38 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
       if (!db.merchantSubscriptions) db.merchantSubscriptions = [];
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
+
+      if (rawIdempKey) {
+        const existingSub = db.merchantSubscriptions.find(
+          (s) => s.merchantId === user.id && (s as any).idempotencyKey === rawIdempKey
+        );
+        const existingReq = db.subscriptionRequests.find(
+          (r) => r.merchantId === user.id && (r as any).idempotencyKey === rawIdempKey
+        );
+        if (existingSub || existingReq) {
+          return {
+            request: existingReq || {
+              id: existingSub!.id,
+              merchantId: user.id,
+              merchantName: merchantUser.name,
+              shopName: merchantUser.shopName || merchantUser.name,
+              planId: existingSub!.tierId,
+              planName: existingSub!.tierName,
+              billingPeriod: existingSub!.billingPeriod || normalizedPeriod,
+              amountExpected: existingSub!.amount,
+              paymentMethod: normalizedMethod,
+              status: existingSub!.status === 'active' ? 'approved' : (existingSub!.status as any),
+              createdAt: existingSub!.createdAt,
+              updatedAt: existingSub!.createdAt,
+            },
+            instantActivated: existingSub?.status === 'active',
+            user: sanitizeUser(merchantUser),
+            walletBalanceKes: fromCents(getWalletBalanceCents(db, merchantUser, 'merchant')),
+            deduplicated: true,
+            message: 'Subscription request already processed (duplicate prevented).',
+          };
+        }
+      }
 
       // 1. Check active cycle against SUBSCRIPTION_RENEWAL_MODE ('reset' or 'stack' allow early renewal)
       const activeSub = (db.merchantSubscriptions || []).find(
@@ -719,7 +759,19 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
         const subId = `sub_req_${now}_${crypto.randomBytes(3).toString('hex')}`;
         const adminUser = findPlatformAdminUser(db);
         const amountCents = toCents(amountExpected);
-        if (adminUser) {
+        const availableCents = getWalletBalanceCents(db, merchantUser, 'merchant');
+        if (availableCents < amountCents) {
+          const requiredKes = fromCents(amountCents);
+          const availableKes = fromCents(availableCents);
+          const shortfallKes = fromCents(amountCents - availableCents);
+          throw {
+            status: 400,
+            code: 'INSUFFICIENT_BALANCE',
+            message: `Insufficient merchant wallet balance. Required: KSh ${requiredKes.toLocaleString()}, Available: KSh ${availableKes.toLocaleString()}, Shortfall: KSh ${shortfallKes.toLocaleString()}. Please deposit funds to your wallet first.`,
+            meta: { requiredKes, availableKes, shortfallKes, canDeposit: true },
+          };
+        }
+        if (adminUser && adminUser.id !== merchantUser.id) {
           transferBetweenWalletsCents(db, {
             fromUserId: merchantUser.id,
             fromRole: 'merchant',
@@ -774,7 +826,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           now,
         });
 
-        const newReq: SubscriptionRequest = {
+        const newReq: SubscriptionRequest & { idempotencyKey?: string } = {
           id: subId,
           merchantId: user.id,
           merchantName: user.name,
@@ -792,6 +844,7 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           reviewedAt: now,
           createdAt: now,
           updatedAt: now,
+          ...(rawIdempKey ? { idempotencyKey: rawIdempKey } : {}),
         };
         db.subscriptionRequests.unshift(newReq);
 
@@ -813,8 +866,9 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
           approvedBy: adminUser?.id || user.id,
           approvedAt: now,
           createdAt: now,
+          ...(rawIdempKey ? { idempotencyKey: rawIdempKey } : {}),
           notes: replacingActiveCycle ? `Early renewal (${SUBSCRIPTION_RENEWAL_MODE} mode)` : undefined,
-        });
+        } as any);
 
         return {
           request: newReq,
@@ -950,8 +1004,9 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
       emitPlatformEvent('admin.wallet.updated', { subscriptionId: result.request.id, status: 'pending', merchantId: user.id });
     }
 
-    return res.status(201).json({
+    return res.status((result as any).deduplicated ? 200 : 201).json({
       success: true,
+      ...(typeof (result as any).deduplicated === 'boolean' ? { deduplicated: (result as any).deduplicated } : {}),
       request: result.request,
       user: (result as any).user,
       walletBalanceKes: (result as any).walletBalanceKes,
@@ -965,7 +1020,8 @@ subscriptionsRouter.post('/subscriptions/requests', async (req: Request, res: Re
     const code = err.code || 'SERVER_ERROR';
     const message = err.message || 'Something went wrong processing your request. Please try again.';
     return res.status(status).json({
-      error: { code, message },
+      error: { code, message, ...(err.meta ? { meta: err.meta } : {}) },
+      ...(err.meta ? err.meta : {}),
     });
   }
 });
@@ -1539,6 +1595,7 @@ const CreateMerchantSubscriptionSchema = z.object({
   paymentMethod: z.enum(['mpesa', 'wallet', 'coins', 'wallet_credit', 'wallet_coins']).default('wallet'),
   mpesaCode: z.string().optional(),
   autoRenew: z.boolean().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Response) => {
@@ -1593,6 +1650,26 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
 
+      const rawIdempKey = typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim() ? data.idempotencyKey.trim() : undefined;
+      if (rawIdempKey) {
+        const existingSub = db.merchantSubscriptions.find(
+          (s) => s.merchantId === user.id && (s as any).idempotencyKey === rawIdempKey
+        );
+        const existingReq = db.subscriptionRequests.find(
+          (r) => r.merchantId === user.id && (r as any).idempotencyKey === rawIdempKey
+        );
+        if (existingSub) {
+          return {
+            request: existingReq || null,
+            subscription: existingSub,
+            user: sanitizeUser(merchantUser),
+            activationInfo: null,
+            isInstant: existingSub.status === 'active',
+            deduplicated: true,
+          };
+        }
+      }
+
       if (normalizedMethod === 'mpesa' && cleanedCode) {
         const dup = findDuplicateMpesaCodeInTx(db, cleanedCode);
         if (dup.duplicate) {
@@ -1610,6 +1687,18 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       const subId = `sub_${now}_${crypto.randomBytes(3).toString('hex')}`;
 
       if (normalizedMethod === 'wallet') {
+        const availableCents = getWalletBalanceCents(db, merchantUser, 'merchant');
+        if (availableCents < amountCents) {
+          const requiredKes = fromCents(amountCents);
+          const availableKes = fromCents(availableCents);
+          const shortfallKes = fromCents(amountCents - availableCents);
+          throw {
+            status: 400,
+            code: 'INSUFFICIENT_BALANCE',
+            message: `Insufficient merchant wallet balance. Required: KSh ${requiredKes.toLocaleString()}, Available: KSh ${availableKes.toLocaleString()}, Shortfall: KSh ${shortfallKes.toLocaleString()}. Please deposit funds to your wallet first.`,
+            meta: { requiredKes, availableKes, shortfallKes, canDeposit: true },
+          };
+        }
         const adminUser = findPlatformAdminUser(db);
         let nextMerchantBalanceKes = 0;
         if (adminUser && adminUser.id !== merchantUser.id) {
@@ -1663,7 +1752,7 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       }
 
       const isInstant = normalizedMethod !== 'mpesa';
-      const reqRecord: SubscriptionRequest = {
+      const reqRecord: SubscriptionRequest & { idempotencyKey?: string } = {
         id: subId,
         merchantId: user.id,
         merchantName: merchantUser.name,
@@ -1682,6 +1771,7 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         approvedAt: isInstant ? now : undefined,
         createdAt: now,
         updatedAt: now,
+        ...(rawIdempKey ? { idempotencyKey: rawIdempKey } : {}),
       };
       db.subscriptionRequests.unshift(reqRecord);
 
@@ -1708,8 +1798,9 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
         startDate: undefined as number | undefined,
         expiresAt: undefined as number | undefined,
         createdAt: now,
+        ...(rawIdempKey ? { idempotencyKey: rawIdempKey } : {}),
       };
-      db.merchantSubscriptions.unshift(subRecord);
+      db.merchantSubscriptions.unshift(subRecord as any);
 
       let activationInfo: ReturnType<typeof activateSubscriptionInTx> | null = null;
       if (isInstant) {
@@ -1809,17 +1900,18 @@ subscriptionsRouter.post('/merchant/subscription', async (req: Request, res: Res
       merchantId: result.user.id,
     });
 
-    return res.status(201).json({
+    return res.status((result as any).deduplicated ? 200 : 201).json({
       success: true,
       request: result.request,
       subscription: result.subscription,
       user: result.user,
+      deduplicated: Boolean((result as any).deduplicated),
       restoredProductIds: result.activationInfo?.restoredProductIds || [],
       notice: result.activationInfo?.activationNotice || null,
       message: `Subscription ${result.subscription.status === 'active' ? 'activated' : 'submitted for admin approval'}.`,
     });
   } catch (err: any) {
-    return sendApiError(res, err.status || 500, err.code || 'SUBSCRIPTION_ERROR', err.message || 'Subscription failed');
+    return sendApiError(res, err.status || 500, err.code || 'SUBSCRIPTION_ERROR', err.message || 'Subscription failed', err.fields, err.meta);
   }
 });
 

@@ -1819,6 +1819,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             (p as any).verificationFlag === 'internal_wallet' ||
                             String(p.code || '').toUpperCase().startsWith('WALLET-') ||
                             String(p.channel || '').toUpperCase().includes('MERCHANT WALLET');
+                          const isAutoReference =
+                            Boolean((p as any).isAutoReference) ||
+                            Boolean(match?.isAutoReference) ||
+                            (p as any).verificationFlag === 'auto_reference' ||
+                            String(p.code || '').toUpperCase().startsWith('DEP');
                           const isMatched = !isInternalWallet && match?.matched;
                           const reason = match?.reason;
                           const stmt = (match?.statementRecord || p.matchedTillEntry) as MpesaStatementRecord | undefined;
@@ -1830,6 +1835,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                 {(p as any).shopName && (
                                   <div className="text-[11px] font-semibold text-indigo-700">
                                     {(p as any).shopName}
+                                  </div>
+                                )}
+                                {((p as any).userEmail || (p as any).platformId) && (
+                                  <div className="text-[10.5px] text-slate-500 font-mono">
+                                    {(p as any).platformId ? `${(p as any).platformId} · ` : ''}
+                                    {(p as any).userEmail || ''}
                                   </div>
                                 )}
                                 <div className="text-[11px] text-slate-400">
@@ -1849,6 +1860,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   <span className="capitalize px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700">
                                     {String(p.type || 'payment').replace(/_/g, ' ')}
                                   </span>
+                                  {((p as any).paymentMethod || p.channel) && (
+                                    <span className="px-2 py-0.5 rounded-md font-semibold text-[10px] bg-slate-50 text-slate-700 border border-slate-200">
+                                      {(p as any).paymentMethod || p.channel}
+                                    </span>
+                                  )}
                                   {((p as any).targetWalletRole || (p as any).role) && (
                                     <span className="capitalize px-2 py-0.5 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
                                       {(p as any).targetWalletRole || (p as any).role} wallet
@@ -1859,8 +1875,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
                               <td className="py-3 px-4">
                                 <div className="font-mono font-black text-indigo-700 text-sm tracking-wide">
-                                  {p.code || 'N/A'}
+                                  {(p as any).referenceNumber || p.code || 'N/A'}
                                 </div>
+                                {(p as any).referenceNumber && p.code && (p as any).referenceNumber !== p.code && (
+                                  <div className="text-[10px] font-mono text-slate-500">Code: {p.code}</div>
+                                )}
                                 <div className="font-extrabold text-slate-900 tabular-nums">
                                   KSh {Number(p.amount || 0).toLocaleString()}
                                 </div>
@@ -1893,6 +1912,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                       </span>
                                     </div>
                                   </div>
+                                ) : isAutoReference ? (
+                                  <div className="text-[11px] text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 max-w-xs space-y-0.5">
+                                    <div className="font-bold">Auto-Generated Deposit Reference</div>
+                                    <div className="text-[10.5px] text-indigo-700">
+                                      {(p as any).paymentMethod || p.channel || 'Merchant Deposit'} · Ready for Admin verification & approval.
+                                    </div>
+                                  </div>
                                 ) : (
                                   <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 max-w-xs">
                                     No matching record found on statement feed for code <b>{p.code}</b>. Please check physical Till portal.
@@ -1901,32 +1927,50 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               </td>
 
                               <td className="py-3 px-4">
-                                {hasDuplicate ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 text-red-800 font-extrabold rounded-full text-[10px]">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>Duplicate Code</span>
-                                  </span>
-                                ) : isInternalWallet ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-100 text-indigo-800 font-extrabold rounded-full text-[10px]">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>Internal Wallet Ledger</span>
-                                  </span>
-                                ) : isMatched ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 font-extrabold rounded-full text-[10px]">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>Statement Matched</span>
-                                  </span>
-                                ) : reason === 'amount_mismatch' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 font-extrabold rounded-full text-[10px]">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>Amount Mismatch</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-700 font-bold rounded-full text-[10px]">
-                                    <Clock className="w-3 h-3" />
-                                    <span>{p.status === 'approved' ? 'Approved' : p.status === 'rejected' ? 'Declined' : 'Unverified Code'}</span>
-                                  </span>
-                                )}
+                                <div className="space-y-1">
+                                  {hasDuplicate ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 text-red-800 font-extrabold rounded-full text-[10px]">
+                                      <AlertTriangle className="w-3 h-3" />
+                                      <span>Duplicate Code</span>
+                                    </span>
+                                  ) : isInternalWallet ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-100 text-indigo-800 font-extrabold rounded-full text-[10px]">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Internal Wallet Ledger</span>
+                                    </span>
+                                  ) : isMatched ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 font-extrabold rounded-full text-[10px]">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Statement Matched</span>
+                                    </span>
+                                  ) : reason === 'amount_mismatch' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 font-extrabold rounded-full text-[10px]">
+                                      <AlertTriangle className="w-3 h-3" />
+                                      <span>Amount Mismatch</span>
+                                    </span>
+                                  ) : isAutoReference && p.status === 'pending' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-100 text-indigo-800 font-bold rounded-full text-[10px]">
+                                      <Clock className="w-3 h-3" />
+                                      <span>Auto-Ref · Pending Review</span>
+                                    </span>
+                                  ) : (
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 font-bold rounded-full text-[10px] ${
+                                      p.status === 'approved'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : p.status === 'rejected'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-slate-100 text-slate-700'
+                                    }`}>
+                                      <Clock className="w-3 h-3" />
+                                      <span>{p.status === 'approved' ? 'Approved' : p.status === 'rejected' ? 'Declined' : 'Pending Review'}</span>
+                                    </span>
+                                  )}
+                                  {p.status === 'rejected' && ((p as any).declineReason || p.rejectionReason) && (
+                                    <div className="text-[10px] text-rose-700 max-w-[180px]">
+                                      Reason: <b>{(p as any).declineReason || p.rejectionReason}</b>
+                                    </div>
+                                  )}
+                                </div>
                               </td>
 
                               <td className="py-3 px-6 text-right">
@@ -1934,7 +1978,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => handlePaymentDecision(p.id, 'reject', `${p.userName} · ${p.code} (KSh ${p.amount})`)}
+                                      onClick={() => handlePaymentDecision(p.id, 'reject', `${p.userName} · ${(p as any).referenceNumber || p.code} (KSh ${p.amount})`)}
                                       disabled={processingId === p.id}
                                       className="px-2.5 py-1.5 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                                     >
@@ -1951,7 +1995,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                     </button>
                                   </div>
                                 ) : (
-                                  <span className="text-xs font-bold capitalize text-slate-500">{p.status}</span>
+                                  <span className="text-xs font-bold capitalize text-slate-500">{p.status === 'rejected' ? 'Declined' : p.status}</span>
                                 )}
                               </td>
                             </tr>
@@ -1982,10 +2026,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               </div>
               <div>
                 <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wider">
-                  Member Wallet M-Pesa Deposits Verification Queue
+                  Wallet Deposits Verification Queue
                 </h3>
                 <p className="text-xs text-emerald-900 mt-0.5">
-                  Members deposit funds via Platform Till <b>196853</b> or Paybill <b>522533</b>. Approving automatically credits the user's Store Credit wallet balance in real-time.
+                  Merchants and members deposit funds via Till <b>196853</b>, Paybill <b>522533</b>, or bank reference. Approving atomically credits the exact KES amount to their wallet in real-time.
                 </p>
               </div>
             </div>
@@ -2010,7 +2054,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 <div className="py-16 text-center text-slate-400">
                   <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-400 mb-2 opacity-80" />
                   <p className="text-xs font-bold text-slate-600">No wallet deposits recorded yet</p>
-                  <p className="text-[11px] text-slate-400 mt-1">When members submit deposit requests from their Wallet, they will appear here for one-click approval.</p>
+                  <p className="text-[11px] text-slate-400 mt-1">When merchants or members submit deposit requests, they will appear here for one-click approval.</p>
                 </div>
               ) : (
                 <>
@@ -2018,11 +2062,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                         <tr>
-                          <th className="py-3 px-4">Member / User</th>
+                          <th className="py-3 px-4">Merchant / User</th>
                           <th className="py-3 px-4">Deposit Amount</th>
-                          <th className="py-3 px-4">M-Pesa Code</th>
+                          <th className="py-3 px-4">Reference & Method</th>
                           <th className="py-3 px-4">Submitted Date</th>
-                          <th className="py-3 px-4">Member Note</th>
+                          <th className="py-3 px-4">Notes / Decline Reason</th>
                           <th className="py-3 px-4">Status</th>
                           <th className="py-3 px-6 text-right">Escrow Action</th>
                         </tr>
@@ -2047,7 +2091,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-slate-400 font-mono">{dep.userPhone}</div>
+                              {dep.shopName && (
+                                <div className="text-[11px] font-semibold text-indigo-700">{dep.shopName}</div>
+                              )}
+                              <div className="text-[10.5px] text-slate-500 font-mono">
+                                {dep.platformId ? `${dep.platformId} · ` : ''}{dep.userEmail || dep.userPhone}
+                              </div>
                             </td>
 
                             <td className="py-3 px-4">
@@ -2057,9 +2106,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             </td>
 
                             <td className="py-3 px-4">
-                              <span className="px-2 py-1 bg-slate-100 text-slate-800 font-mono font-bold text-xs rounded-md uppercase border border-slate-200">
-                                {dep.mpesaCode}
+                              <span className="px-2 py-1 bg-slate-100 text-slate-800 font-mono font-bold text-xs rounded-md uppercase border border-slate-200 inline-block">
+                                {dep.referenceNumber || dep.mpesaCode}
                               </span>
+                              <div className="text-[10.5px] text-slate-500 mt-1">
+                                {dep.paymentMethod || 'M-Pesa Till 196853'}
+                                {dep.referenceNumber && dep.mpesaCode && dep.referenceNumber !== dep.mpesaCode ? ` · ${dep.mpesaCode}` : ''}
+                              </div>
                             </td>
 
                             <td className="py-3 px-4 text-[11px] text-slate-500">
@@ -2069,8 +2122,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                               </span>
                             </td>
 
-                            <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
-                              {dep.notes || <span className="text-slate-400 italic">None</span>}
+                            <td className="py-3 px-4 text-slate-600 max-w-xs">
+                              <div className="truncate">{dep.notes || <span className="text-slate-400 italic">None</span>}</div>
+                              {dep.status === 'declined' && (dep.declineReason || dep.adminNotes) && (
+                                <div className="mt-1 text-[10.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-0.5">
+                                  Reason: <b>{dep.declineReason || dep.adminNotes}</b>
+                                </div>
+                              )}
                             </td>
 
                             <td className="py-3 px-4">
@@ -2083,7 +2141,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                     : 'bg-amber-100 text-amber-800 border border-amber-200'
                                 }`}
                               >
-                                {dep.status}
+                                {dep.workflowStatus || dep.status}
                               </span>
                               {dep.processedBy && (
                                 <div className="text-[9px] text-slate-400 mt-0.5">by {dep.processedBy}</div>
@@ -2103,7 +2161,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDepositDecision(dep.id, 'decline', `${dep.userName} · ${dep.mpesaCode} (KSh ${dep.amount})`)}
+                                    onClick={() => handleDepositDecision(dep.id, 'decline', `${dep.userName} · ${dep.referenceNumber || dep.mpesaCode} (KSh ${dep.amount})`)}
                                     disabled={processingId === dep.id}
                                     className="px-2.5 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-semibold rounded-lg text-xs disabled:opacity-50 cursor-pointer"
                                   >

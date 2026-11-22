@@ -33,6 +33,7 @@ interface FeaturedRequestModalProps {
   onClose: () => void;
   onSubmitted: () => void;
   onOpenSubscription: () => void;
+  onOpenDeposit?: (shortfallKes: number) => void;
   onNotify: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
@@ -63,6 +64,7 @@ export const FeaturedRequestModal: React.FC<FeaturedRequestModalProps> = ({
   onClose,
   onSubmitted,
   onOpenSubscription,
+  onOpenDeposit,
   onNotify,
 }) => {
   const { refreshUser } = useUser();
@@ -161,6 +163,7 @@ export const FeaturedRequestModal: React.FC<FeaturedRequestModalProps> = ({
   const basePriceKes = selectedQuote?.priceKes ?? 0;
   const discountPct = selectedQuote?.discountPercent ?? limits?.featuredDiscountPercent ?? 0;
   const hasEnoughBalance = walletKes >= finalPriceKes;
+  const shortfallKes = Math.max(0, finalPriceKes - walletKes);
 
   const scheduledTimestampMs = useMemo(() => {
     if (startMode !== 'scheduled' || !scheduledDateStr) return null;
@@ -515,6 +518,32 @@ export const FeaturedRequestModal: React.FC<FeaturedRequestModalProps> = ({
                 <span>Estimated expiry if approved now: <b className="text-slate-700">{formatEatPreview(previewEndMs)}</b></span>
               </div>
             </div>
+
+            {!hasEnoughBalance && finalPriceKes > 0 && (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <span className="font-bold block">
+                    Wallet Shortfall: KSh {shortfallKes.toLocaleString()}
+                  </span>
+                  <span className="text-[11px] text-amber-900">
+                    Deposit at least KSh {shortfallKes.toLocaleString()} to your Merchant Wallet to submit this featured placement.
+                  </span>
+                </div>
+                {onOpenDeposit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenDeposit(shortfallKes);
+                    }}
+                    className="px-3.5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg text-xs shrink-0 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Wallet className="w-3.5 h-3.5" />
+                    <span>Deposit KSh {shortfallKes.toLocaleString()} to Wallet</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />

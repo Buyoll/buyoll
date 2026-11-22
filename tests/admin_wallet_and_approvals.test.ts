@@ -546,11 +546,14 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     );
   });
 
-  it('verifies Migration 016, 015 & 014 reversibility (down -> up), orphan WALLET-* cleanup, and chunk load retry detection helper', async () => {
+  it('verifies Migration 017, 016, 015 & 014 reversibility (down -> up), orphan WALLET-* cleanup, and chunk load retry detection helper', async () => {
     assert.equal(isChunkLoadError(new Error('Failed to fetch dynamically imported module')), true);
     assert.equal(isChunkLoadError(new Error('Regular error')), false);
 
     const db = await getDatabase();
+    const rollback17 = await rollbackLastMigration(db);
+    assert.equal(rollback17.rolledBack, '017_enrich_deposit_queue_metadata');
+
     const rollback16 = await rollbackLastMigration(db);
     assert.equal(rollback16.rolledBack, '016_sync_wallet_deposit_payments');
 
@@ -566,6 +569,7 @@ describe('Unified Admin Wallet, Merchant M-Pesa Deposit Chain, Outbox, Reconcili
     assert.ok(reapplied.applied.includes('014_admin_wallet_outbox_and_indexes'));
     assert.ok(reapplied.applied.includes('015_repair_legacy_wallet_subs_and_recon'));
     assert.ok(reapplied.applied.includes('016_sync_wallet_deposit_payments'));
+    assert.ok(reapplied.applied.includes('017_enrich_deposit_queue_metadata'));
     assert.ok(Array.isArray(db.incomeLedger));
     assert.ok(Array.isArray(db.outboxEvents));
     assert.ok(Array.isArray(db.reconciliationReports));

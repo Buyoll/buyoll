@@ -401,6 +401,11 @@ async function fetchApi<T>(
     error.status = res.status;
     error.code = data.error?.code || (res.status === 409 ? 'CONFLICT' : res.status === 422 ? 'VALIDATION' : 'ERROR');
     error.fields = data.error?.fields;
+    error.meta = data.error?.meta;
+    if (typeof data.requiredKes === 'number') error.requiredKes = data.requiredKes;
+    if (typeof data.availableKes === 'number') error.availableKes = data.availableKes;
+    if (typeof data.shortfallKes === 'number') error.shortfallKes = data.shortfallKes;
+    if (typeof data.canDeposit === 'boolean') error.canDeposit = data.canDeposit;
     error.data = data;
     throw error;
   }
@@ -1545,9 +1550,23 @@ export const api = {
     return await fetchApi<{ notifications: any[] }>('/notifications/system');
   },
 
-  // Wallet M-Pesa Deposit Flow
-  async depositToWallet(data: { amount: number; mpesaCode: string; notes?: string; role?: string }): Promise<{
+  // Wallet Deposit Flow (Frictionless + Optional Reference + Idempotent)
+  async depositToWallet(data: {
+    amount: number;
+    mpesaCode?: string;
+    paymentReference?: string;
+    paymentMethod?: string;
+    notes?: string;
+    role?: string;
+    idempotencyKey?: string;
+    userId?: number;
+    merchantId?: number;
+    platformId?: string;
+    email?: string;
+    phone?: string;
+  }): Promise<{
     success: boolean;
+    deduplicated?: boolean;
     deposit: WalletDepositRequest;
     payment?: PaymentRecord;
     adminPaymentQueue?: {
@@ -1555,19 +1574,57 @@ export const api = {
       status: string;
       channel?: string;
       targetWalletRole: string;
+      referenceNumber?: string;
+      paymentMethod?: string;
+      workflowStatus?: string;
     };
     message: string;
   }> {
+    const stored = getStoredUser();
+    const payload = {
+      ...data,
+      userId: data.userId ?? stored?.id,
+      merchantId:
+        data.merchantId ??
+        (stored?.activeRole === 'merchant' || stored?.role === 'merchant' ? stored?.id : undefined),
+      platformId: data.platformId ?? stored?.platformId,
+      email: data.email ?? stored?.email,
+      phone: data.phone ?? stored?.phone,
+      role: data.role ?? stored?.activeRole ?? stored?.role,
+    };
     return await fetchApi('/wallet/deposit', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
   },
 
-  async getMyWalletDeposits(): Promise<{
+  async getMyWalletDeposits(params?: { userId?: number; platformId?: string; role?: string }): Promise<{
     deposits: Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>;
   }> {
-    return await fetchApi('/wallet/deposits');
+    const stored = getStoredUser();
+    const qs = buildAdminQuery({
+      userId: params?.userId ?? stored?.id,
+      platformId: params?.platformId ?? stored?.platformId,
+      role: params?.role ?? stored?.activeRole ?? stored?.role,
+    });
+    return await fetchApi(`/wallet/deposits${qs}`);
+  },
+
+  async getWalletHistory(role?: string): Promise<{
+    userId: number;
+    role: string;
+    balanceCents: number;
+    balanceKes: number;
+    deposits: Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>;
+    transactions: StoreCreditLedgerEntry[];
+  }> {
+    const stored = getStoredUser();
+    const qs = buildAdminQuery({
+      role: role ?? stored?.activeRole ?? stored?.role,
+      userId: stored?.id,
+      platformId: stored?.platformId,
+    });
+    return await fetchApi(`/wallet/history${qs}`);
   },
 
   async getAdminWalletDeposits(params?: {
@@ -1968,6 +2025,7 @@ export const api = {
     paymentMethod?: 'mpesa' | 'wallet' | 'coins';
     mpesaCode?: string;
     autoRenew?: boolean;
+    idempotencyKey?: string;
   }): Promise<any> {
     return await fetchApi<any>('/merchant/subscription', {
       method: 'POST',
@@ -2042,6 +2100,7 @@ export const api = {
     mpesaCode?: string;
     notes?: string;
     billingPeriod?: BillingPeriod;
+    idempotencyKey?: string;
   }): Promise<any> {
     return await fetchApi<any>('/subscriptions/requests', {
       method: 'POST',

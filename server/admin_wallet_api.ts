@@ -72,7 +72,7 @@ adminWalletRouter.get('/admin/wallet/deposits', async (req: Request, res: Respon
     if (roleFilter !== 'all' && depRole !== roleFilter) return false;
     if (search) {
       const u = usersById.get(d.userId);
-      const hay = `${d.mpesaCode || ''} ${d.userName || ''} ${d.userPhone || (d as any).phone || ''} ${u?.email || ''} ${u?.shopName || ''} ${d.notes || ''}`.toLowerCase();
+      const hay = `${d.mpesaCode || ''} ${d.referenceNumber || ''} ${d.paymentReference || ''} ${d.paymentMethod || ''} ${d.userName || ''} ${d.userPhone || (d as any).phone || ''} ${u?.email || ''} ${u?.shopName || ''} ${u?.platformId || ''} ${d.notes || ''} ${d.declineReason || ''}`.toLowerCase();
       if (!hay.includes(search)) return false;
     }
     return true;
@@ -81,13 +81,22 @@ adminWalletRouter.get('/admin/wallet/deposits', async (req: Request, res: Respon
   const paged = paginateList(filtered, page, limit);
   const enriched = paged.items.map((d) => {
     const u = usersById.get(d.userId);
+    const stLower = String(d.status || 'pending').toLowerCase();
+    const workflowStatus =
+      d.workflowStatus ||
+      (stLower === 'approved' ? 'APPROVED' : stLower === 'declined' || stLower === 'rejected' ? 'DECLINED' : 'PENDING');
     return {
       ...d,
       role: d.role || u?.activeRole || u?.role || 'member',
-      userEmail: u?.email || '',
-      shopName: u?.shopName || '',
-      platformId: u?.platformId || '',
-      amountCents: toCents(d.amount || 0),
+      userEmail: d.userEmail || u?.email || '',
+      shopName: d.shopName || u?.shopName || '',
+      platformId: d.platformId || u?.platformId || '',
+      amountCents: d.amountCents ?? toCents(d.amount || 0),
+      referenceNumber: d.referenceNumber || d.mpesaCode || '',
+      paymentMethod: d.paymentMethod || 'M-Pesa Till 196853',
+      paymentReference: d.paymentReference || d.mpesaCode || '',
+      workflowStatus,
+      declineReason: d.declineReason || (stLower === 'declined' ? d.notes : undefined),
     };
   });
 
@@ -408,9 +417,11 @@ export function queueWalletDepositDecisionOutboxInTx(
   txDb: any,
   params: {
     userId: number;
-    depositId: number;
+    depositId: number | string;
     amountKes: number;
     mpesaCode: string;
+    referenceNumber?: string;
+    paymentMethod?: string;
     role: UserRole;
     decision: 'approve' | 'decline';
     reason?: string;
@@ -418,6 +429,7 @@ export function queueWalletDepositDecisionOutboxInTx(
   }
 ) {
   const isApprove = params.decision === 'approve';
+  const refLabel = params.referenceNumber || params.mpesaCode;
   return enqueueOutboxInTx(txDb, {
     userId: params.userId,
     eventType: 'deposit.updated',
@@ -425,18 +437,22 @@ export function queueWalletDepositDecisionOutboxInTx(
     entityId: String(params.depositId),
     title: isApprove ? 'Wallet Deposit Approved' : 'Wallet Deposit Declined',
     message: isApprove
-      ? `Your M-Pesa deposit of KSh ${params.amountKes.toLocaleString()} (Code: ${params.mpesaCode}) was approved and credited to your ${params.role} wallet.`
-      : `Your M-Pesa deposit of KSh ${params.amountKes.toLocaleString()} (Code: ${params.mpesaCode}) was declined: ${params.reason || 'Could not match M-Pesa statement'}.`,
+      ? `Your deposit of KSh ${params.amountKes.toLocaleString()} (Ref: ${refLabel}) was approved and credited to your ${params.role} wallet.`
+      : `Your deposit of KSh ${params.amountKes.toLocaleString()} (Ref: ${refLabel}) was declined: ${params.reason || 'Verification failed'}.`,
     notificationType: 'payment',
     link: '/wallet',
     payload: {
       depositId: params.depositId,
       status: isApprove ? 'approved' : 'declined',
+      workflowStatus: isApprove ? 'APPROVED' : 'DECLINED',
       amountKes: params.amountKes,
       mpesaCode: params.mpesaCode,
+      referenceNumber: refLabel,
+      paymentMethod: params.paymentMethod,
       role: params.role,
       balanceKes: params.balanceKes,
       reason: params.reason,
+      declineReason: isApprove ? undefined : params.reason,
     },
     alsoAddNotification: false, // caller adds or already added notification if needed
   });

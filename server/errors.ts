@@ -42,6 +42,7 @@ export interface ApiErrorBody {
     code: string;
     message: string;
     fields?: Record<string, string>;
+    meta?: Record<string, any>;
   };
 }
 
@@ -50,19 +51,22 @@ export function sendApiError(
   status: number,
   code: string,
   message: string,
-  fields?: Record<string, string | undefined>
+  fields?: Record<string, string | undefined>,
+  meta?: Record<string, any>
 ): Response {
   const cleanFields = fields
     ? (Object.fromEntries(
         Object.entries(fields).filter(([, v]) => typeof v === 'string' && v.length > 0)
       ) as Record<string, string>)
     : undefined;
-  const body: ApiErrorBody = {
+  const body: ApiErrorBody & Record<string, any> = {
     error: {
       code,
       message,
       ...(cleanFields && Object.keys(cleanFields).length > 0 ? { fields: cleanFields } : {}),
+      ...(meta ? { meta } : {}),
     },
+    ...(meta ? meta : {}),
   };
   return res.status(status).json(body);
 }

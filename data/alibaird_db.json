@@ -442,7 +442,7 @@
       "createdAt": 1793805223668,
       "username": "admin2",
       "failedLoginCount": 0,
-      "tokenVersion": 46,
+      "tokenVersion": 48,
       "restrictedLoanBalance": 0,
       "nonWithdrawableBalance": 0,
       "usernameNormalized": "admin2",
@@ -1465,7 +1465,12 @@
       "approvedAt": 1794068690939,
       "verifiedAt": 1794068690939,
       "verifiedBy": "Buyoll Primary Administrator",
-      "role": "merchant"
+      "role": "merchant",
+      "referenceNumber": "DEP690933M2",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "platformId": "BYL-V-10012",
+      "userEmail": "amani.merchant@buyoll.com"
     },
     {
       "id": 14,
@@ -1498,7 +1503,11 @@
       "approvedAt": 1794068690895,
       "verifiedAt": 1794068690895,
       "verifiedBy": "Buyoll Primary Administrator",
-      "role": "member"
+      "role": "member",
+      "referenceNumber": "DEP690713K1",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "platformId": "BYL-M-10003"
     },
     {
       "id": 12,
@@ -1525,7 +1534,11 @@
       "status": "approved",
       "createdAt": 1794068634583,
       "approvedAt": 1794068634639,
-      "role": "member"
+      "role": "member",
+      "referenceNumber": "DEP634432K1",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "platformId": "BYL-M-10003"
     },
     {
       "id": 10,
@@ -2162,7 +2175,15 @@
       "createdAt": 1794068690935,
       "notes": "Merchant operating credit topup",
       "processedAt": 1794068690939,
-      "processedBy": "Buyoll Primary Administrator"
+      "processedBy": "Buyoll Primary Administrator",
+      "referenceNumber": "DEP690933M2",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "amountCents": 100000,
+      "approvedAt": 1794068690939,
+      "shopName": "Amani Electronics",
+      "userEmail": "amani.merchant@buyoll.com",
+      "platformId": "BYL-V-10012"
     },
     {
       "id": "dep_1794068690867_stne",
@@ -2176,7 +2197,13 @@
       "createdAt": 1794068690867,
       "notes": "Chama contribution deposit",
       "processedAt": 1794068690895,
-      "processedBy": "Buyoll Primary Administrator"
+      "processedBy": "Buyoll Primary Administrator",
+      "referenceNumber": "DEP690713K1",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "amountCents": 150000,
+      "approvedAt": 1794068690895,
+      "platformId": "BYL-M-10003"
     },
     {
       "id": "dep_1794068634583_i6tf",
@@ -2190,7 +2217,13 @@
       "notes": "Chama contribution deposit",
       "processedAt": 1794068634639,
       "processedBy": "Buyoll Primary Administrator",
-      "role": "member"
+      "role": "member",
+      "referenceNumber": "DEP634432K1",
+      "paymentMethod": "M-Pesa Deposit Till 196853",
+      "workflowStatus": "APPROVED",
+      "amountCents": 150000,
+      "approvedAt": 1794068634639,
+      "platformId": "BYL-M-10003"
     }
   ],
   "supportTickets": [],
@@ -3091,6 +3124,11 @@
       "id": "016_sync_wallet_deposit_payments",
       "name": "Sync walletDeposits <-> payments queue records and backfill target wallet roles",
       "appliedAt": 1795293086653
+    },
+    {
+      "id": "017_enrich_deposit_queue_metadata",
+      "name": "Backfill referenceNumber, paymentMethod, workflowStatus, amountCents, and declineReason on walletDeposits & payments",
+      "appliedAt": 1795339525258
     }
   ],
   "announcementDismissals": [],
@@ -3345,7 +3383,7 @@
   ],
   "controlCenterIndexes": {
     "version": 1,
-    "updatedAt": 1795293086653,
+    "updatedAt": 1795339525258,
     "columns": {
       "users": [
         "role",
@@ -3848,6 +3886,52 @@
   "specialRefundCredits": [],
   "outboxEvents": [],
   "reconciliationReports": [
+    {
+      "id": "rec_1795339499247_298ac1",
+      "status": "PASSED",
+      "trigger": "scheduled",
+      "checkedAt": 1795339499247,
+      "eatTimestamp": "2026-11-22 12:24:59 EAT",
+      "approvedDepositsCents": 400000,
+      "openingUserWalletCents": 12454000,
+      "approvedSpecialRefundsCents": 0,
+      "totalUserWalletsHeldCents": 12854000,
+      "nonAdminAvailableHeldCents": 12854000,
+      "restrictedHeldCents": 0,
+      "platformWalletBalanceCents": 0,
+      "walletFundedRevenueCents": 0,
+      "directMpesaRevenueCents": 450000,
+      "totalIncomeRevenueCents": 450000,
+      "leftSideCents": 13304000,
+      "rightSideCents": 13304000,
+      "diffCents": 0,
+      "walletMismatchCount": 0,
+      "walletMismatches": [],
+      "notes": "All user wallets, escrow holds, deposits, and platform income reconcile cleanly."
+    },
+    {
+      "id": "rec_1795338899203_3eb229",
+      "status": "PASSED",
+      "trigger": "scheduled",
+      "checkedAt": 1795338899203,
+      "eatTimestamp": "2026-11-22 12:14:59 EAT",
+      "approvedDepositsCents": 400000,
+      "openingUserWalletCents": 12454000,
+      "approvedSpecialRefundsCents": 0,
+      "totalUserWalletsHeldCents": 12854000,
+      "nonAdminAvailableHeldCents": 12854000,
+      "restrictedHeldCents": 0,
+      "platformWalletBalanceCents": 0,
+      "walletFundedRevenueCents": 0,
+      "directMpesaRevenueCents": 450000,
+      "totalIncomeRevenueCents": 450000,
+      "leftSideCents": 13304000,
+      "rightSideCents": 13304000,
+      "diffCents": 0,
+      "walletMismatchCount": 0,
+      "walletMismatches": [],
+      "notes": "All user wallets, escrow holds, deposits, and platform income reconcile cleanly."
+    },
     {
       "id": "rec_1795293086652_19a285",
       "status": "PASSED",

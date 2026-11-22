@@ -1299,6 +1299,134 @@ export const MIGRATIONS: MigrationDefinition[] = [
       return true;
     },
   },
+  {
+    id: '017_enrich_deposit_queue_metadata',
+    name: 'Backfill referenceNumber, paymentMethod, workflowStatus, amountCents, and declineReason on walletDeposits & payments',
+    up(db, ctx) {
+      let changed = false;
+      if (!db.walletDeposits) db.walletDeposits = [];
+      if (!db.payments) db.payments = [];
+
+      const usersById = new Map<number, User>();
+      for (const u of db.users || []) {
+        usersById.set(Number(u.id), u);
+      }
+
+      const toWorkflowStatus = (st?: string) => {
+        const lower = String(st || '').toLowerCase();
+        if (lower === 'approved') return 'APPROVED' as const;
+        if (lower === 'declined' || lower === 'rejected') return 'DECLINED' as const;
+        if (lower === 'processing') return 'PROCESSING' as const;
+        return 'PENDING' as const;
+      };
+
+      const payByCode = new Map<string, any>();
+      for (const p of db.payments) {
+        const codeKey = String(p.code || '').trim().toUpperCase();
+        if (codeKey && !payByCode.has(codeKey)) {
+          payByCode.set(codeKey, p);
+        }
+      }
+
+      for (const d of db.walletDeposits) {
+        const owner = usersById.get(Number(d.userId));
+        const codeUpper = String(d.mpesaCode || '').trim().toUpperCase();
+        const linkedPay = codeUpper ? payByCode.get(codeUpper) : undefined;
+        const wf = toWorkflowStatus(d.status);
+
+        if (!d.referenceNumber && codeUpper) {
+          d.referenceNumber = codeUpper;
+          changed = true;
+        }
+        if (!d.paymentMethod) {
+          d.paymentMethod = linkedPay?.channel || 'M-Pesa Deposit Till 196853';
+          changed = true;
+        }
+        if (!d.paymentReference && codeUpper && !codeUpper.startsWith('DEP')) {
+          d.paymentReference = codeUpper;
+          changed = true;
+        }
+        if (d.workflowStatus !== wf) {
+          d.workflowStatus = wf;
+          changed = true;
+        }
+        if (typeof d.amountCents !== 'number') {
+          d.amountCents = toCents(d.amount);
+          changed = true;
+        }
+        if (d.status === 'approved' && !d.approvedAt) {
+          d.approvedAt = d.processedAt || linkedPay?.approvedAt || d.createdAt;
+          changed = true;
+        }
+        if (d.status === 'declined') {
+          if (!d.declinedAt) {
+            d.declinedAt = d.processedAt || d.createdAt;
+            changed = true;
+          }
+          if (!d.declineReason) {
+            d.declineReason = linkedPay?.rejectionReason || d.notes || 'Declined by admin';
+            changed = true;
+          }
+        }
+        if (owner) {
+          if (!d.shopName && owner.shopName) {
+            d.shopName = owner.shopName;
+            changed = true;
+          }
+          if (!d.userEmail && owner.email) {
+            d.userEmail = owner.email;
+            changed = true;
+          }
+          if (!d.platformId && owner.platformId) {
+            d.platformId = owner.platformId;
+            changed = true;
+          }
+        }
+
+        if (linkedPay) {
+          if (!linkedPay.referenceNumber) {
+            linkedPay.referenceNumber = d.referenceNumber || codeUpper;
+            changed = true;
+          }
+          if (!linkedPay.paymentMethod) {
+            linkedPay.paymentMethod = d.paymentMethod;
+            changed = true;
+          }
+          if (!linkedPay.paymentReference && d.paymentReference) {
+            linkedPay.paymentReference = d.paymentReference;
+            changed = true;
+          }
+          if (linkedPay.workflowStatus !== wf) {
+            linkedPay.workflowStatus = wf;
+            changed = true;
+          }
+          if (owner && !linkedPay.platformId && owner.platformId) {
+            linkedPay.platformId = owner.platformId;
+            changed = true;
+          }
+          if (owner && !linkedPay.userEmail && owner.email) {
+            linkedPay.userEmail = owner.email;
+            changed = true;
+          }
+        }
+      }
+
+      if (!ctx.alreadyApplied || changed) {
+        db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      for (const d of db.walletDeposits || []) {
+        delete d.workflowStatus;
+        delete d.referenceNumber;
+        delete d.paymentMethod;
+      }
+      return true;
+    },
+  },
 ];
 
 export async function runPendingMigrations(db: DatabaseSchema): Promise<{

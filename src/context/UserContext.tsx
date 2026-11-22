@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '../types.ts';
-import { api, getStoredUser, setStoredUser, SESSION_EXPIRED_EVENT } from '../api.ts';
+import { api, getAccessToken, getStoredUser, setStoredUser, SESSION_EXPIRED_EVENT } from '../api.ts';
 import { isAdminPortalPath } from '../config/adminPortal.ts';
 
 const DEFAULT_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
@@ -392,7 +392,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (typeof window === 'undefined' || !('EventSource' in window)) return;
     const sseRole = isAdminPortalPath(window.location.pathname) ? 'admin' : activeRoleName;
-    const eventsUrl = sseRole ? `/api/events?role=${encodeURIComponent(sseRole)}` : '/api/events';
+    const sseToken = getAccessToken(sseRole || undefined);
+    const sseParams = new URLSearchParams();
+    if (sseRole) sseParams.set('role', sseRole);
+    if (sseToken) sseParams.set('token', sseToken);
+    const sseQs = sseParams.toString();
+    const eventsUrl = sseQs ? `/api/events?${sseQs}` : '/api/events';
 
     let es: EventSource | null = null;
     try {

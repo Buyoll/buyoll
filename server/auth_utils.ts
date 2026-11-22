@@ -573,14 +573,30 @@ export function issueAuthTokensForUser(
   return { accessToken, refreshToken: rawRefresh, refreshExpiresAt: record.expiresAt, session };
 }
 
+function isHttpsRequest(req?: Request): boolean {
+  if (!req) return process.env.NODE_ENV === 'production';
+  if (req.secure) return true;
+  const proto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+  if (proto.includes('https')) return true;
+  return process.env.NODE_ENV === 'production';
+}
+
+function getCookieSecurityOptions(req?: Request): { secure: boolean; sameSite: 'lax' | 'none' } {
+  const secure = isHttpsRequest(req);
+  return {
+    secure,
+    sameSite: secure ? 'none' : 'lax',
+  };
+}
+
 export function setRoleSessionCookie(res: Response, role: UserRole, sessionId: string): void {
-  const isProd = process.env.NODE_ENV === 'production';
+  const { secure, sameSite } = getCookieSecurityOptions((res as any).req);
   const cookieName = ROLE_COOKIE_NAMES[role];
   const signed = signSessionCookieValue(sessionId);
   res.cookie(cookieName, signed, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,
+    sameSite,
+    secure,
     maxAge: SESSION_ABSOLUTE_TTL_MS,
     path: '/',
   });
@@ -598,23 +614,23 @@ export function setAuthCookies(
   role?: UserRole,
   sessionId?: string
 ): void {
-  const isProd = process.env.NODE_ENV === 'production';
+  const { secure, sameSite } = getCookieSecurityOptions((res as any).req);
   const maxAgeRefresh = Math.max(60000, refreshExpiresAt - Date.now());
   if (role && sessionId) {
     setRoleSessionCookie(res, role, sessionId);
   }
   res.cookie('buyoll_refresh', refreshToken, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,
+    sameSite,
+    secure,
     maxAge: maxAgeRefresh,
     path: '/',
   });
   if (role) {
     res.cookie(`buyoll_refresh_${role}`, refreshToken, {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: isProd,
+      sameSite,
+      secure,
       maxAge: maxAgeRefresh,
       path: '/',
     });
@@ -622,8 +638,8 @@ export function setAuthCookies(
   // Keep buyoll_access only when non-role specific cookie needed, no client readable secrets
   res.cookie('buyoll_access', accessToken, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,
+    sameSite,
+    secure,
     maxAge: ACCESS_TOKEN_TTL_MS,
     path: '/',
   });
@@ -646,7 +662,7 @@ export function clearAuthCookies(res: Response, roleOnly?: UserRole): void {
   res.clearCookie('buyoll_session', { path: '/' });
 }
 
-function parseCookiesHeader(req: Request): Record<string, string> {
+export function parseCookiesHeader(req: Request): Record<string, string> {
   const result: Record<string, string> = {};
   if (req.cookies && typeof req.cookies === 'object') {
     for (const [k, v] of Object.entries(req.cookies)) {

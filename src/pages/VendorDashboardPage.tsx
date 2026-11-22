@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails, WalletDepositRequest } from '../types.ts';
+import { User, Product, ChamaGroup, MerchantSubscriptionTier, BillingPeriod, PaymentReceivingMode, PaymentReceivingDetails, WalletDepositRequest, StoreCreditLedgerEntry } from '../types.ts';
 import { api, resolveImageUrl } from '../api.ts';
 import { useUser } from '../context/UserContext.tsx';
 import { VendorProductEditorModal } from './VendorProductEditorModal.tsx';
@@ -30,6 +30,9 @@ import {
   AlertTriangle,
   Loader2,
   RotateCcw,
+  ArrowDownLeft,
+  History,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface VendorDashboardPageProps {
@@ -139,6 +142,102 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   const [earlyRenewalConfirmOpen, setEarlyRenewalConfirmOpen] = useState(false);
   const [acknowledgingNoticeId, setAcknowledgingNoticeId] = useState<string | null>(null);
   const [walletDeposits, setWalletDeposits] = useState<Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>>([]);
+  const [walletTransactions, setWalletTransactions] = useState<StoreCreditLedgerEntry[]>([]);
+  const [walletHistoryTab, setWalletHistoryTab] = useState<'deposits' | 'ledger'>('deposits');
+
+  // Inline Merchant Wallet Deposit Modal state
+  const [isMerchantDepositModalOpen, setIsMerchantDepositModalOpen] = useState(false);
+  const [merchantDepositAmount, setMerchantDepositAmount] = useState<number>(1000);
+  const [merchantDepositMethod, setMerchantDepositMethod] = useState<string>('M-Pesa Till 196853');
+  const [merchantDepositCode, setMerchantDepositCode] = useState<string>('');
+  const [merchantDepositNotes, setMerchantDepositNotes] = useState<string>('');
+  const [merchantDepositIdempotencyKey, setMerchantDepositIdempotencyKey] = useState<string>(
+    () => `mdep_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  );
+  const [submittingMerchantDeposit, setSubmittingMerchantDeposit] = useState(false);
+  const [merchantDepositError, setMerchantDepositError] = useState<string | null>(null);
+  const [merchantDepositSuccess, setMerchantDepositSuccess] = useState<{
+    deposit: WalletDepositRequest;
+    paymentId?: number;
+    message: string;
+  } | null>(null);
+  const [subIdempotencyKey, setSubIdempotencyKey] = useState<string>(
+    () => `msub_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  );
+  const [subShortfallKes, setSubShortfallKes] = useState<number | null>(null);
+
+  function openInlineDepositModal(prefillAmount?: number) {
+    setMerchantDepositAmount(prefillAmount && prefillAmount > 0 ? Math.ceil(prefillAmount) : 1000);
+    setMerchantDepositError(null);
+    setMerchantDepositSuccess(null);
+    setMerchantDepositCode('');
+    setMerchantDepositNotes('');
+    setMerchantDepositIdempotencyKey(`mdep_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+    setIsMerchantDepositModalOpen(true);
+  }
+
+  async function handleInlineMerchantDepositSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentUser) return;
+    setMerchantDepositError(null);
+
+    const trimmedCode = merchantDepositCode.replace(/\s+/g, '').trim().toUpperCase();
+    if (trimmedCode && !/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
+      const msg = 'Invalid payment reference format. Leave blank to auto-generate, or enter 8-12 alphanumeric characters.';
+      setMerchantDepositError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
+    const numericAmount = Number(merchantDepositAmount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      const msg = 'Deposit amount must be greater than zero.';
+      setMerchantDepositError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
+    setSubmittingMerchantDeposit(true);
+    try {
+      const res = await api.depositToWallet({
+        amount: numericAmount,
+        mpesaCode: trimmedCode || undefined,
+        paymentReference: trimmedCode || undefined,
+        paymentMethod: merchantDepositMethod,
+        notes: merchantDepositNotes.trim() || undefined,
+        role: 'merchant',
+        idempotencyKey: merchantDepositIdempotencyKey,
+        userId: currentUser.id,
+        merchantId: currentUser.id,
+        platformId: currentUser.platformId,
+        email: currentUser.email,
+        phone: currentUser.phone || undefined,
+      });
+
+      const createdDeposit: WalletDepositRequest & { paymentId?: number; paymentStatus?: string } = {
+        ...res.deposit,
+        paymentId: res.payment?.id ?? res.adminPaymentQueue?.paymentId,
+        paymentStatus: res.payment?.status ?? res.adminPaymentQueue?.status ?? 'pending',
+      };
+      setWalletDeposits((prev) => [createdDeposit, ...prev.filter((d) => d.id !== createdDeposit.id)]);
+      setMerchantDepositSuccess({
+        deposit: createdDeposit,
+        paymentId: createdDeposit.paymentId,
+        message:
+          res.message ||
+          `Deposit request of KSh ${createdDeposit.amount.toLocaleString()} (${createdDeposit.referenceNumber || createdDeposit.mpesaCode}) sent to Admin Payment Queue!`,
+      });
+      setMerchantDepositIdempotencyKey(`mdep_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+      onNotify('success', res.message || 'Deposit request submitted to Admin Payment Queue.');
+      void loadVendorData(false);
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to submit deposit request';
+      setMerchantDepositError(msg);
+      onNotify('error', msg);
+    } finally {
+      setSubmittingMerchantDeposit(false);
+    }
+  }
 
   const fallbackTiers: MerchantSubscriptionTier[] = [
     { id: 'tier_250', name: 'Micro-Merchant', monthlyFee: 250, yearlyFee: 2500, yearlyDiscountPercent: 17, maxProducts: 2, maxGroupsPerProduct: 2, description: 'Caters to very small businesses and solo makers', features: [] },
@@ -208,6 +307,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         paymentMethod: normalizedMethod,
         mpesaCode: normalizedMethod === 'mpesa' ? subPaymentCode.trim().toUpperCase() : undefined,
         billingPeriod: subBillingPeriod,
+        idempotencyKey: normalizedMethod === 'wallet' ? subIdempotencyKey : undefined,
       });
 
       // Successful submission -> Render Success View
@@ -223,6 +323,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
             : 'Buy Goods Till 196853 / Paybill 522533',
         status: res.request?.status === 'approved' ? 'Active' : 'Pending admin approval',
       });
+      setSubIdempotencyKey(`msub_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+      setSubShortfallKes(null);
 
       onNotify('success', res.message || 'Subscription request submitted successfully!');
       await Promise.all([loadVendorData(), refreshUser()]);
@@ -230,9 +332,15 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       console.error('Subscription submission failed:', err);
 
       let message = err.message || 'Something went wrong. Your payment is safe, please try again.';
-      let code = err.code || 'ERROR';
+      const code = err.code || 'ERROR';
       const status = err.status || 500;
       let canRetry = false;
+      const errShortfall = typeof err?.shortfallKes === 'number'
+        ? err.shortfallKes
+        : typeof err?.meta?.shortfallKes === 'number'
+        ? err.meta.shortfallKes
+        : null;
+      if (errShortfall !== null) setSubShortfallKes(errShortfall);
 
       if (status === 400 || status === 422) {
         if (code === 'INVALID_MPESA_CODE' || message.toLowerCase().includes('10-character')) {
@@ -496,7 +604,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       setLoading(true);
     }
     try {
-      const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes, subStatusRes, noticesRes, depositsRes] = await Promise.all([
+      const [prodRes, grpRes, subRes, tiersRes, verifRes, myReqRes, subStatusRes, noticesRes, historyRes] = await Promise.all([
         api.getProducts({ vendorId: currentUser.id, includeDrafts: true }),
         api.getGroups(),
         api.getMerchantSubscriptionCurrent().catch(() => null),
@@ -505,7 +613,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         api.getMySubscriptionRequest().catch(() => null),
         api.getMerchantSubscriptionStatus().catch(() => null),
         api.getPendingMerchantNotices().catch(() => ({ notices: [] })),
-        api.getMyWalletDeposits().catch(() => ({ deposits: [] })),
+        api.getWalletHistory('merchant').catch(() => null),
       ]);
       setProducts(prodRes.products);
       setGroups(grpRes.groups);
@@ -521,7 +629,13 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       if (verifRes) setVerificationInfo(verifRes);
       if (subStatusRes) setSubStatus(subStatusRes);
       if (noticesRes?.notices) setPendingNotices(noticesRes.notices);
-      if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
+      if (historyRes?.deposits) {
+        setWalletDeposits(historyRes.deposits);
+        setWalletTransactions(historyRes.transactions || []);
+      } else {
+        const depositsRes = await api.getMyWalletDeposits({ userId: currentUser.id, platformId: currentUser.platformId, role: 'merchant' }).catch(() => ({ deposits: [] }));
+        if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
+      }
     } catch (err: any) {
       onNotify('error', err.message || 'Failed to load merchant data');
     } finally {
@@ -615,9 +729,9 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => onNavigate('wallet', { action: 'deposit', returnTo: 'vendor-dashboard' })}
+            onClick={() => openInlineDepositModal()}
             data-testid="merchant-deposit-wallet-btn"
-            title="View Merchant Operating Wallet and submit an M-Pesa deposit"
+            title="Deposit funds directly to your Merchant Operating Wallet"
             className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:border-[#ff6600] text-slate-900 text-xs font-bold rounded-xl transition-colors cursor-pointer"
           >
             <Wallet className="w-3.5 h-3.5 text-[#ff6600]" />
@@ -808,46 +922,161 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         </div>
       )}
 
-      {/* PENDING MERCHANT WALLET DEPOSITS BANNER */}
+      {/* MERCHANT WALLET OVERVIEW, DEPOSIT & HISTORY PANEL */}
       {(() => {
+        const merchantWalletKes = currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0;
         const pendingDeposits = walletDeposits.filter((d) => d.status === 'pending');
-        if (pendingDeposits.length === 0) return null;
-        const latestDep = pendingDeposits[0];
         const totalPendingKes = pendingDeposits.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
         return (
-          <div
-            data-testid="merchant-pending-deposit-banner"
-            className="mb-6 p-4 bg-emerald-50/90 border-2 border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
-                <Wallet className="w-4 h-4" />
+          <div className="mb-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#ff6600] flex items-center justify-center shrink-0">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-black text-slate-900">
+                      Merchant Operating Wallet
+                    </h3>
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-[10px] font-bold tabular-nums">
+                      Balance: KSh {merchantWalletKes.toLocaleString()}
+                    </span>
+                    {pendingDeposits.length > 0 && (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[10px] font-bold">
+                        {pendingDeposits.length} Pending (KSh {totalPendingKes.toLocaleString()})
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Deposit funds here for admin verification, then pay instantly for Subscriptions and Featured Listings.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider">
-                  Merchant Wallet Deposit Queued for Admin Approval ({pendingDeposits.length})
-                </h4>
-                <p className="text-xs text-emerald-900 mt-0.5">
-                  Latest submission: <b className="font-mono">{latestDep.mpesaCode}</b> for{' '}
-                  <b>KSh {Number(latestDep.amount).toLocaleString()}</b>
-                  {latestDep.paymentId ? ` (Admin Queue #${latestDep.paymentId})` : ''}.{' '}
-                  {pendingDeposits.length > 1 ? `Total pending: KSh ${totalPendingKes.toLocaleString()}. ` : ''}
-                  Once verified by Admin, your Merchant Operating Wallet will be credited automatically.
-                </p>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => openInlineDepositModal()}
+                  data-testid="merchant-panel-deposit-btn"
+                  className="px-4 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <ArrowDownLeft className="w-3.5 h-3.5" />
+                  <span>Deposit Funds</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('wallet', { action: 'deposit', returnTo: 'vendor-dashboard' })}
+                  className="px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Full Wallet Page
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-              <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[11px] font-bold uppercase tracking-wider">
-                Sent to Admin Queue
-              </span>
-              <button
-                type="button"
-                onClick={() => onNavigate('wallet', { action: 'deposit', returnTo: 'vendor-dashboard' })}
-                className="px-3 py-1.5 bg-white hover:bg-emerald-100/60 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-lg transition-colors cursor-pointer"
-              >
-                View Wallet
-              </button>
-            </div>
+
+            {(walletDeposits.length > 0 || walletTransactions.length > 0) && (
+              <div className="mt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setWalletHistoryTab('deposits')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                      walletHistoryTab === 'deposits' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Deposit Requests ({walletDeposits.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWalletHistoryTab('ledger')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors flex items-center gap-1 ${
+                      walletHistoryTab === 'ledger' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <History className="w-3 h-3" />
+                    <span>Wallet Transactions ({walletTransactions.length})</span>
+                  </button>
+                </div>
+
+                {walletHistoryTab === 'deposits' ? (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {walletDeposits.slice(0, 8).map((d) => (
+                      <div
+                        key={d.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-slate-900">
+                              {d.referenceNumber || d.mpesaCode}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {d.paymentMethod || 'M-Pesa Till 196853'}
+                            </span>
+                            {d.paymentId && (
+                              <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-mono text-slate-600">
+                                Queue #{d.paymentId}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {new Date(d.createdAt).toLocaleString()}
+                            {d.notes ? ` · ${d.notes}` : ''}
+                          </div>
+                          {d.status === 'declined' && (d.declineReason || d.adminNotes) && (
+                            <div className="mt-1 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-0.5">
+                              Decline Reason: <b>{d.declineReason || d.adminNotes}</b>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-mono font-black text-emerald-800 tabular-nums">
+                            KSh {Number(d.amount || 0).toLocaleString()}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              d.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : d.status === 'declined'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {d.workflowStatus ||
+                              (d.status === 'approved' ? 'APPROVED' : d.status === 'declined' ? 'DECLINED' : 'PENDING')}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : walletTransactions.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3">No wallet transactions recorded yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {walletTransactions.slice(0, 10).map((tx) => (
+                      <div
+                        key={tx.id}
+                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div>
+                          <div className="font-semibold text-slate-900">{tx.note}</div>
+                          <div className="text-[10.5px] text-slate-500">
+                            {new Date(tx.createdAt).toLocaleString()} · Balance After: KSh {Number(tx.balanceAfter || 0).toLocaleString()}
+                          </div>
+                        </div>
+                        <span
+                          className={`font-mono font-bold tabular-nums shrink-0 ${
+                            Number(tx.amount) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {Number(tx.amount) >= 0 ? '+' : '-'}KSh {Math.abs(Number(tx.amount || 0)).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -1453,6 +1682,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
           void refreshUser();
         }}
         onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onOpenDeposit={(shortfall) => openInlineDepositModal(shortfall)}
         onNotify={onNotify}
       />
 
@@ -1825,13 +2055,35 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                           </div>
                         )}
 
-                        {subPaymentMethod === 'wallet_credit' && (
-                          <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
-                            <p className="text-[11px] text-emerald-900 font-medium">
-                              KSh {calcFee.toLocaleString()} will be deducted from your Merchant Wallet and your {periodLabel} plan activated immediately!
-                            </p>
-                          </div>
-                        )}
+                        {subPaymentMethod === 'wallet_credit' && (() => {
+                          const walletBalanceKes = currentUser?.roleWallets?.merchant?.credit ?? currentUser?.credit ?? 0;
+                          const shortfall = Math.max(0, calcFee - walletBalanceKes);
+                          return (
+                            <div className="pt-2 border-t border-slate-200 text-xs text-slate-600 space-y-2">
+                              <p className="text-[11px] text-emerald-900 font-medium">
+                                KSh {calcFee.toLocaleString()} will be deducted from your Merchant Wallet (available: <b>KSh {walletBalanceKes.toLocaleString()}</b>) and your {periodLabel} plan activated immediately!
+                              </p>
+                              {shortfall > 0 && (
+                                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between gap-2">
+                                  <span className="text-[11px] text-amber-950 font-semibold">
+                                    Shortfall: <b>KSh {shortfall.toLocaleString()}</b> needed to pay with Merchant Wallet.
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsSubscriptionModalOpen(false);
+                                      openInlineDepositModal(shortfall);
+                                    }}
+                                    className="px-2.5 py-1.5 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-lg text-[11px] shrink-0 flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Wallet className="w-3 h-3" />
+                                    <span>Deposit KSh {shortfall.toLocaleString()}</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {subPaymentMethod === 'wallet_coins' && (
                           <div className="pt-2 border-t border-slate-200 text-xs text-slate-600">
@@ -1857,20 +2109,18 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {(subModalError.code === 'INSUFFICIENT_WALLET_BALANCE' ||
+                        subModalError.code === 'INSUFFICIENT_BALANCE' ||
                         subModalError.message.toLowerCase().includes('insufficient')) && (
                         <button
                           type="button"
                           onClick={() => {
                             setIsSubscriptionModalOpen(false);
-                            onNavigate('wallet', {
-                              action: 'deposit',
-                              returnTo: 'vendor-dashboard',
-                            });
+                            openInlineDepositModal(subShortfallKes || 500);
                           }}
                           className="px-2.5 py-1 bg-[#ff6600] hover:bg-[#ff8000] text-white font-bold rounded-md flex items-center gap-1 cursor-pointer"
                         >
                           <Wallet className="w-3 h-3" />
-                          <span>Deposit M-Pesa</span>
+                          <span>Deposit Funds</span>
                         </button>
                       )}
                       {subModalError.canRetry && (
@@ -2406,6 +2656,209 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                 Yes, Renew & Reset Cycle
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* INLINE MERCHANT WALLET DEPOSIT MODAL (No Auth Friction, Reference Optional) */}
+      {isMerchantDepositModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#ff6600] flex items-center justify-center">
+                  <ArrowDownLeft className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Deposit to Merchant Wallet</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Routes directly to Admin Payment Queue for exact crediting
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMerchantDepositModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {merchantDepositSuccess ? (
+              <div data-testid="merchant-deposit-success-view" className="space-y-4 text-center py-2">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900">Deposit Request Submitted!</h4>
+                  <p className="text-xs text-slate-600 mt-1">{merchantDepositSuccess.message}</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-left text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Reference Number:</span>
+                    <b className="font-mono text-slate-900">
+                      {merchantDepositSuccess.deposit.referenceNumber || merchantDepositSuccess.deposit.mpesaCode}
+                    </b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Amount:</span>
+                    <b className="font-mono text-emerald-800">
+                      KSh {Number(merchantDepositSuccess.deposit.amount || 0).toLocaleString()}
+                    </b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Payment Method:</span>
+                    <b className="text-slate-800">
+                      {merchantDepositSuccess.deposit.paymentMethod || merchantDepositMethod}
+                    </b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Queue Status:</span>
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-full text-[10px] uppercase">
+                      {merchantDepositSuccess.deposit.workflowStatus || 'PENDING'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => openInlineDepositModal(1000)}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    + Another Deposit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMerchantDepositModalOpen(false);
+                      setMerchantDepositSuccess(null);
+                    }}
+                    className="px-5 py-2 bg-[#ff6600] hover:bg-[#ff8000] text-white text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleInlineMerchantDepositSubmit} className="space-y-4">
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1 text-emerald-950">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-[#ff6600]" />
+                    <span>Buyoll Till 196853 / Paybill 522533</span>
+                  </div>
+                  <p className="text-[10.5px] text-emerald-800">
+                    Enter your deposit amount below. Payment reference is optional — leave blank to auto-generate a tracking code.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Deposit Amount (KSh) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5 mb-2">
+                    {[500, 1000, 2500, 5000].map((amt) => (
+                      <button
+                        type="button"
+                        key={amt}
+                        onClick={() => {
+                          setMerchantDepositAmount(amt);
+                          setMerchantDepositError(null);
+                        }}
+                        className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                          merchantDepositAmount === amt
+                            ? 'border-[#ff6600] bg-emerald-50 text-[#ff6600]'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        KSh {amt}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={merchantDepositAmount}
+                    onChange={(e) => {
+                      setMerchantDepositAmount(Number(e.target.value));
+                      if (merchantDepositError) setMerchantDepositError(null);
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Payment Method
+                  </label>
+                  <select
+                    value={merchantDepositMethod}
+                    onChange={(e) => setMerchantDepositMethod(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-semibold"
+                  >
+                    <option value="M-Pesa Till 196853">M-Pesa Buy Goods Till 196853</option>
+                    <option value="M-Pesa Paybill 522533">M-Pesa Paybill 522533</option>
+                    <option value="Bank Transfer">Bank Transfer / EFT</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Payment Reference / M-Pesa Code <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={14}
+                    value={merchantDepositCode}
+                    onChange={(e) => {
+                      setMerchantDepositCode(e.target.value.replace(/\s+/g, '').toUpperCase().slice(0, 12));
+                      if (merchantDepositError) setMerchantDepositError(null);
+                    }}
+                    placeholder="Optional — leave blank to auto-generate"
+                    className="w-full px-3 py-2 text-xs font-mono uppercase border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={merchantDepositNotes}
+                    onChange={(e) => setMerchantDepositNotes(e.target.value)}
+                    placeholder="e.g. Subscription & Featured Listings float"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff6600]"
+                  />
+                </div>
+
+                {merchantDepositError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>{merchantDepositError}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsMerchantDepositModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingMerchantDeposit || merchantDepositAmount <= 0}
+                    data-testid="merchant-inline-deposit-submit-btn"
+                    className="px-5 py-2.5 bg-[#ff6600] hover:bg-[#ff8000] disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {submittingMerchantDeposit ? 'Submitting...' : 'Process Deposit Request'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

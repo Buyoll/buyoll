@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
-import { getDatabase, getActiveDbFile, saveDatabase, logAudit, runDatabaseTransaction } from './db.js';
+import { getDatabase, getActiveDbFile, saveDatabase, logAudit, runDatabaseTransaction, DatabaseSchema } from './db.js';
 import {
+  buildControlCenterIndexSnapshot,
   getControlCenterSummary,
   invalidateControlCenterSummaryCache,
   paginateList,
@@ -64,9 +65,19 @@ import {
   postGroupChatMessageInTx,
   resolveSenderGroupRoleLabel,
 } from './group_chat_service.js';
-import { resolveAuthenticatedUser, sanitizeUser } from './auth_utils.js';
+import {
+  ALL_ROLE_COOKIES,
+  hashOpaqueToken,
+  normalizeEastAfricanPhone,
+  parseCookiesHeader,
+  resolveAuthenticatedSession,
+  resolveAuthenticatedUser,
+  sanitizeUser,
+  verifyAccessToken,
+  verifySessionCookieValue,
+} from './auth_utils.js';
 import { emitPlatformEvent, handleEventsSse } from './events.js';
-import { SUPPORT_EMAIL, toCents, fromCents } from './config.js';
+import { SUPPORT_EMAIL, toCents, fromCents, getEatDateParts } from './config.js';
 import { wrapRouterAsync } from './errors.js';
 import {
   creditWalletCents,
@@ -162,6 +173,468 @@ function resolveDepositTargetRole(
     return normalizeRoleValue(targetUser.activeRole || targetUser.role || 'member');
   }
   return 'member';
+}
+
+function generateUniqueDepositCodes(db: DatabaseSchema, now: number): {
+  code: string;
+  referenceNumber: string;
+} {
+  const { dateKey } = getEatDateParts(now);
+  const compactDate = dateKey.replace(/-/g, '');
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (let attempt = 0; attempt < 25; attempt++) {
+    let suffix = '';
+    const bytes = crypto.randomBytes(9);
+    for (let i = 0; i < 9; i++) {
+      suffix += charset.charAt(bytes[i] % charset.length);
+    }
+    const code = `DEP${suffix}`; // 12-char alphanumeric code
+    const dup = findDuplicateMpesaCodeInTx(db, code);
+    const refCollision = (db.walletDeposits || []).some(
+      (d) => String(d.referenceNumber || '').toUpperCase() === `DEP-${compactDate}-${suffix.slice(0, 6)}`
+    );
+    if (!dup.duplicate && !refCollision) {
+      return {
+        code,
+        referenceNumber: `DEP-${compactDate}-${suffix.slice(0, 6)}`,
+      };
+    }
+  }
+  const fallback = crypto.randomBytes(4).toString('hex').toUpperCase();
+  return {
+    code: `DEP${fallback}9`,
+    referenceNumber: `DEP-${compactDate}-${fallback}`,
+  };
+}
+
+async function resolveDepositAccountContext(
+  req: Request,
+  db: DatabaseSchema
+): Promise<{
+  user: User;
+  role: UserRole;
+  verificationContext: 'session' | 'session_cookie' | 'refresh_cookie' | 'account_context';
+} | null> {
+  const requestedRoleRaw = (req.body?.role || req.query?.role || req.headers['x-buyoll-role']) as string | undefined;
+  const pickRole = (u: User, fallbackRole?: UserRole | null): UserRole => {
+    if (
+      requestedRoleRaw === 'member' ||
+      requestedRoleRaw === 'merchant' ||
+      requestedRoleRaw === 'lender' ||
+      requestedRoleRaw === 'admin'
+    ) {
+      return requestedRoleRaw;
+    }
+    if (fallbackRole) return normalizeRoleValue(fallbackRole);
+    return normalizeRoleValue(u.activeRole || u.role || 'member');
+  };
+
+  // 1. Standard active session / Bearer token
+  const authRes = await resolveAuthenticatedSession(req, db, { touchActivity: true }).catch(() => null);
+  if (authRes?.user) {
+    return {
+      user: authRes.user,
+      role: pickRole(authRes.user, authRes.role),
+      verificationContext: 'session',
+    };
+  }
+
+  // 2. Check all role session cookies without header narrowing (even if idle timeout triggered)
+  const cookies = parseCookiesHeader(req);
+  for (const cookieName of ALL_ROLE_COOKIES) {
+    const rawCookie = cookies[cookieName];
+    if (!rawCookie) continue;
+    const sessionId = verifySessionCookieValue(rawCookie);
+    if (!sessionId) continue;
+    const session = (db.sessions || []).find((s) => s.id === sessionId);
+    if (!session) continue;
+    const u = (db.users || []).find((cand) => cand.id === session.userId && !cand.isDisabled && !cand.isSuspended);
+    if (u) {
+      return {
+        user: u,
+        role: pickRole(u, session.role),
+        verificationContext: 'session_cookie',
+      };
+    }
+  }
+
+  // 3. Check refresh token cookies (validates active merchant/member account seamlessly)
+  const now = Date.now();
+  const refreshCookieNames = [
+    'buyoll_refresh_merchant',
+    'buyoll_refresh_member',
+    'buyoll_refresh_lender',
+    'buyoll_refresh_admin',
+    'buyoll_refresh',
+  ];
+  for (const rCookie of refreshCookieNames) {
+    const rawRefresh = cookies[rCookie];
+    if (!rawRefresh) continue;
+    const tokenHash = hashOpaqueToken(rawRefresh);
+    const rt = (db.refreshTokens || []).find(
+      (item) => item.tokenHash === tokenHash && !item.revokedAt && item.expiresAt > now
+    );
+    if (!rt) continue;
+    const u = (db.users || []).find((cand) => cand.id === rt.userId && !cand.isDisabled && !cand.isSuspended);
+    if (u) {
+      return {
+        user: u,
+        role: pickRole(u, rt.role),
+        verificationContext: 'refresh_cookie',
+      };
+    }
+  }
+
+  // 4. Signed Bearer token whose session may have hit idle timeout
+  const authHeader = req.headers.authorization;
+  const bearerToken =
+    (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null) ||
+    cookies.buyoll_access ||
+    null;
+  if (bearerToken) {
+    const payload = verifyAccessToken(bearerToken);
+    if (payload?.sub) {
+      const u = (db.users || []).find((cand) => cand.id === payload.sub && !cand.isDisabled && !cand.isSuspended);
+      if (u) {
+        return {
+          user: u,
+          role: pickRole(u, payload.role),
+          verificationContext: 'session_cookie',
+        };
+      }
+    }
+  }
+
+  // 5. Verified account identifiers in request body or query params (no Authentication required barrier)
+  const src = { ...(req.query || {}), ...(req.body || {}) } as Record<string, any>;
+  const rawId = Number(src.userId ?? src.merchantId ?? 0);
+  if (Number.isInteger(rawId) && rawId > 0) {
+    const u = (db.users || []).find((cand) => cand.id === rawId && !cand.isDisabled && !cand.isSuspended);
+    if (u) {
+      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
+    }
+  }
+
+  const rawPlatformId = typeof src.platformId === 'string' ? src.platformId.trim().toLowerCase() : '';
+  if (rawPlatformId) {
+    const u = (db.users || []).find(
+      (cand) => !cand.isDisabled && !cand.isSuspended && String(cand.platformId || '').trim().toLowerCase() === rawPlatformId
+    );
+    if (u) {
+      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
+    }
+  }
+
+  const rawEmail = typeof src.email === 'string' ? src.email.trim().toLowerCase() : '';
+  if (rawEmail) {
+    const u = (db.users || []).find(
+      (cand) => !cand.isDisabled && !cand.isSuspended && String(cand.email || '').trim().toLowerCase() === rawEmail
+    );
+    if (u) {
+      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
+    }
+  }
+
+  const rawPhone = typeof src.phone === 'string' ? src.phone.trim() : '';
+  if (rawPhone) {
+    const norm = normalizeEastAfricanPhone(rawPhone);
+    const normalizedPhone = norm.valid && norm.normalized ? norm.normalized : rawPhone;
+    const u = (db.users || []).find(
+      (cand) =>
+        !cand.isDisabled &&
+        !cand.isSuspended &&
+        (String(cand.phone || '').trim() === rawPhone || String(cand.phone || '').trim() === normalizedPhone)
+    );
+    if (u) {
+      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
+    }
+  }
+
+  return null;
+}
+
+function processWalletDepositDecisionInTx(
+  db: DatabaseSchema,
+  params: {
+    deposit?: WalletDepositRequest;
+    payment?: PaymentRecord;
+    decision: 'approve' | 'decline';
+    reason?: string;
+    adminUser: User;
+    now: number;
+  }
+) {
+  const { decision, reason, adminUser, now } = params;
+  if (!db.walletDeposits) db.walletDeposits = [];
+  if (!db.payments) db.payments = [];
+  if (!db.userNotifications) db.userNotifications = [];
+  if (!db.storeCreditLedger) db.storeCreditLedger = [];
+
+  let dep = params.deposit;
+  const payment = params.payment;
+
+  if (!dep && payment) {
+    const pCodeUpper = String(payment.code || '').trim().toUpperCase();
+    const pRefUpper = String(payment.referenceNumber || '').trim().toUpperCase();
+    dep =
+      db.walletDeposits.find(
+        (d) =>
+          d.userId === payment.userId &&
+          ((pCodeUpper && String(d.mpesaCode || '').trim().toUpperCase() === pCodeUpper) ||
+            (pRefUpper && String(d.referenceNumber || '').trim().toUpperCase() === pRefUpper)) &&
+          d.status === 'pending'
+      ) ||
+      db.walletDeposits.find(
+        (d) =>
+          ((pCodeUpper && String(d.mpesaCode || '').trim().toUpperCase() === pCodeUpper) ||
+            (pRefUpper && String(d.referenceNumber || '').trim().toUpperCase() === pRefUpper)) &&
+          d.status === 'pending'
+      ) ||
+      db.walletDeposits.find(
+        (d) =>
+          d.userId === payment.userId &&
+          ((pCodeUpper && String(d.mpesaCode || '').trim().toUpperCase() === pCodeUpper) ||
+            (pRefUpper && String(d.referenceNumber || '').trim().toUpperCase() === pRefUpper)) &&
+          d.status !== 'approved'
+      );
+  }
+
+  let linkedPayment = payment;
+  if (!linkedPayment && dep) {
+    const dCodeUpper = String(dep.mpesaCode || '').trim().toUpperCase();
+    const dRefUpper = String(dep.referenceNumber || '').trim().toUpperCase();
+    linkedPayment = db.payments.find(
+      (p) =>
+        isWalletDepositPaymentType(p.type) &&
+        ((dCodeUpper && String(p.code || '').trim().toUpperCase() === dCodeUpper) ||
+          (dRefUpper && String(p.referenceNumber || '').trim().toUpperCase() === dRefUpper))
+    );
+  }
+
+  if (dep && dep.status !== 'pending') {
+    throw { status: 400, message: `This deposit request has already been ${dep.status}. Duplicate processing prevented.` };
+  }
+  if (linkedPayment && linkedPayment.status !== 'pending') {
+    throw { status: 400, message: `This payment has already been ${linkedPayment.status}. Duplicate processing prevented.` };
+  }
+
+  const targetUser = db.users.find((u) => u.id === (dep?.userId ?? linkedPayment?.userId));
+  if (!targetUser) {
+    throw { status: 404, message: 'Merchant/payer user account not found for wallet deposit decision.' };
+  }
+
+  const depRole = resolveDepositTargetRole(dep, linkedPayment, targetUser);
+  const amountCents = toCents(dep?.amount ?? linkedPayment?.amount ?? 0);
+  const creditKes = fromCents(amountCents);
+  const cleanReason = String(reason || '').trim();
+  const paymentCodeUpper = String(linkedPayment?.code || '').trim().toUpperCase();
+  const resolvedCode = dep?.mpesaCode || paymentCodeUpper || dep?.referenceNumber || `PAY-${linkedPayment?.id || now}`;
+  const resolvedRef = dep?.referenceNumber || linkedPayment?.referenceNumber || resolvedCode;
+  const resolvedMethod = dep?.paymentMethod || linkedPayment?.paymentMethod || linkedPayment?.channel || 'M-Pesa Till 196853';
+
+  if (decision === 'approve') {
+    if (resolvedCode) {
+      const anotherApproved = db.walletDeposits.some(
+        (d) => d.id !== dep?.id && String(d.mpesaCode || '').trim().toUpperCase() === resolvedCode.toUpperCase() && d.status === 'approved'
+      );
+      if (anotherApproved) {
+        throw { status: 400, message: `Deposit reference ${resolvedCode} has already been approved for a wallet deposit.` };
+      }
+    }
+
+    if (!dep) {
+      dep = {
+        id: `dep_pay_${linkedPayment?.id || now}_${now}`,
+        userId: targetUser.id,
+        userName: targetUser.name,
+        userPhone: targetUser.phone || linkedPayment?.userPhone || '',
+        userEmail: targetUser.email,
+        shopName: targetUser.shopName,
+        platformId: targetUser.platformId,
+        role: depRole,
+        amount: creditKes,
+        amountCents,
+        mpesaCode: resolvedCode,
+        referenceNumber: resolvedRef,
+        paymentMethod: resolvedMethod,
+        paymentReference: linkedPayment?.paymentReference,
+        status: 'approved',
+        workflowStatus: 'APPROVED',
+        createdAt: linkedPayment?.createdAt || now,
+        processedAt: now,
+        approvedAt: now,
+        processedBy: adminUser.name,
+        approvedById: adminUser.id,
+        notes: linkedPayment?.notes || `Synced from Payment #${linkedPayment?.id}`,
+      };
+      db.walletDeposits.unshift(dep);
+    } else {
+      dep.status = 'approved';
+      dep.workflowStatus = 'APPROVED';
+      dep.role = depRole;
+      dep.amountCents = amountCents;
+      dep.referenceNumber = resolvedRef;
+      dep.paymentMethod = resolvedMethod;
+      dep.processedAt = now;
+      dep.approvedAt = now;
+      dep.processedBy = adminUser.name;
+      dep.approvedById = adminUser.id;
+      dep.declineReason = undefined;
+      if (cleanReason) dep.notes = cleanReason;
+    }
+
+    if (linkedPayment) {
+      linkedPayment.status = 'approved';
+      linkedPayment.workflowStatus = 'APPROVED';
+      linkedPayment.approvedAt = now;
+      linkedPayment.verifiedAt = now;
+      linkedPayment.verifiedBy = adminUser.name;
+      linkedPayment.approvedById = adminUser.id;
+      linkedPayment.role = depRole;
+      linkedPayment.amountCents = amountCents;
+      linkedPayment.referenceNumber = resolvedRef;
+      linkedPayment.paymentMethod = resolvedMethod;
+    }
+
+    const idempotencyKey = `dep_${dep.id}_${dep.mpesaCode}`;
+    const { wallet: creditedWallet } = creditWalletCents(db, {
+      userId: targetUser.id,
+      role: depRole,
+      amountCents,
+      category: 'DEPOSIT',
+      referenceId: resolvedRef,
+      idempotencyKey,
+      note: `Wallet Deposit (Ref: ${resolvedRef}) approved & credited to ${depRole} wallet by Admin`,
+      actorId: adminUser.id,
+    });
+    const newBalanceKes = fromCents(creditedWallet.balanceCents);
+    dep.balanceAfterKes = newBalanceKes;
+    if (linkedPayment) linkedPayment.balanceAfterKes = newBalanceKes;
+
+    db.storeCreditLedger.unshift({
+      id: db.nextIds.ledger++,
+      userId: targetUser.id,
+      amount: creditKes,
+      balanceAfter: newBalanceKes,
+      type: 'refund_credit' as const,
+      referenceId: resolvedRef,
+      note: `Wallet Deposit (Ref: ${resolvedRef}) approved & credited to ${depRole} wallet by Admin`,
+      createdAt: now,
+    });
+
+    db.userNotifications.unshift({
+      id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+      userId: targetUser.id,
+      title: 'Wallet Deposit Approved',
+      message: `Your deposit of KSh ${creditKes.toLocaleString()} (Ref: ${resolvedRef}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${newBalanceKes.toLocaleString()}.`,
+      type: 'payment',
+      read: false,
+      timestamp: now,
+    });
+
+    const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
+      userId: targetUser.id,
+      depositId: dep.id,
+      amountKes: creditKes,
+      mpesaCode: dep.mpesaCode,
+      referenceNumber: resolvedRef,
+      paymentMethod: resolvedMethod,
+      role: depRole,
+      decision: 'approve',
+      balanceKes: newBalanceKes,
+    });
+
+    db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+    logAudit(
+      db,
+      adminUser.id,
+      adminUser.name,
+      'WALLET_DEPOSIT_APPROVED',
+      `Approved KSh ${creditKes} wallet deposit for ${targetUser.name} (${depRole} wallet, Ref: ${resolvedRef}). New balance: KSh ${newBalanceKes}`
+    );
+
+    return {
+      deposit: dep,
+      payment: linkedPayment,
+      creditedWallet: {
+        role: depRole,
+        balanceKes: newBalanceKes,
+        addedKes: creditKes,
+        idempotencyKey,
+      },
+      newBalance: newBalanceKes,
+      outboxEvent,
+    };
+  }
+
+  // DECLINE
+  if (cleanReason.length < 3) {
+    throw { status: 400, message: 'A clear reason (at least 3 characters) is required when declining a wallet deposit.' };
+  }
+
+  if (dep) {
+    dep.status = 'declined';
+    dep.workflowStatus = 'DECLINED';
+    dep.role = depRole;
+    dep.processedAt = now;
+    dep.declinedAt = now;
+    dep.processedBy = adminUser.name;
+    dep.approvedById = adminUser.id;
+    dep.declineReason = cleanReason;
+    dep.referenceNumber = resolvedRef;
+    dep.paymentMethod = resolvedMethod;
+  }
+
+  if (linkedPayment) {
+    linkedPayment.status = 'rejected';
+    linkedPayment.workflowStatus = 'DECLINED';
+    linkedPayment.rejectionReason = cleanReason;
+    linkedPayment.declineReason = cleanReason;
+    linkedPayment.declinedAt = now;
+    linkedPayment.verifiedAt = now;
+    linkedPayment.verifiedBy = adminUser.name;
+    linkedPayment.approvedById = adminUser.id;
+    linkedPayment.role = depRole;
+  }
+
+  db.userNotifications.unshift({
+    id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+    userId: targetUser.id,
+    title: 'Wallet Deposit Declined',
+    message: `Your deposit request of KSh ${creditKes.toLocaleString()} (Ref: ${resolvedRef}) was declined. Reason: ${cleanReason}.`,
+    type: 'system',
+    read: false,
+    timestamp: now,
+  });
+
+  const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
+    userId: targetUser.id,
+    depositId: dep?.id ?? `pay_${linkedPayment?.id}`,
+    amountKes: creditKes,
+    mpesaCode: resolvedCode,
+    referenceNumber: resolvedRef,
+    paymentMethod: resolvedMethod,
+    role: depRole,
+    decision: 'decline',
+    reason: cleanReason,
+  });
+
+  db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+  logAudit(
+    db,
+    adminUser.id,
+    adminUser.name,
+    'WALLET_DEPOSIT_DECLINED',
+    `Declined KSh ${creditKes} wallet deposit for ${targetUser.name} (Ref: ${resolvedRef}): ${cleanReason}`
+  );
+
+  return {
+    deposit: dep,
+    payment: linkedPayment,
+    creditedWallet: undefined,
+    newBalance: undefined,
+    outboxEvent,
+  };
 }
 
 function generateCode(length = 6): string {
@@ -4288,10 +4761,15 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
     usersById.set(Number(u.id), u);
   }
   const depositsByCode = new Map<string, WalletDepositRequest>();
+  const depositsByRef = new Map<string, WalletDepositRequest>();
   for (const d of db.walletDeposits || []) {
     const key = String(d.mpesaCode || '').trim().toUpperCase();
     if (key && !depositsByCode.has(key)) {
       depositsByCode.set(key, d);
+    }
+    const refKey = String(d.referenceNumber || '').trim().toUpperCase();
+    if (refKey && !depositsByRef.has(refKey)) {
+      depositsByRef.set(refKey, d);
     }
   }
   const stmtMap = new Map<string, any>();
@@ -4307,33 +4785,48 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
 
   let filtered = db.payments || [];
   if (statusFilter && statusFilter !== 'all') {
-    filtered = filtered.filter((p) => String(p.status || 'pending').toLowerCase() === statusFilter);
+    if (statusFilter === 'declined' || statusFilter === 'rejected') {
+      filtered = filtered.filter((p) => {
+        const st = String(p.status || '').toLowerCase();
+        return st === 'rejected' || st === 'declined';
+      });
+    } else {
+      filtered = filtered.filter((p) => String(p.status || 'pending').toLowerCase() === statusFilter);
+    }
   }
   const sorted = [...filtered].sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   const paged = paginateList(sorted, page, limit);
 
   const paymentsWithMatching = paged.items.map((p) => {
     const code = String(p.code || '').trim().toUpperCase();
+    const refUpper = String(p.referenceNumber || '').trim().toUpperCase();
     const channelUpper = String(p.channel || '').toUpperCase();
     const amountNum = Number(p.amount || 0);
     const payer = usersById.get(Number(p.userId));
-    const dep = code ? depositsByCode.get(code) : undefined;
+    const dep = (code ? depositsByCode.get(code) : undefined) || (refUpper ? depositsByRef.get(refUpper) : undefined);
     const isInternalWallet =
       code.startsWith('WALLET-') ||
       channelUpper.includes('MERCHANT WALLET');
-    const matched = isInternalWallet ? null : (code ? stmtMap.get(code) || null : null);
-    const hasCodeMismatch = !isInternalWallet && !matched;
+    const isAutoReference = Boolean(
+      p.isAutoReference ||
+        dep?.isAutoGeneratedCode ||
+        (isWalletDepositPaymentType(p.type) && !dep?.paymentReference && code.startsWith('DEP'))
+    );
+    const matched = isInternalWallet || isAutoReference ? null : (code ? stmtMap.get(code) || null : null);
+    const hasCodeMismatch = !isInternalWallet && !isAutoReference && !matched;
     const hasAmountMismatch = matched ? Math.abs(Number(matched.amount || 0) - amountNum) > 5 : false;
     const isDuplicate = isInternalWallet || !code ? false : (codeCounts.get(code) || 0) > 1;
 
     let verificationFlag:
       | 'perfect_match'
       | 'internal_wallet'
+      | 'auto_reference'
       | 'amount_mismatch'
       | 'unmatched_code'
       | 'duplicate_detected' = 'perfect_match';
     if (isInternalWallet) verificationFlag = 'internal_wallet';
     else if (isDuplicate) verificationFlag = 'duplicate_detected';
+    else if (isAutoReference) verificationFlag = 'auto_reference';
     else if (hasCodeMismatch) verificationFlag = 'unmatched_code';
     else if (hasAmountMismatch) verificationFlag = 'amount_mismatch';
 
@@ -4341,20 +4834,36 @@ apiRouter.get('/admin/payments', async (req: Request, res: Response) => {
       ? resolveDepositTargetRole(dep, p, payer)
       : undefined;
 
+    const statusLower = String(p.status || 'pending').toLowerCase();
+    const workflowStatus =
+      p.workflowStatus ||
+      dep?.workflowStatus ||
+      (statusLower === 'approved' ? 'APPROVED' : statusLower === 'rejected' || statusLower === 'declined' ? 'DECLINED' : 'PENDING');
+
     return {
       ...p,
       type: p.type || 'payment',
       amount: amountNum,
+      amountCents: p.amountCents ?? toCents(amountNum),
       createdAt: Number(p.createdAt || 0),
       userName: p.userName || payer?.name || 'User',
-      shopName: payer?.shopName,
+      userEmail: p.userEmail || payer?.email || '',
+      shopName: p.shopName || dep?.shopName || payer?.shopName,
+      platformId: p.platformId || dep?.platformId || payer?.platformId || '',
       payerRole: payer?.activeRole || payer?.role,
       targetWalletRole,
       depositId: dep?.id,
+      referenceNumber: dep?.referenceNumber || p.referenceNumber || code,
+      paymentMethod: dep?.paymentMethod || p.paymentMethod || p.channel || 'M-Pesa Till 196853',
+      paymentReference: dep?.paymentReference || p.paymentReference,
+      workflowStatus,
+      declineReason: p.declineReason || p.rejectionReason || dep?.declineReason,
+      isAutoReference,
       matchedTillEntry: matched,
       statementMatch: {
         matched: isInternalWallet ? true : Boolean(matched && !hasAmountMismatch && !isDuplicate),
         isInternalWallet,
+        isAutoReference,
         duplicateDetected: isDuplicate,
         reason: hasAmountMismatch ? 'amount_mismatch' : undefined,
         statementRecord: matched
@@ -4459,21 +4968,27 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
         | { role: UserRole; balanceKes: number; addedKes: number; idempotencyKey: string }
         | undefined;
 
-      if (decision === 'approve') {
-        // Prevent duplicate approved codes for subscriptions or deposits
+      if (isWalletDeposit) {
+        const depDecision = processWalletDepositDecisionInTx(db, {
+          payment,
+          decision: decision === 'approve' ? 'approve' : 'decline',
+          reason: cleanReason,
+          adminUser: user,
+          now,
+        });
+        processedDeposit = depDecision.deposit;
+        creditedWalletSummary = depDecision.creditedWallet;
+        if (depDecision.outboxEvent) {
+          (payment as any).__outbox = depDecision.outboxEvent;
+        }
+      } else if (decision === 'approve') {
+        // Prevent duplicate approved codes for subscriptions
         if (payment.type === 'merchant_subscription' && paymentCodeUpper) {
           const duplicateActive = (db.merchantSubscriptions || []).some(
             (s) => String(s.paymentCode || '').trim().toUpperCase() === paymentCodeUpper && s.status === 'active'
           );
           if (duplicateActive) {
             throw { status: 400, message: `Payment code ${payment.code} has already been approved for an active subscription.` };
-          }
-        } else if (isWalletDeposit && paymentCodeUpper) {
-          const duplicateApproved = (db.walletDeposits || []).some(
-            (d) => String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper && d.status === 'approved'
-          );
-          if (duplicateApproved) {
-            throw { status: 400, message: `M-Pesa code ${payment.code} has already been approved for a wallet deposit.` };
           }
         }
 
@@ -4615,111 +5130,6 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
               (payment as any).__outbox = activation.outboxEvent;
             }
           }
-        } else if (isWalletDeposit) {
-          if (!db.walletDeposits) db.walletDeposits = [];
-          let dep =
-            db.walletDeposits.find(
-              (d) =>
-                d.userId === payment.userId &&
-                String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper &&
-                d.status === 'pending'
-            ) ||
-            db.walletDeposits.find(
-              (d) => String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper && d.status === 'pending'
-            ) ||
-            db.walletDeposits.find(
-              (d) =>
-                d.userId === payment.userId &&
-                String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper &&
-                d.status !== 'approved'
-            );
-
-          const targetUser = db.users.find((u) => u.id === (dep?.userId ?? payment.userId));
-          if (!targetUser) {
-            throw { status: 404, message: 'Merchant/payer user account not found for wallet credit.' };
-          }
-
-          const depRole = resolveDepositTargetRole(dep, payment, targetUser);
-          const creditKes = fromCents(toCents(dep?.amount ?? payment.amount));
-          const resolvedCode = dep?.mpesaCode || paymentCodeUpper || `PAY-${payment.id}`;
-
-          if (!dep) {
-            dep = {
-              id: `dep_pay_${payment.id}_${now}`,
-              userId: targetUser.id,
-              userName: targetUser.name,
-              userPhone: targetUser.phone || payment.userPhone || '',
-              role: depRole,
-              amount: creditKes,
-              mpesaCode: resolvedCode,
-              status: 'approved',
-              createdAt: payment.createdAt || now,
-              processedAt: now,
-              processedBy: user.name,
-              notes: payment.notes || `Synced from Payment #${payment.id}`,
-            };
-            db.walletDeposits.unshift(dep);
-          } else {
-            dep.status = 'approved';
-            dep.role = depRole;
-            dep.processedAt = now;
-            dep.processedBy = user.name;
-          }
-
-          (payment as any).role = depRole;
-          processedDeposit = dep;
-
-          const idempotencyKey = `dep_${dep.id}_${dep.mpesaCode}`;
-          const { wallet: creditedWallet } = creditWalletCents(db, {
-            userId: targetUser.id,
-            role: depRole,
-            amountCents: toCents(creditKes),
-            category: 'DEPOSIT',
-            referenceId: dep.mpesaCode,
-            idempotencyKey,
-            note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
-            actorId: user.id,
-          });
-          const newBalanceKes = fromCents(creditedWallet.balanceCents);
-          creditedWalletSummary = {
-            role: depRole,
-            balanceKes: newBalanceKes,
-            addedKes: creditKes,
-            idempotencyKey,
-          };
-
-          if (!db.storeCreditLedger) db.storeCreditLedger = [];
-          db.storeCreditLedger.unshift({
-            id: db.nextIds.ledger++,
-            userId: targetUser.id,
-            amount: creditKes,
-            balanceAfter: newBalanceKes,
-            type: 'refund_credit' as const,
-            referenceId: dep.mpesaCode,
-            note: `M-Pesa Wallet Deposit (Code: ${dep.mpesaCode}) approved & credited to ${depRole} wallet by Admin in payments`,
-            createdAt: now,
-          });
-
-          if (!db.userNotifications) db.userNotifications = [];
-          db.userNotifications.unshift({
-            id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-            userId: targetUser.id,
-            title: 'Wallet Deposit Approved',
-            message: `Your deposit of KSh ${creditKes.toLocaleString()} (Code: ${dep.mpesaCode}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${newBalanceKes.toLocaleString()}.`,
-            type: 'payment',
-            read: false,
-            timestamp: now,
-          });
-
-          (payment as any).__outbox = queueWalletDepositDecisionOutboxInTx(db, {
-            userId: targetUser.id,
-            depositId: dep.id as any,
-            amountKes: creditKes,
-            mpesaCode: dep.mpesaCode,
-            role: depRole,
-            decision: 'approve',
-            balanceKes: newBalanceKes,
-          });
         } else if (payment.type === 'loan_fee') {
           const loan = (db.peerLoans || []).find((l) => l.id === payment.loanId || l.platformFeePaymentCode === payment.code);
           if (loan) {
@@ -4766,9 +5176,7 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
           user.id,
           user.name,
           'PAYMENT_APPROVED',
-          creditedWalletSummary
-            ? `Approved payment ${payment.code} for KSh ${payment.amount} and automatically credited ${creditedWalletSummary.role} wallet (New balance: KSh ${creditedWalletSummary.balanceKes})`
-            : `Approved payment ${payment.code} for KSh ${payment.amount}`
+          `Approved payment ${payment.code} for KSh ${payment.amount}`
         );
       } else {
         payment.status = 'rejected';
@@ -4852,46 +5260,6 @@ apiRouter.post('/admin/payments/:id/decision', async (req: Request, res: Respons
               now,
             });
           }
-        } else if (isWalletDeposit) {
-          const dep =
-            (db.walletDeposits || []).find(
-              (d) =>
-                d.userId === payment.userId &&
-                String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper &&
-                d.status === 'pending'
-            ) ||
-            (db.walletDeposits || []).find(
-              (d) => String(d.mpesaCode || '').trim().toUpperCase() === paymentCodeUpper && d.status === 'pending'
-            );
-          const targetUser = db.users.find((u) => u.id === (dep?.userId ?? payment.userId));
-          const depRole = resolveDepositTargetRole(dep, payment, targetUser);
-          if (dep) {
-            dep.status = 'declined';
-            dep.role = depRole;
-            dep.processedAt = now;
-            dep.processedBy = user.name;
-            dep.notes = cleanReason;
-            processedDeposit = dep;
-          }
-          if (!db.userNotifications) db.userNotifications = [];
-          db.userNotifications.unshift({
-            id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-            userId: dep?.userId ?? payment.userId,
-            title: 'Wallet Deposit Declined',
-            message: `Your deposit request of KSh ${Number(dep?.amount ?? payment.amount).toLocaleString()} (Code: ${payment.code}) was declined: ${cleanReason}.`,
-            type: 'system',
-            read: false,
-            timestamp: now,
-          });
-          (payment as any).__outbox = queueWalletDepositDecisionOutboxInTx(db, {
-            userId: dep?.userId ?? payment.userId,
-            depositId: (dep?.id ?? `pay_${payment.id}`) as any,
-            amountKes: dep?.amount ?? payment.amount,
-            mpesaCode: dep?.mpesaCode ?? (paymentCodeUpper || String(payment.id)),
-            role: depRole,
-            decision: 'decline',
-            reason: cleanReason,
-          });
         }
 
         logAudit(db, user.id, user.name, 'PAYMENT_REJECTED', `Rejected payment ${payment.code}: ${payment.rejectionReason}`);
@@ -6090,18 +6458,21 @@ apiRouter.get('/groups/:id/activities', async (req: Request, res: Response) => {
 // WALLET M-PESA DEPOSIT FLOW & ADMIN APPROVAL
 // -------------------------------------------------------------
 apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const {
+    amount,
+    mpesaCode,
+    paymentReference,
+    paymentMethod,
+    notes,
+    role,
+    idempotencyKey: rawIdempKey,
+  } = req.body || {};
 
-  const { amount, mpesaCode, notes, role } = req.body || {};
   const numAmount = Number(amount);
-  const trimmedCode = String(mpesaCode || '').replace(/\s+/g, '').trim().toUpperCase();
+  const explicitMpesaCode = typeof mpesaCode === 'string' ? mpesaCode.replace(/\s+/g, '').trim().toUpperCase() : '';
+  const rawPaymentRef = typeof paymentReference === 'string' ? paymentReference.trim() : '';
 
-  if (!trimmedCode) {
-    return res.status(400).json({ error: 'M-Pesa transaction code is required.', field: 'mpesaCode', code: 'MPESA_CODE_REQUIRED' });
-  }
-
-  if (!/^[A-Z0-9]{8,12}$/i.test(trimmedCode)) {
+  if (explicitMpesaCode && !/^[A-Z0-9]{8,12}$/i.test(explicitMpesaCode)) {
     return res.status(400).json({
       error: 'Invalid M-Pesa transaction code format. Must be 8-12 alphanumeric characters (e.g. RJL798K2MN).',
       field: 'mpesaCode',
@@ -6120,77 +6491,164 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
   try {
     const result = await runDatabaseTransaction(async (db) => {
       if (!db.walletDeposits) db.walletDeposits = [];
+      if (!db.payments) db.payments = [];
+      if (!db.userNotifications) db.userNotifications = [];
 
-      // Global duplicate check across pending or approved deposits, payments, and subscriptions
-      const dup = findDuplicateMpesaCodeInTx(db, trimmedCode);
-      if (dup.duplicate) {
+      const acctCtx = await resolveDepositAccountContext(req, db);
+      if (!acctCtx) {
         throw {
-          status: 409,
-          code: 'DUPLICATE_MPESA_CODE',
-          field: 'mpesaCode',
-          message: `This M-Pesa transaction code (${trimmedCode}) has already been used (${dup.entity}).`,
+          status: 400,
+          code: 'ACCOUNT_CONTEXT_REQUIRED',
+          field: 'userId',
+          message: 'Could not identify the merchant or wallet account for this deposit request. Please select an active account and try again.',
         };
       }
 
-      const activeRole = normalizeRoleValue(role || (req.headers['x-buyoll-role'] as string) || user.activeRole || user.role || 'member');
+      const user = acctCtx.user;
+      const activeRole = normalizeRoleValue(role || acctCtx.role || user.activeRole || user.role || 'merchant');
       const now = Date.now();
-      const normalizedKes = fromCents(toCents(numAmount));
+      const amountCents = toCents(numAmount);
+      const normalizedKes = fromCents(amountCents);
+      const cleanedIdempKey = typeof rawIdempKey === 'string' && rawIdempKey.trim() ? rawIdempKey.trim() : undefined;
+
+      // Client idempotency check
+      if (cleanedIdempKey) {
+        const existingDep = db.walletDeposits.find(
+          (d) => d.userId === user.id && d.idempotencyKey === cleanedIdempKey
+        );
+        if (existingDep) {
+          const linkedPayment = db.payments.find(
+            (p) =>
+              p.userId === user.id &&
+              isWalletDepositPaymentType(p.type) &&
+              String(p.code || '').toUpperCase() === String(existingDep.mpesaCode || '').toUpperCase()
+          );
+          return {
+            deduplicated: true,
+            user,
+            deposit: existingDep,
+            payment: linkedPayment,
+            referenceNumber: existingDep.referenceNumber || existingDep.mpesaCode,
+            adminPaymentQueue: linkedPayment
+              ? {
+                  paymentId: linkedPayment.id,
+                  status: linkedPayment.status,
+                  channel: linkedPayment.channel,
+                  targetWalletRole: existingDep.role,
+                }
+              : undefined,
+            message: `Deposit request ${existingDep.referenceNumber || existingDep.mpesaCode} was already received and queued for Admin review.`,
+          };
+        }
+      }
+
+      // Resolve optional code / paymentReference cleanly (auto-generate unique reference if blank)
+      let finalCode = explicitMpesaCode;
+      let finalReferenceNumber = '';
+      let isAutoGeneratedCode = false;
+      const cleanedPaymentRefAlnum = rawPaymentRef.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+      if (finalCode) {
+        finalReferenceNumber = finalCode;
+      } else if (cleanedPaymentRefAlnum.length >= 8 && cleanedPaymentRefAlnum.length <= 12) {
+        finalCode = cleanedPaymentRefAlnum;
+        finalReferenceNumber = rawPaymentRef.toUpperCase();
+      } else {
+        const generated = generateUniqueDepositCodes(db, now);
+        finalCode = generated.code;
+        finalReferenceNumber = generated.referenceNumber;
+        isAutoGeneratedCode = true;
+      }
+
+      // Prevent duplicate manually entered M-Pesa codes globally
+      if (!isAutoGeneratedCode) {
+        const dup = findDuplicateMpesaCodeInTx(db, finalCode);
+        if (dup.duplicate) {
+          throw {
+            status: 409,
+            code: 'DUPLICATE_MPESA_CODE',
+            field: 'mpesaCode',
+            message: `This payment reference (${finalCode}) has already been used (${dup.entity}).`,
+          };
+        }
+      }
+
+      const cleanMethod =
+        typeof paymentMethod === 'string' && paymentMethod.trim()
+          ? paymentMethod.trim()
+          : 'M-Pesa Till 196853';
+      const cleanNotes = String(notes || '').trim();
 
       const newDeposit: WalletDepositRequest = {
         id: `dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         userName: user.name,
         userPhone: user.phone || '',
+        userEmail: user.email || '',
+        shopName: user.shopName || '',
+        platformId: user.platformId || '',
         role: activeRole,
         amount: normalizedKes,
-        mpesaCode: trimmedCode,
+        amountCents,
+        mpesaCode: finalCode,
+        referenceNumber: finalReferenceNumber,
+        paymentMethod: cleanMethod,
+        paymentReference: rawPaymentRef || undefined,
+        isAutoGeneratedCode,
+        idempotencyKey: cleanedIdempKey,
         status: 'pending',
+        workflowStatus: 'PENDING',
         createdAt: now,
-        notes: String(notes || '').trim(),
+        notes: cleanNotes,
+        verificationContext: acctCtx.verificationContext,
       };
 
       db.walletDeposits.unshift(newDeposit);
 
-      // Also record in db.payments as pending with explicit role for deterministic wallet crediting & admin payment queue visibility
-      if (!db.payments) db.payments = [];
       const paymentRecord: PaymentRecord = {
         id: db.nextIds.payment++,
         type: 'wallet_deposit',
         userId: user.id,
         userName: user.name,
         userPhone: user.phone || undefined,
+        userEmail: user.email || '',
+        shopName: user.shopName || '',
+        platformId: user.platformId || '',
         role: activeRole,
-        code: trimmedCode,
+        code: finalCode,
+        referenceNumber: finalReferenceNumber,
+        paymentMethod: cleanMethod,
+        paymentReference: rawPaymentRef || undefined,
+        isAutoReference: isAutoGeneratedCode,
         amount: normalizedKes,
+        amountCents,
         status: 'pending',
-        channel: 'M-Pesa Deposit Till 196853',
+        workflowStatus: 'PENDING',
+        channel: cleanMethod,
         createdAt: now,
-        notes: newDeposit.notes
-          ? `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet (${newDeposit.notes}). Code: ${trimmedCode}. Pending Admin approval.`
-          : `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet. Code: ${trimmedCode}. Pending Admin approval.`,
+        notes: cleanNotes
+          ? `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet (${cleanNotes}). Ref: ${finalReferenceNumber}. Pending Admin approval.`
+          : `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet via ${cleanMethod}. Ref: ${finalReferenceNumber}. Pending Admin approval.`,
       };
       db.payments.unshift(paymentRecord);
 
-      // Private notification for user
-      if (!db.userNotifications) db.userNotifications = [];
       db.userNotifications.unshift({
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
         title: '⏳ Wallet Deposit Request Submitted',
-        message: `Your deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) has been queued for Admin verification and will credit your ${activeRole} wallet once approved.`,
+        message: `Your deposit request of KSh ${normalizedKes.toLocaleString()} (Ref: ${finalReferenceNumber}) has been queued for Admin verification and will credit your ${activeRole} wallet once approved.`,
         type: 'payment',
         read: false,
         timestamp: now,
       });
 
-      // Alert Admin of incoming M-Pesa deposit awaiting verification
       const adminTarget = findPlatformAdminUser(db);
       if (adminTarget) {
         db.userNotifications.unshift({
           id: `notif_adm_dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
           userId: adminTarget.id,
-          title: `🔔 New ${activeRole === 'merchant' ? 'Merchant' : 'User'} M-Pesa Deposit: KSh ${normalizedKes.toLocaleString()}`,
-          message: `${user.shopName || user.name} submitted M-Pesa deposit code ${trimmedCode} (KSh ${normalizedKes.toLocaleString()}) for ${activeRole} wallet approval.`,
+          title: `🔔 New ${activeRole === 'merchant' ? 'Merchant' : 'User'} Deposit Request: KSh ${normalizedKes.toLocaleString()}`,
+          message: `${user.shopName || user.name} submitted deposit request Ref ${finalReferenceNumber} (KSh ${normalizedKes.toLocaleString()} via ${cleanMethod}) for ${activeRole} wallet approval.`,
           link: '/admin-dashboard',
           type: 'system',
           read: false,
@@ -6198,54 +6656,69 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         });
       }
 
+      db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
       logAudit(
         db,
         user.id,
         user.name,
         'WALLET_DEPOSIT_SUBMITTED',
-        `Submitted wallet deposit of KSh ${normalizedKes} for ${activeRole} wallet (Code: ${trimmedCode}, Queue #${paymentRecord.id})`
+        `Submitted wallet deposit of KSh ${normalizedKes} for ${activeRole} wallet (Ref: ${finalReferenceNumber}, Queue #${paymentRecord.id})`
       );
 
       return {
+        deduplicated: false,
+        user,
         deposit: newDeposit,
         payment: paymentRecord,
+        referenceNumber: finalReferenceNumber,
         adminPaymentQueue: {
           paymentId: paymentRecord.id,
           status: paymentRecord.status,
+          workflowStatus: paymentRecord.workflowStatus,
           channel: paymentRecord.channel,
           targetWalletRole: activeRole,
         },
-        message: `Deposit request of KSh ${normalizedKes.toLocaleString()} (Code: ${trimmedCode}) submitted to the Admin Payment Queue! Once verified, it will credit your ${activeRole} wallet automatically.`,
+        message: `Deposit request of KSh ${normalizedKes.toLocaleString()} (Ref: ${finalReferenceNumber}) submitted to the Admin Payment Queue! Once approved, it will credit your ${activeRole} wallet automatically.`,
       };
     });
 
     invalidateControlCenterSummaryCache(getActiveDbFile());
-    emitPlatformEvent('admin.wallet.updated', {
-      paymentId: result.payment.id,
-      depositId: result.deposit.id,
-      type: 'wallet_deposit',
-      status: 'pending',
-      role: result.deposit.role,
-      userId: user.id,
-      userName: user.name,
-      shopName: user.shopName,
-      amount: result.deposit.amount,
-      mpesaCode: result.deposit.mpesaCode,
-    });
-    emitPlatformEvent(
-      'deposit.updated',
-      {
+    if (!result.deduplicated) {
+      emitPlatformEvent('admin.wallet.updated', {
+        paymentId: result.payment?.id,
         depositId: result.deposit.id,
-        paymentId: result.payment.id,
+        type: 'wallet_deposit',
         status: 'pending',
+        workflowStatus: 'PENDING',
         role: result.deposit.role,
-        userId: user.id,
+        userId: result.user.id,
+        userName: result.user.name,
+        shopName: result.user.shopName,
         amount: result.deposit.amount,
         mpesaCode: result.deposit.mpesaCode,
-      },
-      [user.id]
-    );
-    res.status(201).json({ success: true, ...result });
+        referenceNumber: result.deposit.referenceNumber,
+        paymentMethod: result.deposit.paymentMethod,
+      });
+      emitPlatformEvent(
+        'deposit.updated',
+        {
+          depositId: result.deposit.id,
+          paymentId: result.payment?.id,
+          status: 'pending',
+          workflowStatus: 'PENDING',
+          role: result.deposit.role,
+          userId: result.user.id,
+          amount: result.deposit.amount,
+          mpesaCode: result.deposit.mpesaCode,
+          referenceNumber: result.deposit.referenceNumber,
+          paymentMethod: result.deposit.paymentMethod,
+        },
+        [result.user.id]
+      );
+    }
+
+    const { user: _u, ...publicResult } = result;
+    res.status(result.deduplicated ? 200 : 201).json({ success: true, ...publicResult });
   } catch (err: any) {
     const statusCode = err.status || 500;
     return res.status(statusCode).json({
@@ -6257,10 +6730,13 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
-  const user = await getAuthenticatedUser(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
-
   const db = await getDatabase();
+  const acctCtx = await resolveDepositAccountContext(req, db);
+  if (!acctCtx) {
+    return res.json({ deposits: [] });
+  }
+  const user = acctCtx.user;
+
   const paymentByCode = new Map<string, PaymentRecord>();
   for (const p of db.payments || []) {
     if (p.userId === user.id && isWalletDepositPaymentType(p.type)) {
@@ -6277,8 +6753,15 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
     .map((d) => {
       const codeKey = String(d.mpesaCode || '').trim().toUpperCase();
       const linkedPayment = codeKey ? paymentByCode.get(codeKey) : undefined;
+      const stLower = String(d.status || 'pending').toLowerCase();
       return {
         ...d,
+        referenceNumber: d.referenceNumber || d.mpesaCode,
+        paymentMethod: d.paymentMethod || linkedPayment?.channel || 'M-Pesa Till 196853',
+        workflowStatus:
+          d.workflowStatus ||
+          (stLower === 'approved' ? 'APPROVED' : stLower === 'declined' || stLower === 'rejected' ? 'DECLINED' : 'PENDING'),
+        declineReason: d.declineReason || linkedPayment?.rejectionReason || (stLower === 'declined' ? d.notes : undefined),
         paymentId: linkedPayment?.id,
         paymentStatus: linkedPayment?.status,
       };
@@ -6287,22 +6770,139 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
   res.json({ deposits: userDeposits });
 });
 
+apiRouter.get('/wallet/history', async (req: Request, res: Response) => {
+  const db = await getDatabase();
+  const acctCtx = await resolveDepositAccountContext(req, db);
+  if (!acctCtx) {
+    return res.json({ balanceKes: 0, balanceCents: 0, role: 'member', deposits: [], transactions: [] });
+  }
+
+  const user = acctCtx.user;
+  const role = acctCtx.role;
+  const balanceCents = getWalletBalanceCents(db, user, role);
+
+  const paymentByCode = new Map<string, PaymentRecord>();
+  for (const p of db.payments || []) {
+    if (p.userId === user.id && isWalletDepositPaymentType(p.type)) {
+      const key = String(p.code || '').trim().toUpperCase();
+      if (key && !paymentByCode.has(key)) {
+        paymentByCode.set(key, p);
+      }
+    }
+  }
+
+  const deposits = [...(db.walletDeposits || [])]
+    .filter((d) => d.userId === user.id)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .map((d) => {
+      const codeKey = String(d.mpesaCode || '').trim().toUpperCase();
+      const linkedPayment = codeKey ? paymentByCode.get(codeKey) : undefined;
+      const stLower = String(d.status || 'pending').toLowerCase();
+      return {
+        ...d,
+        referenceNumber: d.referenceNumber || d.mpesaCode,
+        paymentMethod: d.paymentMethod || linkedPayment?.channel || 'M-Pesa Till 196853',
+        workflowStatus:
+          d.workflowStatus ||
+          (stLower === 'approved' ? 'APPROVED' : stLower === 'declined' || stLower === 'rejected' ? 'DECLINED' : 'PENDING'),
+        declineReason: d.declineReason || linkedPayment?.rejectionReason || (stLower === 'declined' ? d.notes : undefined),
+        paymentId: linkedPayment?.id,
+        paymentStatus: linkedPayment?.status,
+      };
+    });
+
+  const transactions = [...(db.walletLedger || [])]
+    .filter((l) => l.userId === user.id && l.role === role)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .slice(0, 100)
+    .map((l) => ({
+      id: l.id,
+      walletId: l.walletId,
+      role: l.role,
+      direction: l.direction,
+      amountCents: l.amountCents,
+      amountKes: fromCents(l.amountCents),
+      balanceAfterCents: l.balanceAfterCents,
+      balanceAfterKes: fromCents(l.balanceAfterCents),
+      category: l.category,
+      referenceId: l.referenceId,
+      note: l.note,
+      createdAt: l.createdAt,
+    }));
+
+  res.json({
+    userId: user.id,
+    role,
+    balanceCents,
+    balanceKes: fromCents(balanceCents),
+    deposits,
+    transactions,
+  });
+});
+
 apiRouter.get('/admin/wallet-deposits', async (req: Request, res: Response) => {
   const auth = await requireAdminUser(req, res);
   if (!auth) return;
   const { db } = auth;
 
+  const usersById = new Map<number, User>((db.users || []).map((u) => [u.id, u]));
+  const paymentByCode = new Map<string, PaymentRecord>();
+  for (const p of db.payments || []) {
+    if (isWalletDepositPaymentType(p.type)) {
+      const key = String(p.code || '').trim().toUpperCase();
+      if (key && !paymentByCode.has(key)) paymentByCode.set(key, p);
+    }
+  }
+
   const { page, limit } = parsePaginationQuery(req.query, 20, 100);
   const statusFilter = typeof req.query.status === 'string' ? req.query.status.toLowerCase().trim() : '';
+  const search = typeof req.query.search === 'string' ? req.query.search.toLowerCase().trim() : '';
+
   let list = [...(db.walletDeposits || [])];
   if (statusFilter && statusFilter !== 'all') {
-    list = list.filter((d) => String(d.status || '').toLowerCase() === statusFilter);
+    if (statusFilter === 'declined' || statusFilter === 'rejected') {
+      list = list.filter((d) => {
+        const st = String(d.status || '').toLowerCase();
+        return st === 'declined' || st === 'rejected';
+      });
+    } else {
+      list = list.filter((d) => String(d.status || '').toLowerCase() === statusFilter);
+    }
+  }
+  if (search) {
+    list = list.filter((d) => {
+      const u = usersById.get(d.userId);
+      const hay = `${d.mpesaCode || ''} ${d.referenceNumber || ''} ${d.paymentReference || ''} ${d.paymentMethod || ''} ${d.userName || ''} ${u?.shopName || ''} ${u?.email || ''} ${u?.platformId || ''} ${d.notes || ''}`.toLowerCase();
+      return hay.includes(search);
+    });
   }
   list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const paged = paginateList(list, page, limit);
 
+  const enriched = paged.items.map((d) => {
+    const u = usersById.get(d.userId);
+    const codeKey = String(d.mpesaCode || '').trim().toUpperCase();
+    const linkedPay = codeKey ? paymentByCode.get(codeKey) : undefined;
+    const stLower = String(d.status || 'pending').toLowerCase();
+    return {
+      ...d,
+      userEmail: d.userEmail || u?.email || '',
+      shopName: d.shopName || u?.shopName || '',
+      platformId: d.platformId || u?.platformId || '',
+      amountCents: d.amountCents ?? toCents(d.amount || 0),
+      referenceNumber: d.referenceNumber || d.mpesaCode,
+      paymentMethod: d.paymentMethod || linkedPay?.channel || 'M-Pesa Till 196853',
+      workflowStatus:
+        d.workflowStatus ||
+        (stLower === 'approved' ? 'APPROVED' : stLower === 'declined' || stLower === 'rejected' ? 'DECLINED' : 'PENDING'),
+      declineReason: d.declineReason || linkedPay?.rejectionReason || (stLower === 'declined' ? d.notes : undefined),
+      paymentId: linkedPay?.id,
+      paymentStatus: linkedPay?.status,
+    };
+  });
+
   res.json({
-    deposits: paged.items,
+    deposits: enriched,
     pagination: paged.pagination,
   });
 });
@@ -6312,12 +6912,20 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
   if (!auth) return;
   const { user } = auth;
 
-  const { action, notes, reason } = req.body || {};
-  if (action !== 'approve' && action !== 'decline') {
+  const { action, decision: bodyDecision, notes, reason } = req.body || {};
+  const rawAction = action || bodyDecision;
+  const normalizedAction: 'approve' | 'decline' | null =
+    rawAction === 'approve'
+      ? 'approve'
+      : rawAction === 'decline' || rawAction === 'reject'
+      ? 'decline'
+      : null;
+
+  if (!normalizedAction) {
     return res.status(400).json({ error: 'Action must be "approve" or "decline".' });
   }
   const cleanNotes = String(reason || notes || '').trim();
-  if (action === 'decline' && cleanNotes.length < 3) {
+  if (normalizedAction === 'decline' && cleanNotes.length < 3) {
     return res.status(400).json({ error: 'A clear reason (at least 3 characters) is required when declining a wallet deposit.' });
   }
 
@@ -6328,149 +6936,28 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
       const deposit = db.walletDeposits.find((d) => d.id === req.params.id);
       if (!deposit) throw { status: 404, message: 'Deposit request not found' };
 
-      // Prevent duplicate processing
-      if (deposit.status !== 'pending') {
-        throw { status: 400, message: `This deposit request has already been ${deposit.status}.` };
-      }
+      const now = Date.now();
+      const decisionRes = processWalletDepositDecisionInTx(db, {
+        deposit,
+        decision: normalizedAction,
+        reason: cleanNotes,
+        adminUser: user,
+        now,
+      });
 
       const targetUser = db.users.find((u) => u.id === deposit.userId);
-      if (!targetUser) throw { status: 404, message: 'Target user not found' };
-
-      const depCodeUpper = String(deposit.mpesaCode || '').trim().toUpperCase();
-      const payment = (db.payments || []).find(
-        (p) => String(p.code || '').trim().toUpperCase() === depCodeUpper && isWalletDepositPaymentType(p.type)
-      );
-
-      // Prevent duplicate code approval on different records globally
-      if (action === 'approve') {
-        const dup = findDuplicateMpesaCodeInTx(
-          db,
-          deposit.mpesaCode,
-          payment ? [deposit.id, payment.id] : [deposit.id]
-        );
-        if (dup.duplicate) {
-          throw { status: 409, message: `M-Pesa transaction code ${deposit.mpesaCode} is already approved/pending (${dup.entity}).` };
-        }
-      }
-
-      const now = Date.now();
-      deposit.processedAt = now;
-      deposit.processedBy = user.name;
-      if (cleanNotes) deposit.notes = cleanNotes;
-
-      const depRole = resolveDepositTargetRole(deposit, payment, targetUser);
-      deposit.role = depRole;
-
-      if (action === 'approve') {
-        deposit.status = 'approved';
-        if (payment) {
-          payment.status = 'approved';
-          payment.approvedAt = now;
-          payment.verifiedAt = now;
-          payment.verifiedBy = user.name;
-        }
-
-        const { wallet: creditedWallet } = creditWalletCents(db, {
-          userId: targetUser.id,
-          role: depRole,
-          amountCents: toCents(deposit.amount),
-          category: 'DEPOSIT',
-          referenceId: deposit.mpesaCode,
-          idempotencyKey: `dep_${deposit.id}_${deposit.mpesaCode}`,
-          note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
-          actorId: user.id,
-        });
-        const newBalance = fromCents(creditedWallet.balanceCents);
-
-        if (!db.storeCreditLedger) db.storeCreditLedger = [];
-        db.storeCreditLedger.unshift({
-          id: db.nextIds.ledger++,
-          userId: targetUser.id,
-          amount: deposit.amount,
-          balanceAfter: newBalance,
-          type: 'refund_credit' as const,
-          referenceId: deposit.mpesaCode,
-          note: `M-Pesa Wallet Deposit (Code: ${deposit.mpesaCode}) approved & credited to ${depRole} wallet by Admin`,
-          createdAt: now,
-        });
-
-        if (!db.userNotifications) db.userNotifications = [];
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: targetUser.id,
-          title: '💰 Wallet Deposit Approved',
-          message: `Your deposit of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) has been verified and credited to your ${depRole} wallet! New balance: KSh ${newBalance.toLocaleString()}.`,
-          type: 'payment',
-          read: false,
-          timestamp: now,
-        });
-
-        const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
-          userId: targetUser.id,
-          depositId: deposit.id as any,
-          amountKes: deposit.amount,
-          mpesaCode: deposit.mpesaCode,
-          role: depRole,
-          decision: 'approve',
-          balanceKes: newBalance,
-        });
-
-        logAudit(
-          db,
-          user.id,
-          user.name,
-          'WALLET_DEPOSIT_APPROVED',
-          `Approved KSh ${deposit.amount} wallet deposit for ${targetUser.name} (${depRole} wallet, Code: ${deposit.mpesaCode}). New balance: KSh ${newBalance}`
-        );
-
-        return {
-          deposit,
-          newBalance,
-          outboxEvent,
-          message: `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetUser.name}'s ${depRole} wallet. New balance: KSh ${newBalance.toLocaleString()}.`,
-        };
-      } else {
-        deposit.status = 'declined';
-        if (payment) {
-          payment.status = 'rejected';
-          payment.rejectionReason = cleanNotes;
-        }
-
-        if (!db.userNotifications) db.userNotifications = [];
-        db.userNotifications.unshift({
-          id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: targetUser.id,
-          title: '❌ Wallet Deposit Declined',
-          message: `Your deposit request of KSh ${deposit.amount.toLocaleString()} (Code: ${deposit.mpesaCode}) was declined. Reason: ${cleanNotes}. Please check your M-Pesa receipt and try again.`,
-          type: 'system',
-          read: false,
-          timestamp: now,
-        });
-
-        const outboxEvent = queueWalletDepositDecisionOutboxInTx(db, {
-          userId: targetUser.id,
-          depositId: deposit.id as any,
-          amountKes: deposit.amount,
-          mpesaCode: deposit.mpesaCode,
-          role: depRole,
-          decision: 'decline',
-          reason: cleanNotes,
-        });
-
-        logAudit(
-          db,
-          user.id,
-          user.name,
-          'WALLET_DEPOSIT_DECLINED',
-          `Declined KSh ${deposit.amount} wallet deposit for ${targetUser.name} (Code: ${deposit.mpesaCode}): ${cleanNotes}`
-        );
-
-        return {
-          deposit,
-          outboxEvent,
-          message: `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetUser.name}.`,
-        };
-      }
+      const targetName = targetUser?.name || deposit.userName;
+      return {
+        deposit: decisionRes.deposit!,
+        payment: decisionRes.payment,
+        creditedWallet: decisionRes.creditedWallet,
+        newBalance: decisionRes.newBalance,
+        outboxEvent: decisionRes.outboxEvent,
+        message:
+          normalizedAction === 'approve'
+            ? `Approved and credited KSh ${deposit.amount.toLocaleString()} to ${targetName}'s ${decisionRes.deposit!.role} wallet. New balance: KSh ${(decisionRes.newBalance ?? 0).toLocaleString()}.`
+            : `Declined deposit request of KSh ${deposit.amount.toLocaleString()} for ${targetName}.`,
+      };
     });
 
     invalidateControlCenterSummaryCache(getActiveDbFile());
@@ -6479,24 +6966,38 @@ apiRouter.post('/admin/wallet-deposits/:id/decide', async (req: Request, res: Re
     }
     emitPlatformEvent('admin.wallet.updated', {
       depositId: result.deposit.id,
+      paymentId: result.payment?.id,
       status: result.deposit.status,
+      workflowStatus: result.deposit.workflowStatus,
       userId: result.deposit.userId,
       role: result.deposit.role,
       amount: result.deposit.amount,
+      referenceNumber: result.deposit.referenceNumber,
     });
     emitPlatformEvent(
       'deposit.updated',
       {
         depositId: result.deposit.id,
+        paymentId: result.payment?.id,
         status: result.deposit.status,
+        workflowStatus: result.deposit.workflowStatus,
         userId: result.deposit.userId,
         role: result.deposit.role,
         amount: result.deposit.amount,
-        balanceKes: (result as any).newBalance,
+        referenceNumber: result.deposit.referenceNumber,
+        declineReason: result.deposit.declineReason,
+        balanceKes: result.newBalance,
       },
       [result.deposit.userId]
     );
-    res.json({ success: true, deposit: result.deposit, newBalance: (result as any).newBalance, message: result.message });
+    res.json({
+      success: true,
+      deposit: result.deposit,
+      ...(result.payment ? { payment: result.payment } : {}),
+      ...(result.creditedWallet ? { creditedWallet: result.creditedWallet } : {}),
+      newBalance: result.newBalance,
+      message: result.message,
+    });
   } catch (err: any) {
     const statusCode = err.status || 500;
     return res.status(statusCode).json({ error: err.message || 'Failed to process deposit decision' });
