@@ -111,6 +111,103 @@ export function assertWalletLedgerConsistency(db: DatabaseSchema, walletId: stri
   }
 }
 
+export function assertWalletAndDepositConstraints(
+  db: DatabaseSchema,
+  options?: { checkAllMerchants?: boolean }
+): void {
+  const usersById = new Map<number, User>();
+  for (const u of db.users || []) {
+    usersById.set(Number(u.id), u);
+  }
+
+  const walletsById = new Map<string, WalletRecord>();
+  const walletUserRoleKeys = new Set<string>();
+  for (const w of db.wallets || []) {
+    if (!w.id || typeof w.id !== 'string' || !w.id.trim()) {
+      throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: 'Wallet constraint violation: wallets.id cannot be null.' };
+    }
+    if (!Number.isInteger(w.userId) || w.userId <= 0) {
+      throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: `Wallet constraint violation: wallets.userId cannot be null (${w.id}).` };
+    }
+    if (!w.role) {
+      throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: `Wallet constraint violation: wallets.role cannot be null (${w.id}).` };
+    }
+    if (!usersById.has(Number(w.userId))) {
+      throw { status: 500, code: 'CONSTRAINT_FOREIGN_KEY', message: `Wallet foreign key violation: userId ${w.userId} does not exist (${w.id}).` };
+    }
+    const urKey = `${w.userId}:${w.role}`;
+    if (walletUserRoleKeys.has(urKey)) {
+      throw { status: 500, code: 'CONSTRAINT_UNIQUE', message: `Wallet uniqueness violation: duplicate wallet for (${w.userId}, ${w.role}).` };
+    }
+    walletUserRoleKeys.add(urKey);
+    walletsById.set(w.id, w);
+  }
+
+  if (db.schemaConstraints?.walletsEnforced && options?.checkAllMerchants) {
+    for (const u of db.users || []) {
+      if (u.isDisabled) continue;
+      const isMerchant =
+        u.role === 'merchant' ||
+        u.activeRole === 'merchant' ||
+        (Array.isArray(u.roles) && u.roles.includes('merchant'));
+      if (isMerchant && !walletUserRoleKeys.has(`${u.id}:merchant`)) {
+        throw {
+          status: 500,
+          code: 'CONSTRAINT_MISSING_MERCHANT_WALLET',
+          message: `Wallet integrity violation: merchant #${u.id} is missing a row in wallets.`,
+        };
+      }
+    }
+  }
+
+  if (db.schemaConstraints?.walletDepositsEnforced) {
+    for (const d of db.walletDeposits || []) {
+      if (!d.id || typeof d.id !== 'string' || !d.id.trim()) {
+        throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: 'Deposit constraint violation: walletDeposits.id cannot be null.' };
+      }
+      if (!Number.isInteger(d.userId) || d.userId <= 0) {
+        throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: `Deposit constraint violation: walletDeposits.userId cannot be null (${d.id}).` };
+      }
+      if (!d.walletId || typeof d.walletId !== 'string' || !d.walletId.trim()) {
+        throw { status: 500, code: 'CONSTRAINT_NOT_NULL', message: `Deposit constraint violation: walletDeposits.walletId cannot be null (${d.id}).` };
+      }
+      const owner = usersById.get(Number(d.userId));
+      if (!owner) {
+        throw { status: 500, code: 'CONSTRAINT_FOREIGN_KEY', message: `Deposit foreign key violation: userId ${d.userId} does not exist (${d.id}).` };
+      }
+      const linkedWallet = walletsById.get(d.walletId);
+      if (!linkedWallet) {
+        throw { status: 500, code: 'CONSTRAINT_FOREIGN_KEY', message: `Deposit foreign key violation: walletId ${d.walletId} does not exist in wallets (${d.id}).` };
+      }
+      if (Number(linkedWallet.userId) !== Number(d.userId)) {
+        throw {
+          status: 500,
+          code: 'CONSTRAINT_FOREIGN_KEY',
+          message: `Deposit foreign key violation: walletId ${d.walletId} belongs to user ${linkedWallet.userId}, not ${d.userId} (${d.id}).`,
+        };
+      }
+      if (d.role === 'merchant') {
+        if (!Number.isInteger(d.merchantId) || Number(d.merchantId) <= 0) {
+          throw {
+            status: 500,
+            code: 'CONSTRAINT_NOT_NULL',
+            message: `Deposit constraint violation: walletDeposits.merchantId cannot be null for merchant deposit (${d.id}).`,
+          };
+        }
+      }
+      if (d.merchantId !== undefined && d.merchantId !== null) {
+        if (!Number.isInteger(d.merchantId) || !usersById.has(Number(d.merchantId))) {
+          throw {
+            status: 500,
+            code: 'CONSTRAINT_FOREIGN_KEY',
+            message: `Deposit foreign key violation: merchantId ${d.merchantId} does not exist in users (${d.id}).`,
+          };
+        }
+      }
+    }
+  }
+}
+
 export function creditWalletCents(
   db: DatabaseSchema,
   params: {

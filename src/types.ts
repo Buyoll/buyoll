@@ -43,6 +43,16 @@ export interface PaymentReceivingDetails {
   accountName?: string;
 }
 
+export interface MerchantAccountRecord {
+  id: string;
+  shopName: string;
+  isActive: boolean;
+  isSuspended?: boolean;
+  suspendReason?: string;
+  walletId?: string;
+  createdAt?: number;
+}
+
 export interface User {
   id: number;
   uuid?: string;
@@ -56,6 +66,7 @@ export interface User {
   activeRole?: UserRole;
   platformId?: string; // Unique customer permanent platform ID (e.g. BYL-M-30003)
   roleWallets?: RoleWallets;
+  merchantAccounts?: MerchantAccountRecord[];
   avatar?: string;
   avatarUrl?: string;
   shopName?: string;
@@ -428,6 +439,9 @@ export type DepositWorkflowStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'DEC
 export interface WalletDepositRequest {
   id: string;
   userId: number;
+  merchantId?: number | null;
+  walletId?: string | null;
+  merchantAccountId?: string | null;
   userName: string;
   userPhone: string;
   userEmail?: string;
@@ -508,6 +522,8 @@ export interface PaymentRecord {
   id: number;
   type: 'group_installment' | 'listing_fee' | 'coin_purchase' | 'loan_fee' | 'merchant_subscription' | 'wallet_deposit';
   userId: number;
+  merchantId?: number | null;
+  walletId?: string | null;
   userName: string;
   code: string; // M-Pesa / deposit transaction reference
   referenceNumber?: string;

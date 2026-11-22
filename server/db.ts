@@ -141,6 +141,10 @@ export interface DatabaseSchema {
   reconciliationReports?: ReconciliationReport[];
   exportJobs?: AdminExportJob[];
   migrationsApplied?: MigrationRecord[];
+  schemaConstraints?: {
+    walletsEnforced?: boolean;
+    walletDepositsEnforced?: boolean;
+  };
   controlCenterIndexes?: ControlCenterIndexSnapshot;
   auditLogs: AuditLog[];
   helpChat: HelpChatMessage[];

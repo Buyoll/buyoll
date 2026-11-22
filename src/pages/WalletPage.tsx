@@ -72,6 +72,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositReturnTo, setDepositReturnTo] = useState<string | null>(null);
+  const [selectedMerchantAccountId, setSelectedMerchantAccountId] = useState<string>('');
   const [lastSubmittedDeposit, setLastSubmittedDeposit] = useState<{
     deposit: WalletDepositRequest;
     payment?: PaymentRecord;
@@ -267,9 +268,22 @@ export const WalletPage: React.FC<WalletPageProps> = ({
       return;
     }
 
+    const activeRoleValue = getUserActiveRole(currentUser) || 'member';
+    const activeMerchantAccounts = (currentUser.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false);
+    const effectiveMerchantAccountId =
+      activeRoleValue === 'merchant' && activeMerchantAccounts.length > 1
+        ? selectedMerchantAccountId || activeMerchantAccounts[0]?.id || undefined
+        : undefined;
+
+    if (activeRoleValue === 'merchant' && activeMerchantAccounts.length > 1 && !effectiveMerchantAccountId) {
+      const msg = 'Please select which merchant account to deposit into.';
+      setDepositError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
     setSubmittingDeposit(true);
     try {
-      const activeRoleValue = getUserActiveRole(currentUser) || 'member';
       const res = await api.depositToWallet({
         amount: numericAmount,
         mpesaCode: trimmedCode || undefined,
@@ -277,12 +291,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         paymentMethod: depositPaymentMethod,
         notes: depositNotes.trim() || undefined,
         role: activeRoleValue,
+        ...(effectiveMerchantAccountId ? { merchantAccountId: effectiveMerchantAccountId } : {}),
         idempotencyKey: depositIdempotencyKey,
-        userId: currentUser.id,
-        merchantId: activeRoleValue === 'merchant' ? currentUser.id : undefined,
-        platformId: currentUser.platformId,
-        email: currentUser.email,
-        phone: currentUser.phone || undefined,
       });
 
       const createdDeposit: WalletDepositRequest & { paymentId?: number; paymentStatus?: string } = {
@@ -380,6 +390,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
   const userCoins = currentUser.coins || 0;
   const activeRole = getUserActiveRole(currentUser);
+  const activeMerchantAccounts = (currentUser.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false);
   const roleWallet = currentUser.roleWallets?.[activeRole];
   const roleBalance = roleWallet ? (roleWallet.credit ?? roleWallet.balance ?? 0) : (currentUser.credit || 0);
   const roleWalletName =
@@ -1145,6 +1156,28 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   After sending funds, input your transaction details below and click <b>Process Deposit Request</b>. Your request routes straight to the Admin Payment Queue for verification and exact wallet crediting.
                 </p>
               </div>
+
+              {activeRole === 'merchant' && activeMerchantAccounts.length > 1 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Select Merchant Account <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={selectedMerchantAccountId || activeMerchantAccounts[0]?.id || ''}
+                    onChange={(e) => {
+                      setSelectedMerchantAccountId(e.target.value);
+                      if (depositError) setDepositError(null);
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-semibold"
+                  >
+                    {activeMerchantAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.shopName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Quick Amount Selector */}
               <div>

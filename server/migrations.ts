@@ -9,7 +9,7 @@ import {
   normalizeUsernameSeed,
   sendSecurityEmail,
 } from './auth_utils.js';
-import { creditWalletCents, ensureWallet } from './wallet_service.js';
+import { assertWalletAndDepositConstraints, creditWalletCents, ensureWallet } from './wallet_service.js';
 import { User, UserRole } from '../src/types.js';
 import { STANDARD_MEMBER_SPEEDS, buildAllSpeedOptions } from '../src/utils/speedOptions.js';
 import { buildControlCenterIndexSnapshot } from './admin_control_center.js';
@@ -1423,6 +1423,148 @@ export const MIGRATIONS: MigrationDefinition[] = [
         delete d.workflowStatus;
         delete d.referenceNumber;
         delete d.paymentMethod;
+      }
+      return true;
+    },
+  },
+  {
+    id: '018_wallet_deposit_constraints_and_backfill',
+    name: 'Backfill missing merchant wallets, repair deposit rows with null merchantId/walletId/userId, and enforce NOT NULL + FK constraints',
+    up(db, ctx) {
+      let changed = false;
+      if (!db.wallets) db.wallets = [];
+      if (!db.walletDeposits) db.walletDeposits = [];
+      if (!db.payments) db.payments = [];
+
+      const usersById = new Map<number, User>();
+      const usersByEmail = new Map<string, User>();
+      const usersByPhone = new Map<string, User>();
+      for (const u of db.users || []) {
+        usersById.set(Number(u.id), u);
+        if (u.email) usersByEmail.set(u.email.trim().toLowerCase(), u);
+        if (u.phoneNormalized) usersByPhone.set(u.phoneNormalized.trim(), u);
+        if (u.phone) usersByPhone.set(String(u.phone).trim(), u);
+      }
+
+      // 1. Backfill missing wallets for all existing merchants (and multi-role merchant holders)
+      const prevWalletCount = db.wallets.length;
+      for (const u of db.users || []) {
+        if (u.isDisabled) continue;
+        const holdsMerchant =
+          u.role === 'merchant' ||
+          u.activeRole === 'merchant' ||
+          (Array.isArray(u.roles) && u.roles.includes('merchant'));
+        if (holdsMerchant) {
+          ensureWallet(db, u, 'merchant');
+        }
+        const primaryRole = scrubRoleValue(u.activeRole || u.role);
+        ensureWallet(db, u, primaryRole);
+      }
+      if (db.wallets.length !== prevWalletCount) {
+        changed = true;
+      }
+
+      // 2. Repair walletDeposits rows with null/missing userId, merchantId, or walletId
+      const payByCode = new Map<string, any>();
+      for (const p of db.payments) {
+        const key = String(p.code || '').trim().toUpperCase();
+        if (key && !payByCode.has(key)) {
+          payByCode.set(key, p);
+        }
+      }
+
+      for (const d of db.walletDeposits as any[]) {
+        const codeUpper = String(d.mpesaCode || d.referenceNumber || '').trim().toUpperCase();
+        const linkedPay = codeUpper ? payByCode.get(codeUpper) : undefined;
+
+        // Repair null userId from merchantId, linked payment, email, or phone
+        if (!Number.isInteger(d.userId) || Number(d.userId) <= 0) {
+          let recoveredUserId: number | null = null;
+          if (Number.isInteger(d.merchantId) && Number(d.merchantId) > 0 && usersById.has(Number(d.merchantId))) {
+            recoveredUserId = Number(d.merchantId);
+          } else if (linkedPay && Number.isInteger(linkedPay.userId) && usersById.has(Number(linkedPay.userId))) {
+            recoveredUserId = Number(linkedPay.userId);
+          } else if (d.userEmail && usersByEmail.has(String(d.userEmail).trim().toLowerCase())) {
+            recoveredUserId = usersByEmail.get(String(d.userEmail).trim().toLowerCase())!.id;
+          } else if (d.userPhone && usersByPhone.has(String(d.userPhone).trim())) {
+            recoveredUserId = usersByPhone.get(String(d.userPhone).trim())!.id;
+          }
+          if (recoveredUserId) {
+            d.userId = recoveredUserId;
+            changed = true;
+          }
+        }
+
+        const owner = usersById.get(Number(d.userId));
+        if (!owner) continue;
+
+        // Determine canonical role for the deposit
+        const inferredRole: UserRole =
+          d.role === 'merchant' || d.role === 'member' || d.role === 'lender' || d.role === 'admin'
+            ? d.role
+            : d.merchantId
+            ? 'merchant'
+            : linkedPay?.role === 'merchant' || linkedPay?.role === 'member' || linkedPay?.role === 'lender' || linkedPay?.role === 'admin'
+            ? linkedPay.role
+            : owner.activeRole === 'merchant' || owner.role === 'merchant'
+            ? 'merchant'
+            : scrubRoleValue(owner.activeRole || owner.role);
+
+        if (d.role !== inferredRole) {
+          d.role = inferredRole;
+          changed = true;
+        }
+
+        // Repair null merchantId for merchant deposits
+        if (inferredRole === 'merchant' && (!Number.isInteger(d.merchantId) || Number(d.merchantId) <= 0)) {
+          d.merchantId = owner.id;
+          changed = true;
+        }
+
+        // Ensure canonical wallet exists and repair null/invalid walletId FK
+        const targetWallet = ensureWallet(db, owner, inferredRole);
+        if (d.walletId !== targetWallet.id) {
+          d.walletId = targetWallet.id;
+          changed = true;
+        }
+
+        // Sync onto linked payment record if present
+        if (linkedPay) {
+          if (linkedPay.walletId !== targetWallet.id) {
+            linkedPay.walletId = targetWallet.id;
+            changed = true;
+          }
+          if (inferredRole === 'merchant' && linkedPay.merchantId !== d.merchantId) {
+            linkedPay.merchantId = d.merchantId;
+            changed = true;
+          }
+        }
+      }
+
+      // 3. Enable NOT NULL and Foreign Key schema constraints and validate immediately
+      if (!db.schemaConstraints) db.schemaConstraints = {};
+      if (!db.schemaConstraints.walletsEnforced || !db.schemaConstraints.walletDepositsEnforced) {
+        db.schemaConstraints.walletsEnforced = true;
+        db.schemaConstraints.walletDepositsEnforced = true;
+        changed = true;
+      }
+
+      assertWalletAndDepositConstraints(db, { checkAllMerchants: true });
+
+      if (!ctx.alreadyApplied || changed) {
+        db.controlCenterIndexes = buildControlCenterIndexSnapshot(db);
+        changed = true;
+      }
+
+      return changed;
+    },
+    down(db) {
+      if (db.schemaConstraints) {
+        delete db.schemaConstraints.walletsEnforced;
+        delete db.schemaConstraints.walletDepositsEnforced;
+        if (Object.keys(db.schemaConstraints).length === 0) {
+          delete db.schemaConstraints;
+        }
       }
       return true;
     },

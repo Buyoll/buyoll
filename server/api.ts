@@ -68,11 +68,13 @@ import {
 import {
   ALL_ROLE_COOKIES,
   hashOpaqueToken,
+  issueAuthTokensForUser,
   normalizeEastAfricanPhone,
   parseCookiesHeader,
   resolveAuthenticatedSession,
   resolveAuthenticatedUser,
   sanitizeUser,
+  setAuthCookies,
   verifyAccessToken,
   verifySessionCookieValue,
 } from './auth_utils.js';
@@ -80,6 +82,7 @@ import { emitPlatformEvent, handleEventsSse } from './events.js';
 import { SUPPORT_EMAIL, toCents, fromCents, getEatDateParts } from './config.js';
 import { wrapRouterAsync } from './errors.js';
 import {
+  assertWalletAndDepositConstraints,
   creditWalletCents,
   debitWalletCents,
   ensureWallet,
@@ -207,150 +210,207 @@ function generateUniqueDepositCodes(db: DatabaseSchema, now: number): {
   };
 }
 
-async function resolveDepositAccountContext(
+async function resolveDepositWalletContext(
   req: Request,
-  db: DatabaseSchema
+  db: DatabaseSchema,
+  options?: {
+    requestedRole?: string;
+    requestedMerchantAccountId?: string;
+  }
 ): Promise<{
   user: User;
   role: UserRole;
-  verificationContext: 'session' | 'session_cookie' | 'refresh_cookie' | 'account_context';
-} | null> {
-  const requestedRoleRaw = (req.body?.role || req.query?.role || req.headers['x-buyoll-role']) as string | undefined;
-  const pickRole = (u: User, fallbackRole?: UserRole | null): UserRole => {
-    if (
-      requestedRoleRaw === 'member' ||
-      requestedRoleRaw === 'merchant' ||
-      requestedRoleRaw === 'lender' ||
-      requestedRoleRaw === 'admin'
-    ) {
-      return requestedRoleRaw;
-    }
-    if (fallbackRole) return normalizeRoleValue(fallbackRole);
-    return normalizeRoleValue(u.activeRole || u.role || 'member');
-  };
+  merchantId: number | null;
+  merchantAccountId: string | null;
+  wallet: import('../src/types.js').WalletRecord;
+  verificationContext: 'session' | 'session_cookie' | 'refresh_cookie';
+}> {
+  const rawRole =
+    options?.requestedRole ||
+    (req.body?.role as string | undefined) ||
+    (req.query?.role as string | undefined) ||
+    (req.headers['x-buyoll-role'] as string | undefined);
+  const explicitRequestedRole: UserRole | undefined =
+    rawRole === 'member' || rawRole === 'merchant' || rawRole === 'lender' || rawRole === 'admin'
+      ? rawRole
+      : undefined;
 
-  // 1. Standard active session / Bearer token
-  const authRes = await resolveAuthenticatedSession(req, db, { touchActivity: true }).catch(() => null);
-  if (authRes?.user) {
-    return {
-      user: authRes.user,
-      role: pickRole(authRes.user, authRes.role),
-      verificationContext: 'session',
+  // Strictly resolve caller from server-side authenticated session ONLY.
+  // Any client-supplied userId, merchantId, platformId, email, or phone is ignored.
+  let authRes = await resolveAuthenticatedSession(req, db, {
+    touchActivity: true,
+    requestedRole: explicitRequestedRole,
+  });
+
+  // Fallback for a valid multi-role session when switching/posting across held roles (e.g. member session posting merchant deposit or vice versa)
+  if (
+    (!authRes.user || !authRes.session) &&
+    explicitRequestedRole &&
+    authRes.errorCode !== 'ACCOUNT_SUSPENDED' &&
+    authRes.errorCode !== 'ACCOUNT_DISABLED' &&
+    authRes.errorCode !== 'SESSION_IDLE_EXPIRED'
+  ) {
+    const fallbackAuth = await resolveAuthenticatedSession(req, db, { touchActivity: true });
+    if (fallbackAuth.user && fallbackAuth.session) {
+      authRes = fallbackAuth;
+    }
+  }
+
+  if (!authRes.user || !authRes.session) {
+    if (authRes.errorCode === 'ACCOUNT_SUSPENDED') {
+      throw {
+        status: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        message: authRes.errorMessage || `Your account is suspended and cannot make deposits. Please contact ${SUPPORT_EMAIL}.`,
+      };
+    }
+    if (authRes.errorCode === 'ACCOUNT_DISABLED') {
+      throw {
+        status: 403,
+        code: 'ACCOUNT_DISABLED',
+        message: authRes.errorMessage || `Your account has been disabled. Please contact ${SUPPORT_EMAIL}.`,
+      };
+    }
+    if (authRes.errorCode === 'SESSION_IDLE_EXPIRED') {
+      throw {
+        status: 401,
+        code: 'SESSION_IDLE_EXPIRED',
+        message: authRes.errorMessage || 'Your session expired after 20 minutes of inactivity. Please sign in again.',
+      };
+    }
+    if (authRes.errorCode === 'SESSION_REVOKED') {
+      throw {
+        status: 401,
+        code: 'SESSION_REVOKED',
+        message: authRes.errorMessage || 'Your session was signed out. Please sign in again.',
+      };
+    }
+    throw {
+      status: 401,
+      code: 'UNAUTHORIZED',
+      message: 'Your session is missing or expired. Please sign in again to continue.',
     };
   }
 
-  // 2. Check all role session cookies without header narrowing (even if idle timeout triggered)
-  const cookies = parseCookiesHeader(req);
-  for (const cookieName of ALL_ROLE_COOKIES) {
-    const rawCookie = cookies[cookieName];
-    if (!rawCookie) continue;
-    const sessionId = verifySessionCookieValue(rawCookie);
-    if (!sessionId) continue;
-    const session = (db.sessions || []).find((s) => s.id === sessionId);
-    if (!session) continue;
-    const u = (db.users || []).find((cand) => cand.id === session.userId && !cand.isDisabled && !cand.isSuspended);
-    if (u) {
-      return {
-        user: u,
-        role: pickRole(u, session.role),
-        verificationContext: 'session_cookie',
-      };
-    }
+  const user = authRes.user;
+  if (user.isDisabled) {
+    throw {
+      status: 403,
+      code: 'ACCOUNT_DISABLED',
+      message: user.disabledReason
+        ? `Your account has been disabled: ${user.disabledReason}`
+        : `Your account has been disabled. Please contact ${SUPPORT_EMAIL}.`,
+    };
+  }
+  if (user.isSuspended) {
+    throw {
+      status: 403,
+      code: 'ACCOUNT_SUSPENDED',
+      message: user.suspendReason
+        ? `Your account is suspended: ${user.suspendReason}`
+        : `Your account is currently suspended and cannot process deposits. Please contact ${SUPPORT_EMAIL}.`,
+    };
   }
 
-  // 3. Check refresh token cookies (validates active merchant/member account seamlessly)
-  const now = Date.now();
-  const refreshCookieNames = [
-    'buyoll_refresh_merchant',
-    'buyoll_refresh_member',
-    'buyoll_refresh_lender',
-    'buyoll_refresh_admin',
-    'buyoll_refresh',
-  ];
-  for (const rCookie of refreshCookieNames) {
-    const rawRefresh = cookies[rCookie];
-    if (!rawRefresh) continue;
-    const tokenHash = hashOpaqueToken(rawRefresh);
-    const rt = (db.refreshTokens || []).find(
-      (item) => item.tokenHash === tokenHash && !item.revokedAt && item.expiresAt > now
-    );
-    if (!rt) continue;
-    const u = (db.users || []).find((cand) => cand.id === rt.userId && !cand.isDisabled && !cand.isSuspended);
-    if (u) {
-      return {
-        user: u,
-        role: pickRole(u, rt.role),
-        verificationContext: 'refresh_cookie',
-      };
-    }
+  const heldRoles = new Set<UserRole>();
+  if (user.role) heldRoles.add(normalizeRoleValue(user.role));
+  if (user.activeRole) heldRoles.add(normalizeRoleValue(user.activeRole));
+  for (const r of user.roles || []) {
+    heldRoles.add(normalizeRoleValue(r));
   }
 
-  // 4. Signed Bearer token whose session may have hit idle timeout
-  const authHeader = req.headers.authorization;
-  const bearerToken =
-    (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null) ||
-    cookies.buyoll_access ||
-    null;
-  if (bearerToken) {
-    const payload = verifyAccessToken(bearerToken);
-    if (payload?.sub) {
-      const u = (db.users || []).find((cand) => cand.id === payload.sub && !cand.isDisabled && !cand.isSuspended);
-      if (u) {
-        return {
-          user: u,
-          role: pickRole(u, payload.role),
-          verificationContext: 'session_cookie',
+  const targetRole = explicitRequestedRole || normalizeRoleValue(authRes.role || user.activeRole || user.role);
+  if (explicitRequestedRole && !heldRoles.has(explicitRequestedRole)) {
+    throw {
+      status: 403,
+      code: explicitRequestedRole === 'merchant' ? 'MERCHANT_ACCOUNT_NOT_FOUND' : 'ROLE_NOT_HELD',
+      message:
+        explicitRequestedRole === 'merchant'
+          ? 'Your signed-in profile does not have an active merchant account. Register as a merchant or switch to your member wallet.'
+          : `Your signed-in profile does not hold the ${explicitRequestedRole} role.`,
+    };
+  }
+
+  let merchantId: number | null = targetRole === 'merchant' ? user.id : null;
+  let merchantAccountId: string | null = null;
+  let wallet: import('../src/types.js').WalletRecord;
+
+  if (targetRole === 'merchant') {
+    const activeMerchantAccounts = (user.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false);
+    if (activeMerchantAccounts.length > 1) {
+      const reqAccId =
+        typeof (options?.requestedMerchantAccountId ?? req.body?.merchantAccountId ?? req.query?.merchantAccountId) === 'string'
+          ? String(options?.requestedMerchantAccountId ?? req.body?.merchantAccountId ?? req.query?.merchantAccountId).trim()
+          : '';
+      if (!reqAccId) {
+        throw {
+          status: 400,
+          code: 'MULTIPLE_MERCHANT_ACCOUNTS_SELECT_REQUIRED',
+          field: 'merchantAccountId',
+          message: 'You have multiple merchant accounts. Please select which merchant account to deposit into.',
+          meta: {
+            merchantAccounts: activeMerchantAccounts.map((a) => ({
+              id: a.id,
+              shopName: a.shopName,
+              walletId: a.walletId,
+              isSuspended: Boolean(a.isSuspended),
+            })),
+          },
         };
       }
+      const matchedAcc = activeMerchantAccounts.find((a) => a.id === reqAccId);
+      if (!matchedAcc) {
+        throw {
+          status: 403,
+          code: 'MERCHANT_ACCOUNT_ACCESS_DENIED',
+          field: 'merchantAccountId',
+          message: 'The selected merchant account does not belong to your authenticated profile.',
+        };
+      }
+      if (matchedAcc.isSuspended) {
+        throw {
+          status: 403,
+          code: 'ACCOUNT_SUSPENDED',
+          message: matchedAcc.suspendReason
+            ? `Merchant account "${matchedAcc.shopName}" is suspended: ${matchedAcc.suspendReason}`
+            : `Merchant account "${matchedAcc.shopName}" is currently suspended.`,
+        };
+      }
+      merchantAccountId = matchedAcc.id;
+      if (matchedAcc.walletId) {
+        const existingAccWallet = (db.wallets || []).find((w) => w.id === matchedAcc.walletId && w.userId === user.id);
+        wallet = existingAccWallet || ensureWallet(db, user, 'merchant');
+      } else {
+        wallet = ensureWallet(db, user, 'merchant');
+      }
+    } else {
+      if (activeMerchantAccounts.length === 1) {
+        if (activeMerchantAccounts[0].isSuspended) {
+          throw {
+            status: 403,
+            code: 'ACCOUNT_SUSPENDED',
+            message: activeMerchantAccounts[0].suspendReason
+              ? `Merchant account "${activeMerchantAccounts[0].shopName}" is suspended: ${activeMerchantAccounts[0].suspendReason}`
+              : `Merchant account "${activeMerchantAccounts[0].shopName}" is currently suspended.`,
+          };
+        }
+        merchantAccountId = activeMerchantAccounts[0].id;
+      }
+      // Single-account default: automatically resolve/ensure wallet row from authenticated user without requiring any account selection
+      wallet = ensureWallet(db, user, 'merchant');
     }
+  } else {
+    wallet = ensureWallet(db, user, targetRole);
   }
 
-  // 5. Verified account identifiers in request body or query params (no Authentication required barrier)
-  const src = { ...(req.query || {}), ...(req.body || {}) } as Record<string, any>;
-  const rawId = Number(src.userId ?? src.merchantId ?? 0);
-  if (Number.isInteger(rawId) && rawId > 0) {
-    const u = (db.users || []).find((cand) => cand.id === rawId && !cand.isDisabled && !cand.isSuspended);
-    if (u) {
-      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
-    }
-  }
-
-  const rawPlatformId = typeof src.platformId === 'string' ? src.platformId.trim().toLowerCase() : '';
-  if (rawPlatformId) {
-    const u = (db.users || []).find(
-      (cand) => !cand.isDisabled && !cand.isSuspended && String(cand.platformId || '').trim().toLowerCase() === rawPlatformId
-    );
-    if (u) {
-      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
-    }
-  }
-
-  const rawEmail = typeof src.email === 'string' ? src.email.trim().toLowerCase() : '';
-  if (rawEmail) {
-    const u = (db.users || []).find(
-      (cand) => !cand.isDisabled && !cand.isSuspended && String(cand.email || '').trim().toLowerCase() === rawEmail
-    );
-    if (u) {
-      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
-    }
-  }
-
-  const rawPhone = typeof src.phone === 'string' ? src.phone.trim() : '';
-  if (rawPhone) {
-    const norm = normalizeEastAfricanPhone(rawPhone);
-    const normalizedPhone = norm.valid && norm.normalized ? norm.normalized : rawPhone;
-    const u = (db.users || []).find(
-      (cand) =>
-        !cand.isDisabled &&
-        !cand.isSuspended &&
-        (String(cand.phone || '').trim() === rawPhone || String(cand.phone || '').trim() === normalizedPhone)
-    );
-    if (u) {
-      return { user: u, role: pickRole(u), verificationContext: 'account_context' };
-    }
-  }
-
-  return null;
+  return {
+    user,
+    role: targetRole,
+    merchantId,
+    merchantAccountId,
+    wallet,
+    verificationContext: 'session',
+  };
 }
 
 function processWalletDepositDecisionInTx(
@@ -442,10 +502,15 @@ function processWalletDepositDecisionInTx(
       }
     }
 
+    const ensuredTargetWallet = ensureWallet(db, targetUser, depRole);
+    const targetMerchantId = depRole === 'merchant' ? targetUser.id : null;
+
     if (!dep) {
       dep = {
         id: `dep_pay_${linkedPayment?.id || now}_${now}`,
         userId: targetUser.id,
+        merchantId: targetMerchantId,
+        walletId: ensuredTargetWallet.id,
         userName: targetUser.name,
         userPhone: targetUser.phone || linkedPayment?.userPhone || '',
         userEmail: targetUser.email,
@@ -472,6 +537,8 @@ function processWalletDepositDecisionInTx(
       dep.status = 'approved';
       dep.workflowStatus = 'APPROVED';
       dep.role = depRole;
+      dep.merchantId = targetMerchantId;
+      dep.walletId = ensuredTargetWallet.id;
       dep.amountCents = amountCents;
       dep.referenceNumber = resolvedRef;
       dep.paymentMethod = resolvedMethod;
@@ -491,6 +558,8 @@ function processWalletDepositDecisionInTx(
       linkedPayment.verifiedBy = adminUser.name;
       linkedPayment.approvedById = adminUser.id;
       linkedPayment.role = depRole;
+      linkedPayment.merchantId = targetMerchantId;
+      linkedPayment.walletId = ensuredTargetWallet.id;
       linkedPayment.amountCents = amountCents;
       linkedPayment.referenceNumber = resolvedRef;
       linkedPayment.paymentMethod = resolvedMethod;
@@ -508,8 +577,12 @@ function processWalletDepositDecisionInTx(
       actorId: adminUser.id,
     });
     const newBalanceKes = fromCents(creditedWallet.balanceCents);
+    dep.walletId = creditedWallet.id;
     dep.balanceAfterKes = newBalanceKes;
-    if (linkedPayment) linkedPayment.balanceAfterKes = newBalanceKes;
+    if (linkedPayment) {
+      linkedPayment.walletId = creditedWallet.id;
+      linkedPayment.balanceAfterKes = newBalanceKes;
+    }
 
     db.storeCreditLedger.unshift({
       id: db.nextIds.ledger++,
@@ -916,62 +989,76 @@ apiRouter.post('/user/roles/register', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid role. Must be merchant, lender, or member. Admin accounts cannot be self-registered.' });
   }
 
-  const db = await getDatabase();
-  const dbUser = db.users.find(u => u.id === user.id);
-  if (!dbUser) return res.status(404).json({ error: 'User not found' });
+  try {
+    const out = await runDatabaseTransaction(async (db) => {
+      const dbUser = db.users.find((u) => u.id === user.id);
+      if (!dbUser) throw { status: 404, message: 'User not found' };
 
-  if (!dbUser.roles) dbUser.roles = [dbUser.role || 'member'];
-  if (!dbUser.roleWallets) {
-    dbUser.roleWallets = {
-      [dbUser.activeRole || dbUser.role || 'member']: {
-        credit: dbUser.credit || 0,
-        nonWithdrawableBalance: dbUser.nonWithdrawableBalance || 0,
-        coins: dbUser.coins || 0,
-        points: dbUser.points || 0,
-      },
-    };
+      if (!dbUser.roles) dbUser.roles = [dbUser.role || 'member'];
+      if (!dbUser.roleWallets) {
+        dbUser.roleWallets = {
+          [dbUser.activeRole || dbUser.role || 'member']: {
+            credit: dbUser.credit || 0,
+            nonWithdrawableBalance: dbUser.nonWithdrawableBalance || 0,
+            coins: dbUser.coins || 0,
+            points: dbUser.points || 0,
+          },
+        };
+      }
+
+      if (!dbUser.roles.includes(role)) {
+        dbUser.roles.push(role);
+      }
+
+      if (!dbUser.roleWallets[role]) {
+        dbUser.roleWallets[role] = {
+          credit: role === 'lender' ? 50000 : 0,
+          nonWithdrawableBalance: 0,
+          coins: 50,
+          points: 10,
+        };
+      }
+
+      if (role === 'merchant') {
+        if (shopName) dbUser.shopName = String(shopName).trim();
+        if (shopDescription) dbUser.shopDescription = String(shopDescription).trim();
+        if (merchantCategory) dbUser.merchantCategory = String(merchantCategory).trim();
+        if (dbUser.verified === undefined) dbUser.verified = false;
+      } else if (role === 'lender') {
+        if (lenderType) dbUser.lenderType = String(lenderType).trim();
+        if (lenderLocation) dbUser.lenderLocation = String(lenderLocation).trim();
+      }
+
+      dbUser.activeRole = role;
+      dbUser.role = role;
+      ensureWallet(db, dbUser, role);
+      dbUser.credit = dbUser.roleWallets[role].credit;
+      dbUser.coins = dbUser.roleWallets[role].coins;
+      dbUser.points = dbUser.roleWallets[role].points;
+
+      const tokens = issueAuthTokensForUser(db, dbUser, true, req, role);
+      logAudit(db, dbUser.id, dbUser.name, 'ROLE_REGISTERED', `Completed registration for role: ${role}.`);
+      return { dbUser, tokens };
+    });
+
+    setAuthCookies(
+      res,
+      out.tokens.accessToken,
+      out.tokens.refreshToken,
+      out.tokens.refreshExpiresAt,
+      role,
+      out.tokens.session.id
+    );
+    res.json({
+      success: true,
+      user: sanitizeUser(out.dbUser),
+      accessToken: out.tokens.accessToken,
+      refreshToken: out.tokens.refreshToken,
+      message: `Congratulations! You have completed registration for ${role}.`,
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to register role' });
   }
-
-  if (!dbUser.roles.includes(role)) {
-    dbUser.roles.push(role);
-  }
-
-  // Dedicated wallet created per role (balances must never be shared between roles)
-  if (!dbUser.roleWallets[role]) {
-    dbUser.roleWallets[role] = {
-      credit: role === 'lender' ? 50000 : 0,
-      nonWithdrawableBalance: 0,
-      coins: 50,
-      points: 10,
-    };
-  }
-
-  if (role === 'merchant') {
-    if (shopName) dbUser.shopName = String(shopName).trim();
-    if (shopDescription) dbUser.shopDescription = String(shopDescription).trim();
-    if (merchantCategory) dbUser.merchantCategory = String(merchantCategory).trim();
-    if (dbUser.verified === undefined) dbUser.verified = false;
-  } else if (role === 'lender') {
-    if (lenderType) dbUser.lenderType = String(lenderType).trim();
-    if (lenderLocation) dbUser.lenderLocation = String(lenderLocation).trim();
-  }
-
-  // Switch active role to the newly registered role and ensure canonical wallet row
-  dbUser.activeRole = role;
-  dbUser.role = role;
-  ensureWallet(db, dbUser, role);
-  dbUser.credit = dbUser.roleWallets[role].credit;
-  dbUser.coins = dbUser.roleWallets[role].coins;
-  dbUser.points = dbUser.roleWallets[role].points;
-
-  logAudit(db, dbUser.id, dbUser.name, 'ROLE_REGISTERED', `Completed registration for role: ${role}.`);
-  await saveDatabase(db);
-
-  res.json({
-    success: true,
-    user: sanitizeUser(dbUser),
-    message: `Congratulations! You have completed registration for ${role}.`,
-  });
 });
 
 // CORE RULE 9: Role Switcher for multi-role holders
@@ -984,35 +1071,52 @@ apiRouter.post('/user/roles/switch', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid role specified.' });
   }
 
-  const db = await getDatabase();
-  const dbUser = db.users.find(u => u.id === user.id);
-  if (!dbUser) return res.status(404).json({ error: 'User not found' });
+  try {
+    const out = await runDatabaseTransaction(async (db) => {
+      const dbUser = db.users.find((u) => u.id === user.id);
+      if (!dbUser) throw { status: 404, message: 'User not found' };
 
-  const roles = dbUser.roles || [dbUser.role || 'member'];
-  if (!roles.includes(role)) {
-    return res.status(403).json({
-      error: `You do not hold the ${role} role. You must complete registration for that role first.`,
+      const roles = dbUser.roles || [dbUser.role || 'member'];
+      if (!roles.includes(role)) {
+        throw {
+          status: 403,
+          message: `You do not hold the ${role} role. You must complete registration for that role first.`,
+        };
+      }
+
+      const prevRole = dbUser.activeRole || dbUser.role || 'member';
+      ensureWallet(db, dbUser, prevRole);
+
+      dbUser.activeRole = role;
+      dbUser.role = role;
+      ensureWallet(db, dbUser, role);
+      dbUser.credit = dbUser.roleWallets?.[role]?.credit ?? 0;
+      dbUser.coins = dbUser.roleWallets?.[role]?.coins ?? 0;
+      dbUser.points = dbUser.roleWallets?.[role]?.points ?? 0;
+
+      const tokens = issueAuthTokensForUser(db, dbUser, true, req, role);
+      logAudit(db, dbUser.id, dbUser.name, 'ROLE_SWITCHED', `Switched active role to: ${role}.`);
+      return { dbUser, tokens };
     });
+
+    setAuthCookies(
+      res,
+      out.tokens.accessToken,
+      out.tokens.refreshToken,
+      out.tokens.refreshExpiresAt,
+      role,
+      out.tokens.session.id
+    );
+    res.json({
+      success: true,
+      user: sanitizeUser(out.dbUser),
+      accessToken: out.tokens.accessToken,
+      refreshToken: out.tokens.refreshToken,
+      message: `Switched active role to ${role}.`,
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to switch role' });
   }
-
-  const prevRole = dbUser.activeRole || dbUser.role || 'member';
-  ensureWallet(db, dbUser, prevRole);
-
-  dbUser.activeRole = role;
-  dbUser.role = role;
-  ensureWallet(db, dbUser, role);
-  dbUser.credit = dbUser.roleWallets?.[role]?.credit ?? 0;
-  dbUser.coins = dbUser.roleWallets?.[role]?.coins ?? 0;
-  dbUser.points = dbUser.roleWallets?.[role]?.points ?? 0;
-
-  logAudit(db, dbUser.id, dbUser.name, 'ROLE_SWITCHED', `Switched active role to: ${role}.`);
-  await saveDatabase(db);
-
-  res.json({
-    success: true,
-    user: sanitizeUser(dbUser),
-    message: `Switched active role to ${role}.`,
-  });
 });
 
 apiRouter.get('/auth/users', async (_req: Request, res: Response) => {
@@ -3651,17 +3755,22 @@ apiRouter.post('/payments', async (req: Request, res: Response) => {
         if (grp) groupName = grp.name;
       }
 
+      const dbUser = db.users.find((u) => u.id === user.id) || user;
       const normalizedType = isDeposit ? 'wallet_deposit' : (type || 'group_installment');
       const targetRole = isDeposit
-        ? normalizeRoleValue(role || (req.headers['x-buyoll-role'] as string) || user.activeRole || user.role || 'member')
+        ? normalizeRoleValue(role || (req.headers['x-buyoll-role'] as string) || dbUser.activeRole || dbUser.role || 'member')
         : undefined;
+      const targetWallet = isDeposit && targetRole ? ensureWallet(db, dbUser, targetRole) : undefined;
+      const targetMerchantId = isDeposit && targetRole === 'merchant' ? dbUser.id : null;
 
       const paymentRecord: PaymentRecord = {
         id: db.nextIds.payment++,
         type: normalizedType,
-        userId: user.id,
-        userName: user.name,
-        userPhone: user.phone || undefined,
+        userId: dbUser.id,
+        merchantId: targetMerchantId,
+        walletId: targetWallet?.id ?? null,
+        userName: dbUser.name,
+        userPhone: dbUser.phone || undefined,
         role: targetRole,
         code: trimmedCode,
         amount: normalizedKes,
@@ -3680,12 +3789,17 @@ apiRouter.post('/payments', async (req: Request, res: Response) => {
       db.payments.unshift(paymentRecord);
 
       let depositRecord: WalletDepositRequest | undefined;
-      if (isDeposit && targetRole) {
+      if (isDeposit && targetRole && targetWallet) {
         depositRecord = {
           id: `dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          userId: user.id,
-          userName: user.name,
-          userPhone: user.phone || '',
+          userId: dbUser.id,
+          merchantId: targetMerchantId,
+          walletId: targetWallet.id,
+          userName: dbUser.name,
+          userPhone: dbUser.phone || '',
+          userEmail: dbUser.email || '',
+          shopName: dbUser.shopName || '',
+          platformId: dbUser.platformId || '',
           role: targetRole,
           amount: normalizedKes,
           mpesaCode: trimmedCode,
@@ -3694,6 +3808,7 @@ apiRouter.post('/payments', async (req: Request, res: Response) => {
           notes: String(notes || '').trim(),
         };
         db.walletDeposits.unshift(depositRecord);
+        assertWalletAndDepositConstraints(db);
 
         const adminTarget = findPlatformAdminUser(db);
         if (adminTarget) {
@@ -6465,6 +6580,7 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
     paymentMethod,
     notes,
     role,
+    merchantAccountId,
     idempotencyKey: rawIdempKey,
   } = req.body || {};
 
@@ -6494,18 +6610,16 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       if (!db.payments) db.payments = [];
       if (!db.userNotifications) db.userNotifications = [];
 
-      const acctCtx = await resolveDepositAccountContext(req, db);
-      if (!acctCtx) {
-        throw {
-          status: 400,
-          code: 'ACCOUNT_CONTEXT_REQUIRED',
-          field: 'userId',
-          message: 'Could not identify the merchant or wallet account for this deposit request. Please select an active account and try again.',
-        };
-      }
+      const acctCtx = await resolveDepositWalletContext(req, db, {
+        requestedRole: typeof role === 'string' ? role : undefined,
+        requestedMerchantAccountId: typeof merchantAccountId === 'string' ? merchantAccountId : undefined,
+      });
 
       const user = acctCtx.user;
-      const activeRole = normalizeRoleValue(role || acctCtx.role || user.activeRole || user.role || 'merchant');
+      const activeRole = acctCtx.role;
+      const wallet = acctCtx.wallet;
+      const merchantId = acctCtx.merchantId;
+      const resolvedMerchantAccountId = acctCtx.merchantAccountId;
       const now = Date.now();
       const amountCents = toCents(numAmount);
       const normalizedKes = fromCents(amountCents);
@@ -6582,6 +6696,9 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       const newDeposit: WalletDepositRequest = {
         id: `dep_${now}_${Math.random().toString(36).substring(2, 6)}`,
         userId: user.id,
+        merchantId,
+        walletId: wallet.id,
+        ...(resolvedMerchantAccountId ? { merchantAccountId: resolvedMerchantAccountId } : {}),
         userName: user.name,
         userPhone: user.phone || '',
         userEmail: user.email || '',
@@ -6609,6 +6726,8 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
         id: db.nextIds.payment++,
         type: 'wallet_deposit',
         userId: user.id,
+        merchantId,
+        walletId: wallet.id,
         userName: user.name,
         userPhone: user.phone || undefined,
         userEmail: user.email || '',
@@ -6631,6 +6750,8 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
           : `Wallet deposit of KSh ${normalizedKes} to ${activeRole} wallet via ${cleanMethod}. Ref: ${finalReferenceNumber}. Pending Admin approval.`,
       };
       db.payments.unshift(paymentRecord);
+
+      assertWalletAndDepositConstraints(db);
 
       db.userNotifications.unshift({
         id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
@@ -6725,15 +6846,25 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       error: err.message || 'Failed to submit wallet deposit',
       ...(err.code ? { code: err.code } : {}),
       ...(err.field ? { field: err.field } : {}),
+      ...(err.meta ? { meta: err.meta } : {}),
     });
   }
 });
 
 apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
   const db = await getDatabase();
-  const acctCtx = await resolveDepositAccountContext(req, db);
-  if (!acctCtx) {
-    return res.json({ deposits: [] });
+  let acctCtx;
+  try {
+    acctCtx = await resolveDepositWalletContext(req, db, {
+      requestedRole: typeof req.query.role === 'string' ? req.query.role : undefined,
+      requestedMerchantAccountId:
+        typeof req.query.merchantAccountId === 'string' ? req.query.merchantAccountId : undefined,
+    });
+  } catch (err: any) {
+    return res.status(err.status || 401).json({
+      error: err.message || 'Authentication required',
+      ...(err.code ? { code: err.code } : {}),
+    });
   }
   const user = acctCtx.user;
 
@@ -6772,14 +6903,23 @@ apiRouter.get('/wallet/deposits', async (req: Request, res: Response) => {
 
 apiRouter.get('/wallet/history', async (req: Request, res: Response) => {
   const db = await getDatabase();
-  const acctCtx = await resolveDepositAccountContext(req, db);
-  if (!acctCtx) {
-    return res.json({ balanceKes: 0, balanceCents: 0, role: 'member', deposits: [], transactions: [] });
+  let acctCtx;
+  try {
+    acctCtx = await resolveDepositWalletContext(req, db, {
+      requestedRole: typeof req.query.role === 'string' ? req.query.role : undefined,
+      requestedMerchantAccountId:
+        typeof req.query.merchantAccountId === 'string' ? req.query.merchantAccountId : undefined,
+    });
+  } catch (err: any) {
+    return res.status(err.status || 401).json({
+      error: err.message || 'Authentication required',
+      ...(err.code ? { code: err.code } : {}),
+    });
   }
 
   const user = acctCtx.user;
   const role = acctCtx.role;
-  const balanceCents = getWalletBalanceCents(db, user, role);
+  const balanceCents = acctCtx.wallet.balanceCents;
 
   const paymentByCode = new Map<string, PaymentRecord>();
   for (const p of db.payments || []) {
@@ -6832,6 +6972,7 @@ apiRouter.get('/wallet/history', async (req: Request, res: Response) => {
 
   res.json({
     userId: user.id,
+    walletId: acctCtx.wallet.id,
     role,
     balanceCents,
     balanceKes: fromCents(balanceCents),

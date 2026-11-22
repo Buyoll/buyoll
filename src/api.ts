@@ -729,19 +729,29 @@ export const api = {
       typeof payloadOrRole === 'string'
         ? { role: payloadOrRole, ...(extraDetails || {}) }
         : payloadOrRole;
-    const data = await fetchApi<{ success: boolean; user: User; message: string }>('/user/roles/register', {
+    const data = await fetchApi<{ success: boolean; user: User; accessToken?: string; message: string }>('/user/roles/register', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    if (data.accessToken) {
+      const targetRole = (data.user?.activeRole || data.user?.role || payload.role) as string;
+      const remember = Boolean(localStorage.getItem(getRoleAccessTokenKey(targetRole)) || localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(data.accessToken, remember, targetRole);
+    }
     setStoredUser(data.user);
     return data;
   },
 
-  async switchRole(role: string): Promise<{ success: boolean; user: User; message: string }> {
-    const data = await fetchApi<{ success: boolean; user: User; message: string }>('/user/roles/switch', {
+  async switchRole(role: string): Promise<{ success: boolean; user: User; accessToken?: string; message: string }> {
+    const data = await fetchApi<{ success: boolean; user: User; accessToken?: string; message: string }>('/user/roles/switch', {
       method: 'POST',
       body: JSON.stringify({ role }),
     });
+    if (data.accessToken) {
+      const targetRole = (data.user?.activeRole || data.user?.role || role) as string;
+      const remember = Boolean(localStorage.getItem(getRoleAccessTokenKey(targetRole)) || localStorage.getItem(ACCESS_TOKEN_KEY));
+      setAccessToken(data.accessToken, remember, targetRole);
+    }
     setStoredUser(data.user);
     return data;
   },
@@ -1550,7 +1560,7 @@ export const api = {
     return await fetchApi<{ notifications: any[] }>('/notifications/system');
   },
 
-  // Wallet Deposit Flow (Frictionless + Optional Reference + Idempotent)
+  // Wallet Deposit Flow (Session-Resolved + Optional Reference + Idempotent)
   async depositToWallet(data: {
     amount: number;
     mpesaCode?: string;
@@ -1558,12 +1568,8 @@ export const api = {
     paymentMethod?: string;
     notes?: string;
     role?: string;
+    merchantAccountId?: string;
     idempotencyKey?: string;
-    userId?: number;
-    merchantId?: number;
-    platformId?: string;
-    email?: string;
-    phone?: string;
   }): Promise<{
     success: boolean;
     deduplicated?: boolean;
@@ -1582,15 +1588,14 @@ export const api = {
   }> {
     const stored = getStoredUser();
     const payload = {
-      ...data,
-      userId: data.userId ?? stored?.id,
-      merchantId:
-        data.merchantId ??
-        (stored?.activeRole === 'merchant' || stored?.role === 'merchant' ? stored?.id : undefined),
-      platformId: data.platformId ?? stored?.platformId,
-      email: data.email ?? stored?.email,
-      phone: data.phone ?? stored?.phone,
+      amount: data.amount,
+      mpesaCode: data.mpesaCode,
+      paymentReference: data.paymentReference,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
       role: data.role ?? stored?.activeRole ?? stored?.role,
+      ...(data.merchantAccountId ? { merchantAccountId: data.merchantAccountId } : {}),
+      ...(data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : {}),
     };
     return await fetchApi('/wallet/deposit', {
       method: 'POST',
@@ -1598,19 +1603,18 @@ export const api = {
     });
   },
 
-  async getMyWalletDeposits(params?: { userId?: number; platformId?: string; role?: string }): Promise<{
+  async getMyWalletDeposits(params?: { role?: string; merchantAccountId?: string }): Promise<{
     deposits: Array<WalletDepositRequest & { paymentId?: number; paymentStatus?: string }>;
   }> {
     const stored = getStoredUser();
     const qs = buildAdminQuery({
-      userId: params?.userId ?? stored?.id,
-      platformId: params?.platformId ?? stored?.platformId,
       role: params?.role ?? stored?.activeRole ?? stored?.role,
+      merchantAccountId: params?.merchantAccountId,
     });
     return await fetchApi(`/wallet/deposits${qs}`);
   },
 
-  async getWalletHistory(role?: string): Promise<{
+  async getWalletHistory(role?: string, merchantAccountId?: string): Promise<{
     userId: number;
     role: string;
     balanceCents: number;
@@ -1621,8 +1625,7 @@ export const api = {
     const stored = getStoredUser();
     const qs = buildAdminQuery({
       role: role ?? stored?.activeRole ?? stored?.role,
-      userId: stored?.id,
-      platformId: stored?.platformId,
+      merchantAccountId,
     });
     return await fetchApi(`/wallet/history${qs}`);
   },

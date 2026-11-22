@@ -706,7 +706,7 @@ export interface AuthSessionResolution {
   user: User | null;
   session: SessionRecord | null;
   role: UserRole | null;
-  errorCode: 'UNAUTHORIZED' | 'SESSION_IDLE_EXPIRED' | 'SESSION_REVOKED' | null;
+  errorCode: 'UNAUTHORIZED' | 'SESSION_IDLE_EXPIRED' | 'SESSION_REVOKED' | 'ACCOUNT_SUSPENDED' | 'ACCOUNT_DISABLED' | null;
   errorMessage?: string;
 }
 
@@ -779,13 +779,35 @@ export async function resolveAuthenticatedSession(
     }
 
     const user = db.users.find((u) => u.id === session.userId);
-    if (!user || user.isDisabled || user.isSuspended) {
+    if (!user) {
       return {
         user: null,
         session: null,
         role: null,
         errorCode: 'UNAUTHORIZED',
-        errorMessage: 'Account is disabled or suspended.',
+        errorMessage: 'User account not found. Please sign in again.',
+      };
+    }
+    if (user.isDisabled) {
+      return {
+        user: null,
+        session: null,
+        role: session.role,
+        errorCode: 'ACCOUNT_DISABLED',
+        errorMessage: user.disabledReason
+          ? `Your account has been disabled: ${user.disabledReason}`
+          : 'Your account has been disabled. Please contact Buyoll support.',
+      };
+    }
+    if (user.isSuspended) {
+      return {
+        user: null,
+        session: null,
+        role: session.role,
+        errorCode: 'ACCOUNT_SUSPENDED',
+        errorMessage: user.suspendReason
+          ? `Your account is suspended: ${user.suspendReason}`
+          : 'Your account is currently suspended and cannot process wallet deposits. Please contact Buyoll support.',
       };
     }
 
@@ -813,8 +835,24 @@ export async function resolveAuthenticatedSession(
       : undefined);
   const urlLower = (req.originalUrl || req.path || '').toLowerCase();
   const expectsAdminByRoute = urlLower.includes('/admin/') && !urlLower.includes('/admin/auth/');
-  let lastIdleError: AuthSessionResolution | null = null;
+  const failureState: {
+    idle: AuthSessionResolution | null;
+    account: AuthSessionResolution | null;
+  } = {
+    idle: null,
+    account: null,
+  };
   let mismatchedBearerResolution: AuthSessionResolution | null = null;
+
+  const recordFailure = (res: AuthSessionResolution) => {
+    if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
+      failureState.idle = res;
+    } else if (res.errorCode === 'ACCOUNT_SUSPENDED' || res.errorCode === 'ACCOUNT_DISABLED') {
+      failureState.account = res;
+    } else if (res.errorCode === 'SESSION_REVOKED' && !failureState.account) {
+      failureState.account = res;
+    }
+  };
 
   // If Bearer token is supplied explicitly, validate JWT + its DB session
   const authHeader = req.headers.authorization;
@@ -846,8 +884,8 @@ export async function resolveAuthenticatedSession(
             errorMessage: 'Session invalidated after security update.',
           };
         }
-      } else if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
-        lastIdleError = res;
+      } else {
+        recordFailure(res);
       }
     }
   }
@@ -863,9 +901,7 @@ export async function resolveAuthenticatedSession(
       (req as any)._authRole = res.role;
       return res;
     }
-    if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
-      lastIdleError = res;
-    }
+    recordFailure(res);
   }
 
   // Fallback to buyoll_access cookie if not checked yet
@@ -878,9 +914,7 @@ export async function resolveAuthenticatedSession(
         (req as any)._authRole = res.role;
         return res;
       }
-      if (res.errorCode === 'SESSION_IDLE_EXPIRED') {
-        lastIdleError = res;
-      }
+      if (!res.user) recordFailure(res);
     }
   }
 
@@ -890,10 +924,21 @@ export async function resolveAuthenticatedSession(
     return mismatchedBearerResolution;
   }
 
-  if (lastIdleError) {
-    (req as any)._authFailureCode = lastIdleError.errorCode;
-    (req as any)._authFailureMessage = lastIdleError.errorMessage;
-    return lastIdleError;
+  if (
+    failureState.account &&
+    (failureState.account.errorCode === 'ACCOUNT_SUSPENDED' || failureState.account.errorCode === 'ACCOUNT_DISABLED')
+  ) {
+    return failureState.account;
+  }
+
+  if (failureState.idle) {
+    (req as any)._authFailureCode = failureState.idle.errorCode;
+    (req as any)._authFailureMessage = failureState.idle.errorMessage;
+    return failureState.idle;
+  }
+
+  if (failureState.account) {
+    return failureState.account;
   }
 
   return {

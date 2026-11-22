@@ -156,6 +156,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
   );
   const [submittingMerchantDeposit, setSubmittingMerchantDeposit] = useState(false);
   const [merchantDepositError, setMerchantDepositError] = useState<string | null>(null);
+  const [selectedMerchantAccountId, setSelectedMerchantAccountId] = useState<string>('');
   const [merchantDepositSuccess, setMerchantDepositSuccess] = useState<{
     deposit: WalletDepositRequest;
     paymentId?: number;
@@ -197,6 +198,19 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
       return;
     }
 
+    const activeMerchantAccounts = (currentUser.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false);
+    const effectiveMerchantAccountId =
+      activeMerchantAccounts.length > 1
+        ? selectedMerchantAccountId || activeMerchantAccounts[0]?.id || undefined
+        : undefined;
+
+    if (activeMerchantAccounts.length > 1 && !effectiveMerchantAccountId) {
+      const msg = 'Please select which merchant account to deposit into.';
+      setMerchantDepositError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
     setSubmittingMerchantDeposit(true);
     try {
       const res = await api.depositToWallet({
@@ -206,12 +220,8 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         paymentMethod: merchantDepositMethod,
         notes: merchantDepositNotes.trim() || undefined,
         role: 'merchant',
+        ...(effectiveMerchantAccountId ? { merchantAccountId: effectiveMerchantAccountId } : {}),
         idempotencyKey: merchantDepositIdempotencyKey,
-        userId: currentUser.id,
-        merchantId: currentUser.id,
-        platformId: currentUser.platformId,
-        email: currentUser.email,
-        phone: currentUser.phone || undefined,
       });
 
       const createdDeposit: WalletDepositRequest & { paymentId?: number; paymentStatus?: string } = {
@@ -633,7 +643,7 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
         setWalletDeposits(historyRes.deposits);
         setWalletTransactions(historyRes.transactions || []);
       } else {
-        const depositsRes = await api.getMyWalletDeposits({ userId: currentUser.id, platformId: currentUser.platformId, role: 'merchant' }).catch(() => ({ deposits: [] }));
+        const depositsRes = await api.getMyWalletDeposits({ role: 'merchant' }).catch(() => ({ deposits: [] }));
         if (depositsRes?.deposits) setWalletDeposits(depositsRes.deposits);
       }
     } catch (err: any) {
@@ -2750,6 +2760,34 @@ export const VendorDashboardPage: React.FC<VendorDashboardPageProps> = ({
                     Enter your deposit amount below. Payment reference is optional — leave blank to auto-generate a tracking code.
                   </p>
                 </div>
+
+                {(currentUser?.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false).length > 1 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Select Merchant Account <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={
+                        selectedMerchantAccountId ||
+                        (currentUser?.merchantAccounts || []).filter((acc) => acc && acc.isActive !== false)[0]?.id ||
+                        ''
+                      }
+                      onChange={(e) => {
+                        setSelectedMerchantAccountId(e.target.value);
+                        if (merchantDepositError) setMerchantDepositError(null);
+                      }}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#ff6600] font-semibold"
+                    >
+                      {(currentUser?.merchantAccounts || [])
+                        .filter((acc) => acc && acc.isActive !== false)
+                        .map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.shopName}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
